@@ -4,36 +4,35 @@ import { Tabs, useRouter } from 'expo-router';
 import React from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-
 function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
   const router = useRouter();
 
   return (
     <View style={styles.bottomNav}>
-     <TouchableOpacity
-  style={styles.navItem}
-  onPress={() => navigation.navigate(state.routeNames[0])}
->
-  <Ionicons name="home" size={22} color="#0f2940" />
-  <Text style={styles.navText}>Home</Text>
-</TouchableOpacity>
+      <TouchableOpacity
+        style={styles.navItem}
+        onPress={() => navigation.navigate(state.routeNames[0])}
+      >
+        <Ionicons name="home" size={22} color="#0f2940" />
+        <Text style={styles.navText}>Home</Text>
+      </TouchableOpacity>
 
-<TouchableOpacity
-  style={styles.navItem}
- onPress={() => {
-  Alert.alert('Logout', 'Are you sure you want to logout?', [
-    { text: 'Cancel', style: 'cancel' },
-    {
-      text: 'Logout',
-      style: 'destructive',
-      onPress: () => router.replace('/auth/login'),
-    },
-  ]);
-}}
->
-  <MaterialCommunityIcons name="logout" size={22} color="#0f2940" />
-  <Text style={styles.navText}>Logout</Text>
-</TouchableOpacity>
+      <TouchableOpacity
+        style={styles.navItem}
+        onPress={() => {
+          Alert.alert('Logout', 'Are you sure you want to logout?', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Logout',
+              style: 'destructive',
+              onPress: () => router.replace('/auth/login'),
+            },
+          ]);
+        }}
+      >
+        <MaterialCommunityIcons name="logout" size={22} color="#0f2940" />
+        <Text style={styles.navText}>Logout</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -58,7 +57,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: '100%',
     height: 80,
-    backgroundColor: 'rgba(66,119,164,0.5)',
+    backgroundColor: 'rgb(66, 118, 164)',
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',

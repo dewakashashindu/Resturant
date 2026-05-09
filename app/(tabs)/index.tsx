@@ -1,273 +1,150 @@
+import { useRouter } from 'expo-router';
 import React from 'react';
-import { useWindowDimensions } from 'react-native';
-
 import {
     Image,
     SafeAreaView,
+    ScrollView,
     StatusBar,
     StyleSheet,
     Text,
     TouchableOpacity,
-    View
+    useWindowDimensions,
+    View,
 } from 'react-native';
 
-
 export default function HomeScreen() {
-const { width, height } = useWindowDimensions();
-const isTablet = Math.max(width, height) >= 768;
+  const router = useRouter();
+  const { width, height } = useWindowDimensions();
 
-const scale = (size: number) => (width / 375) * size;
-const verticalScale = (size: number) => (height / 812) * size;
+  // Responsive logic
+  const isTablet = width >= 768;
+  const headerHeight = height * (isTablet ? 0.3 : 0.4);
+  const cardWidth = (width - 44) / 2; // 16 padding on each side + 12 gap
 
-const horizontalPadding = scale(16);
-const headerHeight = Math.round(height * (isTablet ? 0.28 : 0.36));
-const logoWidth = Math.round(Math.min(240, width * (isTablet ? 0.35 : 0.5)));
-const cardWidth = isTablet ? (width - horizontalPadding * 2 - scale(12)) / 2 : (width - horizontalPadding * 2 - scale(12)) / 2;
-
-  const logoTopMargin = isTablet ? 80 : 32;
-const headerRowTopMargin = isTablet ? 18 : 8;
   const cards = [
-    {
-      title: 'Order Taking',
-      subtitle: 'Table POS',
-      color: 'rgba(255,153,142,0.5)',
-      iconBg: 'rgba(255,153,142,0.6)',
-    },
-    {
-      title: 'Dashboard',
-      subtitle: 'Live Overview',
-      color: 'rgba(151,173,210,0.5)',
-      iconBg: 'rgba(151,173,210,0.6)',
-    },
-    {
-      title: 'Menu Card',
-      subtitle: 'Items & Pricing',
-      color: 'rgba(255,248,131,0.5)',
-      iconBg: 'rgba(255,248,131,0.6)',
-    },
-    {
-      title: 'NPS Collector',
-      subtitle: 'Guest Feedback',
-      color: 'rgba(129,113,183,0.5)',
-      iconBg: 'rgba(129,113,183,0.6)',
-    },
-    {
-      title: 'Sales Report',
-      subtitle: 'Revenue Report',
-      color: 'rgba(144,123,22,0.5)',
-      iconBg: 'rgba(144,123,22,0.6)',
-    },
+    { title: 'Order Taking', subtitle: 'Table POS', color: 'rgba(255,153,142,0.5)', iconBg: 'rgba(255,153,142,0.6)', route: '/Screens/operation', icon: require('../../assets/icons/ordertaking.png') },
+    { title: 'Dashboard', subtitle: 'Live Overview', color: 'rgba(151,173,210,0.5)', iconBg: 'rgba(151,173,210,0.6)', route: '/Screens/dashboard', icon: require('../../assets/icons/dashboard.png') },
+    { title: 'Menu Card', subtitle: 'Items & Pricing', color: 'rgba(255,248,131,0.5)', iconBg: 'rgba(255,248,131,0.6)', route: '/Screens/menu', icon: require('../../assets/icons/menu.png') },
+    { title: 'NPS Collector', subtitle: 'Guest Feedback', color: 'rgba(129,113,183,0.5)', iconBg: 'rgba(129,113,183,0.6)', route: '/Screens/nps', icon: require('../../assets/icons/nps.png') },
+    { title: 'Sales Report', subtitle: 'Revenue Report', color: 'rgba(144,123,22,0.5)', iconBg: 'rgba(144,123,22,0.6)', route: '/Screens/salesreport', icon: require('../../assets/icons/salesreports.png') },
+    { title: 'Settings', subtitle: 'System Controls', color: 'rgba(66,119,164,0.5)', iconBg: 'rgba(66,119,164,0.6)', route: '/Screens/settings', icon: require('../../assets/icons/settings.png') },
   ];
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#002748" />
 
-     
-        {/* HEADER */}
-        <View style={[styles.header, { height: headerHeight, paddingHorizontal: horizontalPadding }] }>
+      
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        <View style={[styles.header, { height: headerHeight }]}>
           <View style={styles.circle} />
-
-          {/* Logo */}
+          
           <View style={styles.logoContainer}>
             <Image
               source={require('../../assets/images/CAPTURE 1.png')}
-              style={[styles.logoImage, { width: logoWidth }]}
+              style={styles.logoImage}
               resizeMode="contain"
             />
           </View>
 
-          {/* Greeting */}
-         <View style={styles.headerRow}>
-  <View style={styles.greetingContainer}>
-    <Text style={styles.greeting}>Good Morning,</Text>
-    <Text style={styles.name}>Mr. Perera</Text>
-  </View>
+          <View style={styles.headerRow}>
+            <View>
+              <Text style={styles.greeting}>Good Morning,</Text>
+              <Text style={styles.name}>Mr. Perera</Text>
+            </View>
 
-  <View style={styles.dateContainer}>
-    <Text style={styles.dateText}>Tuesday, May 05 2026</Text>
-  </View>
-</View>
+            <View style={styles.dateContainer}>
+              <Text style={styles.dateText}>Tuesday, May 05 2026</Text>
+            </View>
+          </View>
         </View>
 
-        {/* QUICK ACCESS */}
         <View style={styles.content}>
           <Text style={styles.sectionTitle}>Quick Access</Text>
-
           <View style={styles.grid}>
-            {cards.slice(0, 4).map((item, index) => (
+            {cards.map((item, index) => (
               <TouchableOpacity
                 key={index}
                 style={[styles.card, { backgroundColor: item.color, width: cardWidth }]}
-                activeOpacity={0.8}
+                onPress={() => router.push(item.route as any)}
               >
                 <View style={styles.cardCircle} />
-                <View style={[styles.iconBox, { backgroundColor: item.iconBg }]}> 
-                  <Text style={styles.icon}>⬛</Text>
+                <View style={[styles.iconBox, { backgroundColor: item.iconBg }]}>
+                  <Image source={item.icon} style={styles.cardIcon} resizeMode="contain" />
                 </View>
                 <Text style={styles.cardTitle}>{item.title}</Text>
                 <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
               </TouchableOpacity>
             ))}
           </View>
-
-          <View style={styles.lastRow}>
-            <TouchableOpacity
-              style={[
-                styles.card,
-                { backgroundColor: cards[4].color, width: cardWidth, alignSelf: 'center' },
-              ]}
-              activeOpacity={0.8}
-            >
-              <View style={styles.cardCircle} />
-              <View style={[styles.iconBox, { backgroundColor: cards[4].iconBg }]}> 
-                <Text style={styles.icon}>⬛</Text>
-              </View>
-              <Text style={styles.cardTitle}>{cards[4].title}</Text>
-              <Text style={styles.cardSubtitle}>{cards[4].subtitle}</Text>
-            </TouchableOpacity>
-          </View>
         </View>
-    
-
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-
+  container: { flex: 1, backgroundColor: '#fff' },
+  scrollContent: { flexGrow: 1, paddingBottom: 100 }, 
   header: {
     backgroundColor: '#002748',
-    paddingTop: 30,
-    overflow: 'hidden',
-  },
-
-  circle: {
-    position: 'absolute',
-    width: 180,
-    height: 180,
-    borderRadius: 100,
-    backgroundColor: 'rgba(0,98,170,0.22)',
-    top: -40,
-    right: -40,
-  },
-
-  logoContainer: {
-    alignItems: 'center',
-    marginTop: 70,
-  },
-
- 
-  logoImage: {
-    width:220,
-    height:80,
-  },
-
- greetingContainer: {
-  marginTop: 0,
-},
-
-  greeting: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-
-  name: {
-    color: '#fff',
-    fontSize: 28,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-
- dateContainer: {
-  marginTop: 0,
-  alignSelf: 'flex-end',
-  backgroundColor: 'rgba(255,255,255,0.2)',
-  paddingHorizontal: 16,
-  paddingVertical: 8,
-  borderRadius: 20,
-},
-
-  dateText: {
-    color: '#fff',
-    fontSize: 13,
-  },
-headerRow: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-},
-
-  content: {
     paddingHorizontal: 16,
-    paddingTop: 24,
-    paddingBottom: 120,
-  },
-
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 20,
-  },
-
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    paddingTop: 50,
+    paddingBottom: 40,
     justifyContent: 'space-between',
   },
-
-  card: {
-    height: 150,
-    borderRadius: 16,
-    marginBottom: 18,
-    padding: 12,
-    overflow: 'hidden',
-    
+  circle: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(0,98,170,0.2)',
+    top: -50,
+    right: -50,
   },
-  lastRow: {
+  logoContainer: { alignItems: 'center' },
+  logoImage: { width: 200, height: 60 },
+  headerRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
-},
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  greeting: { 
+    color: '#fff',
+     fontSize: 16 
+    },
+  name: { color: '#fff', fontSize: 26, fontWeight: '700' },
+  dateContainer: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  dateText: { color: '#fff', fontSize: 10 },
+  content: {
+    backgroundColor: '#fff',
+    marginTop: -25,
 
+    paddingHorizontal: 16,
+    paddingTop: 30,
+  },
+  sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 20 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  card: { height: 140, borderRadius: 20, marginBottom: 15, padding: 15, overflow: 'hidden' },
   cardCircle: {
     position: 'absolute',
-    width: 100,
-    height: 100,
-    borderRadius: 60,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    top: -20,
-    right: -20,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    top: -10,
+    right: -10,
   },
-
-  iconBox: {
-    width: 54,
-    height: 54,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  icon: {
-    fontSize: 18,
-  },
-
-  cardTitle: {
-    marginTop: 20,
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#000',
-  },
-
-  cardSubtitle: {
-    marginTop: 6,
-    fontSize: 12,
-    color: 'rgba(0,0,0,0.6)',
-  },
-
+  iconBox: { width: 50, height: 50, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
+  cardIcon: { width: 24, height: 24 },
+  cardTitle: { marginTop: 15, fontSize: 15, fontWeight: '600' },
+  cardSubtitle: { fontSize: 12, opacity: 0.6 },
 });

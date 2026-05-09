@@ -1,15 +1,16 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
-    Alert,
-    Image,
-    SafeAreaView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity, useWindowDimensions, View
+  Alert,
+  Image,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity, useWindowDimensions, View
 } from 'react-native';
+import PhoneInput from 'react-native-phone-number-input';
 
 export default function SignUpScreen() {
   const [username, setUsername] = useState('');
@@ -19,6 +20,10 @@ export default function SignUpScreen() {
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
   const logoWidth = isTablet ? 280 : Math.min(220, width * 0.7);
+  const phoneInput = useRef<PhoneInput>(null);
+const [phoneNumber, setPhoneNumber] = useState('');
+const [countryCode, setCountryCode] = useState('');
+
 
 
   const handleSignUp = () => {
@@ -73,6 +78,16 @@ export default function SignUpScreen() {
           onChangeText={setUsername}
         />
       </View>
+      <View style={styles.inputContainer}>
+  <TextInput
+    placeholder="Phone Number"
+    placeholderTextColor="rgba(0,0,0,0.5)"
+    keyboardType="phone-pad"
+    style={styles.input}
+    value={phoneNumber}
+    onChangeText={setPhoneNumber}
+  />
+</View>
 
       {/* Password */}
       <View style={styles.inputContainer}>
@@ -101,7 +116,7 @@ export default function SignUpScreen() {
       {/* Sign Up Button */}
       <TouchableOpacity
         style={styles.signUpButton}
-        onPress={handleSignUp}
+        onPress={() => router.push('/auth/login')}
       >
         <Text style={styles.signUpText}>Sign Up</Text>
       </TouchableOpacity>
@@ -222,4 +237,29 @@ const styles = StyleSheet.create({
     color: '#075EA7',
     fontWeight: '500',
   },
+ phoneContainer: {
+  width: '100%',
+  height: 54,
+  borderWidth: 1,
+  borderColor: '#075EA7',
+  borderRadius: 12,
+  backgroundColor: '#fff',
+  overflow: 'hidden',
+},
+
+phoneTextContainer: {
+  backgroundColor: '#fff',
+  borderTopRightRadius: 12,
+  borderBottomRightRadius: 12,
+  paddingVertical: 0,
+},
+
+phoneTextInput: {
+  height: 54,
+  fontSize: 16,
+  color: '#000',
+  paddingVertical: 0,
+},
+
+
 });

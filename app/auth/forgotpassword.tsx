@@ -1,28 +1,25 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
+
 import {
-    Image,
-    SafeAreaView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-    useWindowDimensions,
+  Image,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 export default function ForgotPasswordScreen() {
-  const [username, setUsername] = useState('');
   const router = useRouter();
 
-  const { width } = useWindowDimensions();
-  const isTablet = width >= 768;
-  const logoWidth = isTablet ? 280 : Math.min(220, width * 0.7);
+  const [username, setUsername] = useState('');
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
       {/* Background Circles */}
       <View style={styles.topCircle} />
@@ -32,7 +29,7 @@ export default function ForgotPasswordScreen() {
       <View style={styles.logoContainer}>
         <Image
           source={require('../../assets/images/CAPTURE 1.png')}
-          style={[styles.logoImage, { width: logoWidth }]}
+          style={styles.logo}
           resizeMode="contain"
         />
       </View>
@@ -40,8 +37,18 @@ export default function ForgotPasswordScreen() {
       {/* Header */}
       <View style={styles.headerContainer}>
         <Text style={styles.title}>Forgot Password?</Text>
+
         <Text style={styles.subtitle}>
           Enter your username to reset password.
+        </Text>
+      </View>
+
+      {/* OTP Note */}
+      <View style={styles.noteContainer}>
+        <Text style={styles.noteText}>
+          Please verify your account using{'\n'}
+          the OTP that will be sent to{' '}
+          <Text style={styles.boldText}>07*****131.</Text>
         </Text>
       </View>
 
@@ -57,11 +64,14 @@ export default function ForgotPasswordScreen() {
       </View>
 
       {/* Button */}
-      <TouchableOpacity style={styles.button} onPress={() => router.replace('/auth/resetpassword')}>
+      <TouchableOpacity
+        style={styles.button}
+        onPress={() => router.push('/auth/resetpassword')}
+      >
         <Text style={styles.buttonText}>Check Username</Text>
       </TouchableOpacity>
 
-      {/* Sign Up */}
+      {/* Signup */}
       <View style={styles.signupContainer}>
         <Text style={styles.signupText}>Don’t have account?</Text>
 
@@ -82,48 +92,65 @@ const styles = StyleSheet.create({
 
   topCircle: {
     position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 100,
-    backgroundColor: 'rgba(98,145,185,0.35)',
-    top: 100,
-    left: -70,
+    width: 146,
+    height: 145,
+    borderRadius: 999,
+    backgroundColor: 'rgba(97,145,185,0.54)',
+    top: 136,
+    left: -58,
   },
 
   bottomCircle: {
     position: 'absolute',
-    width: 190,
-    height: 190,
-    borderRadius: 100,
-    backgroundColor: 'rgba(98,145,185,0.35)',
-    bottom: -60,
-    right: -70,
+    width: 182,
+    height: 181,
+    borderRadius: 999,
+    backgroundColor: 'rgba(97,145,185,0.54)',
+    bottom: -40,
+    right: -50,
   },
 
   logoContainer: {
     alignItems: 'center',
-    marginTop: 100,
+    marginTop: 90,
   },
 
-  logoImage: {
-    width: 220,
+  logo: {
+    width: 212,
     height: 80,
   },
 
   headerContainer: {
-    marginTop: 50,
+    marginTop: 40,
   },
 
   title: {
-    fontSize: 24,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: '500',
     color: '#000',
-    marginBottom: 8,
+    marginBottom: 10,
   },
 
   subtitle: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#000',
+  },
+
+  noteContainer: {
+    marginTop: 50,
+    alignItems: 'center',
+  },
+
+  noteText: {
     fontSize: 14,
-    color: '#555',
+    color: '#000',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+
+  boldText: {
+    fontWeight: '700',
   },
 
   inputContainer: {
@@ -139,7 +166,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     fontSize: 16,
     color: '#000',
-    backgroundColor: '#fff',
   },
 
   button: {
@@ -153,7 +179,7 @@ const styles = StyleSheet.create({
   },
 
   buttonText: {
-    color: '#fff',
+    color: '#FFF',
     fontSize: 20,
     fontWeight: '700',
   },
@@ -161,7 +187,7 @@ const styles = StyleSheet.create({
   signupContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 24,
+    marginTop: 18,
   },
 
   signupText: {

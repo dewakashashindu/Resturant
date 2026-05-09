@@ -1,15 +1,15 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    Image,
-    SafeAreaView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-    useWindowDimensions,
+  Image,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
 } from 'react-native';
 
 export default function ResetPasswordScreen() {
@@ -73,7 +73,7 @@ export default function ResetPasswordScreen() {
       </View>
 
       {/* Reset Button */}
-      <TouchableOpacity style={styles.button}>
+      <TouchableOpacity style={styles.button} onPress={() => router.push('/auth/login')}>
         <Text style={styles.buttonText}>Reset Password</Text>
       </TouchableOpacity>
 

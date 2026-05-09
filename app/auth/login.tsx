@@ -34,7 +34,7 @@ export default function LoginScreen() {
       <View style={styles.bottomCircle} />
 
       <View style={styles.headerContainer}>
-        <Text style={styles.title}>Welcome back!</Text>
+        <Text style={styles.title}>Welcome !</Text>
         <Text style={styles.subtitle}>Enter your details to sign in.</Text>
       </View>
 
