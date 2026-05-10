@@ -16,67 +16,168 @@ export default function HomeScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
 
-  // Responsive logic
-  const isTablet = width >= 768;
-  const headerHeight = height * (isTablet ? 0.3 : 0.4);
-  const cardWidth = (width - 44) / 2; // 16 padding on each side + 12 gap
+  const isTablet  = width >= 600;
+  const isSmall   = height < 680;
+
+  // ── RESPONSIVE VALUES ─────────────────────────
+  const headerH     = isTablet ? height * 0.22 : height * 0.35;
+  const logoW       = isTablet ? 260 : Math.min(200, width * 0.6);
+  const logoH       = isTablet ? 70  : 55;
+  const greetSize   = isTablet ? 20  : 15;
+  const nameSize    = isTablet ? 32  : 24;
+  const dateSize    = isTablet ? 13  : 10;
+  const sectionSize = isTablet ? 22  : 18;
+
+  // Card: 2 columns with gap
+  const cardPadding = isTablet ? 20 : 16;
+  const cardGap     = isTablet ? 16 : 12;
+  const cardWidth   = (width - cardPadding * 2 - cardGap) / 2;
+  const cardHeight  = isTablet ? cardWidth * 0.42 : 140;
+
+  const iconSize    = isTablet ? 40 : 28;
+  const iconBox     = isTablet ? 64 : 50;
+  const cardTitle   = isTablet ? 20 : 15;
+  const cardSub     = isTablet ? 15 : 12;
 
   const cards = [
-    { title: 'Order Taking', subtitle: 'Table POS', color: 'rgba(255,153,142,0.5)', iconBg: 'rgba(255,153,142,0.6)', route: '/Screens/operation', icon: require('../../assets/icons/ordertaking.png') },
-    { title: 'Dashboard', subtitle: 'Live Overview', color: 'rgba(151,173,210,0.5)', iconBg: 'rgba(151,173,210,0.6)', route: '/Screens/dashboard', icon: require('../../assets/icons/dashboard.png') },
-    { title: 'Menu Card', subtitle: 'Items & Pricing', color: 'rgba(255,248,131,0.5)', iconBg: 'rgba(255,248,131,0.6)', route: '/Screens/menu', icon: require('../../assets/icons/menu.png') },
-    { title: 'NPS Collector', subtitle: 'Guest Feedback', color: 'rgba(129,113,183,0.5)', iconBg: 'rgba(129,113,183,0.6)', route: '/Screens/nps', icon: require('../../assets/icons/nps.png') },
-    { title: 'Sales Report', subtitle: 'Revenue Report', color: 'rgba(144,123,22,0.5)', iconBg: 'rgba(144,123,22,0.6)', route: '/Screens/salesreport', icon: require('../../assets/icons/salesreports.png') },
-    { title: 'Settings', subtitle: 'System Controls', color: 'rgba(66,119,164,0.5)', iconBg: 'rgba(66,119,164,0.6)', route: '/Screens/settings', icon: require('../../assets/icons/settings.png') },
+    {
+      title: 'Order Taking',
+      subtitle: 'Table POS',
+      color: 'rgba(255,153,142,0.5)',
+      iconBg: 'rgba(255,153,142,0.6)',
+      route: '/Screens/operation',
+      icon: require('../../assets/icons/ordertaking.png'),
+    },
+    {
+      title: 'Dashboard',
+      subtitle: 'Live Overview',
+      color: 'rgba(151,173,210,0.5)',
+      iconBg: 'rgba(151,173,210,0.6)',
+      route: '/Screens/dashboard',
+      icon: require('../../assets/icons/dashboard.png'),
+    },
+    {
+      title: 'Menu Card',
+      subtitle: 'Items & Pricing',
+      color: 'rgba(255,248,131,0.5)',
+      iconBg: 'rgba(255,248,131,0.6)',
+      route: '/Screens/menu',
+      icon: require('../../assets/icons/menu.png'),
+    },
+    {
+      title: 'NPS Collector',
+      subtitle: 'Guest Feedback',
+      color: 'rgba(129,113,183,0.5)',
+      iconBg: 'rgba(129,113,183,0.6)',
+      route: '/Screens/nps',
+      icon: require('../../assets/icons/nps.png'),
+    },
+    {
+      title: 'Sales Report',
+      subtitle: 'Revenue Report',
+      color: 'rgba(144,123,22,0.5)',
+      iconBg: 'rgba(144,123,22,0.6)',
+      route: '/Screens/salesreport',
+      icon: require('../../assets/icons/salesreports.png'),
+    },
+    {
+      title: 'Settings',
+      subtitle: 'System Controls',
+      color: 'rgba(66,119,164,0.5)',
+      iconBg: 'rgba(66,119,164,0.6)',
+      route: '/Screens/settings',
+      icon: require('../../assets/icons/settings.png'),
+    },
   ];
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#002748" />
 
-      
-      <ScrollView 
+      <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        <View style={[styles.header, { height: headerHeight }]}>
+        {/* HEADER */}
+        <View style={[styles.header, { height: headerH, paddingHorizontal: cardPadding }]}>
           <View style={styles.circle} />
-          
+
+          {/* LOGO */}
           <View style={styles.logoContainer}>
             <Image
               source={require('../../assets/images/CAPTURE 1.png')}
-              style={styles.logoImage}
+              style={{ width: logoW, height: logoH }}
               resizeMode="contain"
             />
           </View>
 
+          {/* GREETING ROW */}
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.greeting}>Good Morning,</Text>
-              <Text style={styles.name}>Mr. Perera</Text>
+              <Text style={[styles.greeting, { fontSize: greetSize }]}>
+                Good Morning,
+              </Text>
+              <Text style={[styles.name, { fontSize: nameSize }]}>
+                Mr. Perera
+              </Text>
             </View>
 
             <View style={styles.dateContainer}>
-              <Text style={styles.dateText}>Tuesday, May 05 2026</Text>
+              <Text style={[styles.dateText, { fontSize: dateSize }]}>
+                Tuesday, May 05 2026
+              </Text>
             </View>
           </View>
         </View>
 
-        <View style={styles.content}>
-          <Text style={styles.sectionTitle}>Quick Access</Text>
-          <View style={styles.grid}>
+        {/* CONTENT */}
+        <View style={[styles.content, { paddingHorizontal: cardPadding }]}>
+          <Text style={[styles.sectionTitle, { fontSize: sectionSize }]}>
+            Quick Access
+          </Text>
+
+          {/* GRID */}
+          <View style={[styles.grid, { gap: cardGap }]}>
             {cards.map((item, index) => (
               <TouchableOpacity
                 key={index}
-                style={[styles.card, { backgroundColor: item.color, width: cardWidth }]}
+                style={[
+                  styles.card,
+                  {
+                    backgroundColor: item.color,
+                    width: cardWidth,
+                    height: cardHeight,
+                  },
+                ]}
                 onPress={() => router.push(item.route as any)}
               >
                 <View style={styles.cardCircle} />
-                <View style={[styles.iconBox, { backgroundColor: item.iconBg }]}>
-                  <Image source={item.icon} style={styles.cardIcon} resizeMode="contain" />
+
+                {/* ICON BOX */}
+                <View
+                  style={[
+                    styles.iconBox,
+                    {
+                      backgroundColor: item.iconBg,
+                      width: iconBox,
+                      height: iconBox,
+                      borderRadius: isTablet ? 16 : 12,
+                    },
+                  ]}
+                >
+                  <Image
+                    source={item.icon}
+                    style={{ width: iconSize, height: iconSize }}
+                    resizeMode="contain"
+                  />
                 </View>
-                <Text style={styles.cardTitle}>{item.title}</Text>
-                <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
+
+                <Text style={[styles.cardTitle, { fontSize: cardTitle }]}>
+                  {item.title}
+                </Text>
+                <Text style={[styles.cardSubtitle, { fontSize: cardSub }]}>
+                  {item.subtitle}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -87,64 +188,101 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  scrollContent: { flexGrow: 1, paddingBottom: 100 }, 
-  header: {
-    backgroundColor: '#002748',
-    paddingHorizontal: 16,
-    paddingTop: 50,
-    paddingBottom: 40,
-    justifyContent: 'space-between',
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
   },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 100,
+  },
+
+  // ── HEADER ──────────────────────────────────
+header: {
+  backgroundColor: '#002748',
+  paddingTop: 100,    // ← reduce this (try 25-35)
+  paddingBottom: 40,
+  justifyContent: 'space-between',
+},
   circle: {
     position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
     backgroundColor: 'rgba(0,98,170,0.2)',
-    top: -50,
-    right: -50,
+    top: -60,
+    right: -60,
   },
-  logoContainer: { alignItems: 'center' },
-  logoImage: { width: 200, height: 60 },
+  logoContainer: {
+    alignItems: 'center',
+    
+  },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
   },
-  greeting: { 
+  greeting: {
     color: '#fff',
-     fontSize: 16 
-    },
-  name: { color: '#fff', fontSize: 26, fontWeight: '700' },
+    
+  },
+  name: {
+    color: '#fff',
+    fontWeight: '700',
+  },
   dateContainer: {
     backgroundColor: 'rgba(255,255,255,0.2)',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
   },
-  dateText: { color: '#fff', fontSize: 10 },
+  dateText: {
+    color: '#fff',
+  },
+
+  // ── CONTENT ─────────────────────────────────
   content: {
     backgroundColor: '#fff',
     marginTop: -25,
-
-    paddingHorizontal: 16,
     paddingTop: 30,
   },
-  sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 20 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  card: { height: 140, borderRadius: 20, marginBottom: 15, padding: 15, overflow: 'hidden' },
+  sectionTitle: {
+    fontWeight: '600',
+    marginBottom: 20,
+  },
+
+  // ── GRID ────────────────────────────────────
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  card: {
+    borderRadius: 20,
+    padding: 16,
+    overflow: 'hidden',
+    justifyContent: 'flex-end', // push text to bottom
+  },
   cardCircle: {
     position: 'absolute',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    top: -10,
-    right: -10,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    top: -15,
+    right: -15,
   },
-  iconBox: { width: 50, height: 50, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-  cardIcon: { width: 24, height: 24 },
-  cardTitle: { marginTop: 15, fontSize: 15, fontWeight: '600' },
-  cardSubtitle: { fontSize: 12, opacity: 0.6 },
+  iconBox: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  cardTitle: {
+    fontWeight: '600',
+    color: '#111',
+  },
+  cardSubtitle: {
+    opacity: 0.6,
+    color: '#111',
+    marginTop: 2,
+  },
 });

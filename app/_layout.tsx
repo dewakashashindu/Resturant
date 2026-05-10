@@ -26,6 +26,7 @@ export default function RootLayout() {
   <Stack.Screen name="Screens/definetable" options={{ headerShown: false }} />
    <Stack.Screen name="Screens/paxcount" options={{ headerShown: false }} />
     <Stack.Screen name="Screens/selectitems" options={{ headerShown: false }} />
+    <Stack.Screen name="Screens/cart" options={{ headerShown: false }} />
    
 </Stack>
       <StatusBar style="auto" />

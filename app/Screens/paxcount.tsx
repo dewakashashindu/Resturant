@@ -1,70 +1,131 @@
-import { router } from 'expo-router';
-import React from 'react';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
 import {
     Image,
+    Platform,
     SafeAreaView,
     StatusBar,
     StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
+    useWindowDimensions,
     View,
 } from 'react-native';
 
 export default function PaxCountScreen() {
+  const router = useRouter();
+  const { width, height } = useWindowDimensions();
+  const [localPax, setLocalPax]   = useState('');
+  const [foreignPax, setForeignPax] = useState('');
+
+  const isTablet = width  >= 600;
+  const isSmall  = height < 700;
+
+  // ── RESPONSIVE VALUES (same pattern as DefineTable) ──
+  const hPad          = isTablet ? 24 : 16;
+  const headerMT      = Platform.OS === 'android' ? (isTablet ? 20 : 16) : 10;
+  const headerTitleFs = isTablet ? 32 : 24;
+  const backIconSize  = isTablet ? 56 : 44;
+
+  const cardW         = isTablet ? width * 0.90 : width - hPad * 2;
+  const innerPad      = isTablet ? 32 : 24;
+
+  const tableImgSize  = isTablet ? 140 : isSmall ? 90  : 110;
+  const imgMB         = isTablet ? 40  : isSmall ? 20  : 30;
+  const inputH        = isTablet ? 60  : isSmall ? 48  : 54;
+  const inputFs       = isTablet ? 20  : isSmall ? 15  : 17;
+  const btnH          = isTablet ? 60  : isSmall ? 48  : 54;
+  const btnFs         = isTablet ? 22  : isSmall ? 17  : 20;
+  const inputMB       = isTablet ? 16  : isSmall ? 10  : 12;
+  const canContinue   = localPax.trim() !== '' || foreignPax.trim() !== '';
+
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor="#ffffff" barStyle="light-content" />
+      <StatusBar backgroundColor="#FFFFFF" barStyle="dark-content" />
 
-      {/* HEADER */}
-      <View style={styles.header}>
-         <TouchableOpacity
-                  style={styles.backButton}
-                  onPress={() => router.push('/Screens/definetable')}
-                >
-                  <Image
-                    source={require('../../assets/icons/blackback.png')}
-                    style={styles.backIcon}
-                    resizeMode="contain"
-                  />
-                </TouchableOpacity>
-        <Text style={styles.title}>Pax Count</Text>
-      </View>
-
-      {/* CARD */}
-      <View style={styles.card}>
-        {/* IMAGE */}
+      {/* ── BACK BUTTON (absolute) ── */}
+      <TouchableOpacity
+        style={styles.backButtonAbsolute}
+        onPress={() => router.back()}
+      >
         <Image
-          source={require('../../assets/images/blacktable.png')}
-          style={styles.image}
+          source={require('../../assets/icons/blackback.png')}
+          style={{ width: backIconSize, height: backIconSize }}
           resizeMode="contain"
         />
+      </TouchableOpacity>
 
-        {/* LOCAL PAX */}
-        <View style={styles.inputBox}>
+      {/* ── WRAPPER ── */}
+      <View style={styles.contentWrapper}>
+
+        {/* ── HEADER ── */}
+        <View style={[styles.header, { marginTop: headerMT, paddingHorizontal: hPad }]}>
+          <Text style={[styles.headerTitle, { fontSize: headerTitleFs }]}>
+            Pax Count
+          </Text>
+        </View>
+
+        {/* ── MAIN CARD ── */}
+        <View style={[styles.mainCard, { width: cardW, padding: innerPad }]}>
+
+          {/* Table Image */}
+          <Image
+            source={require('../../assets/images/blacktable.png')}
+            style={[
+              styles.tableImage,
+              { width: tableImgSize, height: tableImgSize, marginBottom: imgMB },
+            ]}
+            resizeMode="contain"
+          />
+
+          {/* Local Pax Input */}
           <TextInput
             placeholder="Local Pax"
-            placeholderTextColor="rgba(0,0,0,0.5)"
-            style={styles.input}
+            placeholderTextColor="rgba(0,0,0,0.4)"
+            value={localPax}
+            onChangeText={setLocalPax}
             keyboardType="numeric"
+            style={[
+              styles.input,
+              { height: inputH, fontSize: inputFs, marginBottom: inputMB },
+            ]}
           />
-        </View>
 
-        {/* FOREIGN PAX */}
-        <View style={styles.inputBox}>
+          {/* Foreign Pax Input */}
           <TextInput
             placeholder="Foreign Pax"
-            placeholderTextColor="rgba(0,0,0,0.5)"
-            style={styles.input}
+            placeholderTextColor="rgba(0,0,0,0.4)"
+            value={foreignPax}
+            onChangeText={setForeignPax}
             keyboardType="numeric"
+            style={[
+              styles.input,
+              { height: inputH, fontSize: inputFs, marginBottom: inputMB },
+            ]}
           />
-        </View>
 
-        {/* BUTTON */}
-        <TouchableOpacity style={styles.button} activeOpacity={0.8} onPress={() => router.push('/Screens/selectitems')}>
-          <Text style={styles.buttonText}>Confirm</Text>
-          <Text style={styles.icon}>✓</Text>
-        </TouchableOpacity>
+          {/* Confirm Button */}
+          <TouchableOpacity
+            style={[styles.nextButton, { height: btnH, marginTop: isSmall ? 8 : 12 }]}
+            activeOpacity={0.8}
+            onPress={() => {
+              if (!canContinue) return;
+
+              router.push({
+                pathname: '/Screens/selectitems',
+                params: {
+                  localPax: localPax.trim() || '0',
+                  foreignPax: foreignPax.trim() || '0',
+                },
+              });
+            }}
+          >
+            <Text style={[styles.nextText, { fontSize: btnFs }]}>Confirm</Text>
+            <Text style={[styles.checkIcon, { fontSize: btnFs }]}>✓</Text>
+          </TouchableOpacity>
+
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -73,91 +134,81 @@ export default function PaxCountScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
   },
 
+  // ── BACK BUTTON ─────────────────────────────────
+  backButtonAbsolute: {
+    position: 'absolute',
+    left: 24,
+    top: 100,
+    zIndex: 10,
+  },
+
+  // ── WRAPPER ─────────────────────────────────────
+  contentWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // ── HEADER ──────────────────────────────────────
   header: {
-    backgroundColor: '#ffffff',
-    height: 120,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  title: {
-    color: '#000000',
-    fontSize: 24,
-    fontWeight: '600',
-  },
-
-  card: {
-    marginTop: 160,
-    marginHorizontal: 16,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-
-  image: {
-    width: 110,
-    height: 110,
-    marginBottom: 20,
-  },
-
-  inputBox: {
-    width: '100%',
-    borderWidth: 1,
-    borderColor: '#075EA7',
-    borderRadius: 8,
-    marginBottom: 12,
-    paddingHorizontal: 12,
-  },
-
-  input: {
-    height: 54,
-    fontSize: 14,
-  },
-
-  button: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(0, 98, 170, 0.56)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  headerTitle: {
+    fontWeight: '600',
+    color: '#000',
+  },
+
+  // ── MAIN CARD ───────────────────────────────────
+  mainCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    alignItems: 'center',
+  },
+
+  // ── IMAGE ───────────────────────────────────────
+  tableImage: {
+    alignSelf: 'center',
+  },
+
+  // ── INPUT ───────────────────────────────────────
+  input: {
     width: '100%',
-    height: 54,
-    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#0062AA',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    color: '#000',
+    backgroundColor: '#FAFAFA',
+  },
+
+  // ── BUTTON ──────────────────────────────────────
+  nextButton: {
+    width: '100%',
+    backgroundColor: '#0062AA',
+    borderRadius: 10,
+    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 10,
+    gap: 10,
   },
-
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
+  nextText: {
+    color: '#FFF',
     fontWeight: '700',
-    marginRight: 8,
   },
-
-  icon: {
-    color: '#fff',
-    fontSize: 18,
-  },
-    backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: '#ffffff',
-   
-   
-  },
-
-  backIcon: {
-    marginLeft: 16,
-    marginTop: 20,
-    width: 30,
-    height: 30,
+  checkIcon: {
+    color: '#FFF',
+    fontWeight: '700',
   },
 });

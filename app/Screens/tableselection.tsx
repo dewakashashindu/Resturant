@@ -8,106 +8,161 @@ import {
     StyleSheet,
     Text,
     TouchableOpacity,
-    View,
+    useWindowDimensions,
+    View
 } from 'react-native';
 
 type TableStatus = 'occupied' | 'reserved' | 'available';
-
-type TableItem = {
-  id: string;
-  status: TableStatus;
-};
+type TableItem = { id: string; status: TableStatus };
 
 export default function TableSelectionScreen() {
   const router = useRouter();
+  const [selectedFloor, setSelectedFloor] = useState('Ground Floor');
+  const { width, height } = useWindowDimensions();
 
-  const [selectedFloor, setSelectedFloor] = useState('Ground');
+  // ── BREAKPOINTS ────────────────────────────────
+  const isTablet = width >= 600;
+  const isSmall  = height < 700;
 
-  const floors = ['Ground', '1st Floor', '2nd Floor', '3rd Floor'];
+  // ── RESPONSIVE VALUES ──────────────────────────
+  const hPad          = isTablet ? 24 : 16;
+  const headerTitleFs = isTablet ? 32 : 24;
+  const backIconSize  = isTablet ? 56 : 44;
+  const floorFont     = isTablet ? 24: 13;
+  const bannerH       = isTablet ? 56 : isSmall ? 38 : 44;
+  const bannerFs      = isTablet ? 24 : 13;
+  const statNumFs     = isTablet ? 26 : isSmall ? 18 : 22;
+  const statLabelFs   = isTablet ? 16 : isSmall ? 10 : 11;
+  const sectionFs     = isTablet ? 24 : 12;
+  const cardFont      = isTablet ? 24 : isSmall ? 11 : 16;
+  const emojiFs       = isTablet ?36 : isSmall ? 16 : 20;
+  const plusFs        = isTablet ? 36 : isSmall ? 18 : 24;
 
-  const tables: TableItem[] = [
+  // ── CARD WIDTH — only declared once ───────────
+  const cardGap   = isTablet ? 14 : 10;
+  const cardWidth = (width - hPad * 2 - cardGap * 3) / 4;
+
+  const floors = [
+  'Ground Floor',
+  '1st Floor',
+  '2nd Floor',
+  '3rd Floor',
+  'Beach Wing 1',
+  'Beach Wing 2',
+  'Private Front',
+  'Private Sealed'
+];
+
+
+const floorTables: Record<string, TableItem[]> = {
+  'Ground Floor': [
     { id: 'GF 1', status: 'available' },
     { id: 'GF 2', status: 'occupied' },
-    { id: 'GF 3', status: 'occupied' },
-    { id: 'GF 4', status: 'occupied' },
-    { id: 'GF 5', status: 'reserved' },
-    { id: 'GF 6', status: 'available' },
-    { id: 'GF 7', status: 'occupied' },
-    { id: 'GF 8', status: 'reserved' },
-    { id: 'GF 9', status: 'occupied' },
-    { id: 'GF 10', status: 'reserved' },
-    { id: 'GF 11', status: 'available' },
-    { id: 'GF 12', status: 'occupied' },
-    { id: 'GF 13', status: 'occupied' },
-    { id: 'GF 14', status: 'available' },
-    { id: 'GF 15', status: 'occupied' },
-    { id: 'GF 16', status: 'occupied' },
-  ];
+    { id: 'GF 3', status: 'reserved' },
+    { id: 'GF 4', status: 'available' },
+  ],
+
+  '1st Floor': [
+    { id: 'F1 1', status: 'occupied' },
+    { id: 'F1 2', status: 'available' },
+    { id: 'F1 3', status: 'reserved' },
+    { id: 'F1 4', status: 'occupied' },
+  ],
+
+  '2nd Floor': [
+    { id: 'F2 1', status: 'available' },
+    { id: 'F2 2', status: 'available' },
+    { id: 'F2 3', status: 'reserved' },
+  ],
+
+  '3rd Floor': [
+    { id: 'F3 1', status: 'occupied' },
+    { id: 'F3 2', status: 'reserved' },
+    { id: 'F3 3', status: 'available' },
+  ],
+
+  'Beach Wing 1': [
+    { id: 'BW1 1', status: 'available' },
+    { id: 'BW1 2', status: 'occupied' },
+  ],
+
+  'Beach Wing 2': [
+    { id: 'BW2 1', status: 'reserved' },
+    { id: 'BW2 2', status: 'available' },
+  ],
+
+  'Private Front': [
+    { id: 'PF 1', status: 'occupied' },
+  ],
+
+  'Private Sealed': [
+    { id: 'PS 1', status: 'available' },
+  ],
+};
+const tables = floorTables[selectedFloor] || [];
+
+  const occupiedCount  = tables.filter(t => t.status === 'occupied').length;
+  const reservedCount  = tables.filter(t => t.status === 'reserved').length;
+  const availableCount = tables.filter(t => t.status === 'available').length;
 
   const getTableColor = (status: TableStatus) => {
     switch (status) {
-      case 'occupied':
-        return '#E6A46B';
-
-      case 'reserved':
-        return '#4E8EC4';
-
-      default:
-        return '#FFFFFF';
+      case 'occupied': return '#E6A46B';
+      case 'reserved': return '#4E8EC4';
+      default:         return '#FFFFFF';
     }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar
-        backgroundColor="#002748"
-        barStyle="light-content"
-      />
+      <StatusBar backgroundColor="#002748" barStyle="light-content" />
 
-      {/* HEADER */}
-      <View style={styles.header}>
+      {/* ── HEADER ── */}
+      <View style={[styles.header, { paddingHorizontal: hPad }]}>
         <TouchableOpacity
+          onPress={() => router.back()}
           style={styles.backButton}
-          onPress={() => router.push('/Screens/operation')}
         >
           <Image
             source={require('../../assets/icons/back.png')}
-            style={styles.backIcon}
+            style={{ width: backIconSize, height: backIconSize, tintColor: '#FFF' }}
             resizeMode="contain"
           />
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>
+        <Text style={[styles.headerTitle, { fontSize: headerTitleFs }]}>
           Table Selection
         </Text>
       </View>
 
-      {/* CONTENT */}
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={{ paddingBottom: 100 }}
       >
-        {/* FLOOR TABS */}
+        {/* ── FLOOR TABS ── */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.floorContainer}
+          contentContainerStyle={[
+            styles.floorContainer,
+            { paddingHorizontal: hPad, paddingTop: isSmall ? 10 : 16 },
+          ]}
         >
           {floors.map((floor) => (
             <TouchableOpacity
               key={floor}
               style={[
                 styles.floorButton,
-                selectedFloor === floor &&
-                  styles.activeFloorButton,
+                selectedFloor === floor && styles.activeFloorButton,
+                { paddingVertical: isTablet ? 10 : isSmall ? 7 : 9 },
               ]}
               onPress={() => setSelectedFloor(floor)}
             >
               <Text
                 style={[
                   styles.floorText,
-                  selectedFloor === floor &&
-                    styles.activeFloorText,
+                  selectedFloor === floor && styles.activeFloorText,
+                  { fontSize: floorFont },
                 ]}
               >
                 {floor}
@@ -116,99 +171,95 @@ export default function TableSelectionScreen() {
           ))}
         </ScrollView>
 
-        {/* BANNER */}
-      <TouchableOpacity
-  style={styles.banner}
-  onPress={() => router.push('/Screens/definetable')}
-  activeOpacity={0.8}
->
-  <Image
-    source={require('../../assets/images/Table.png')}
-    style={styles.bannerIconImage}
-    resizeMode="contain"
-  />
+        {/* ── BANNER ── */}
+        <TouchableOpacity
+          style={[styles.banner, { height: bannerH, marginHorizontal: hPad }]}
+          onPress={() => router.push('/Screens/definetable')}
+          activeOpacity={0.8}
+        >
+          <Image
+            source={require('../../assets/images/Table.png')}
+            style={{ width: isTablet ? 28 : 22, height: isTablet ? 28 : 22 }}
+            resizeMode="contain"
+          />
+          <Text style={[styles.bannerText, { fontSize: bannerFs }]}>
+            DEFINED TABLE
+          </Text>
+        </TouchableOpacity>
 
-  <Text style={styles.bannerText}>
-    DEFINED TABLE
-  </Text>
-</TouchableOpacity>
-
-        {/* STATUS */}
-        <View style={styles.statusContainer}>
-          <View style={styles.statusItem}>
-            <View
-              style={[
-                styles.statusBox,
-                { backgroundColor: '#E6A46B' },
-              ]}
-            >
-              <Text style={styles.statusNumber}>9</Text>
-
-              <Text style={styles.statusLabel}>
-                OCCUPIED
-              </Text>
-            </View>
+        {/* ── STATUS BOXES ── */}
+        <View style={[styles.statusContainer, { paddingHorizontal: hPad }]}>
+          <View style={[styles.statusBox, { backgroundColor: '#E6A46B' }]}>
+            <Text style={[styles.statusNumber, { fontSize: statNumFs }]}>
+              {occupiedCount}
+            </Text>
+            <Text style={[styles.statusLabel, { fontSize: statLabelFs }]}>
+              OCCUPIED
+            </Text>
           </View>
 
-          <View style={styles.statusItem}>
-            <View
-              style={[
-                styles.statusBox,
-                { backgroundColor: '#4E8EC4' },
-              ]}
-            >
-              <Text style={styles.statusNumber}>3</Text>
-
-              <Text style={styles.statusLabel}>
-                RESERVED
-              </Text>
-            </View>
+          <View style={[styles.statusBox, { backgroundColor: '#4E8EC4' }]}>
+            <Text style={[styles.statusNumber, { fontSize: statNumFs }]}>
+              {reservedCount}
+            </Text>
+            <Text style={[styles.statusLabel, { fontSize: statLabelFs }]}>
+              RESERVED
+            </Text>
           </View>
 
-          <View style={styles.statusItem}>
-            <View
-              style={[
-                styles.statusBox,
-                styles.availableBox,
-              ]}
-            >
-              <Text style={styles.statusNumber}>4</Text>
-
-              <Text style={styles.statusLabel}>
-                AVAILABLE
-              </Text>
-            </View>
+          <View style={[styles.statusBox, styles.availableBox]}>
+            <Text style={[styles.statusNumber, { fontSize: statNumFs }]}>
+              {availableCount}
+            </Text>
+            <Text style={[styles.statusLabel, { fontSize: statLabelFs }]}>
+              AVAILABLE
+            </Text>
           </View>
         </View>
 
-        {/* SECTION */}
-        <Text style={styles.sectionTitle}>
-          GROUND FLOOR - 16 TABLES
+        {/* ── SECTION TITLE ── */}
+        <Text style={[
+          styles.sectionTitle,
+          { fontSize: sectionFs, paddingHorizontal: hPad },
+        ]}>
+          {selectedFloor.toUpperCase()} - {tables.length} TABLES
         </Text>
 
-        {/* TABLE GRID */}
-        <View style={styles.grid}>
+        {/* ── TABLE GRID ── */}
+        <View style={[styles.grid, { paddingHorizontal: hPad, gap: cardGap }]}>
           {tables.map((table) => (
             <TouchableOpacity
               key={table.id}
               style={[
                 styles.tableCard,
                 {
-                  backgroundColor: getTableColor(
-                    table.status
-                  ),
+                  backgroundColor: getTableColor(table.status),
+                  width: cardWidth,
+                  height: cardWidth,
+                  marginBottom: isTablet ? 18 : 10,
                 },
+                table.status === 'available' && styles.tableCardAvailable,
               ]}
+              onPress={() => {
+                if (table.status === 'available') {
+                  router.push('/Screens/paxcount');
+                }
+              }}
             >
-              <Text style={styles.tableIcon}>
-                {table.status === 'available'
-                  ? '+'
-                  : table.status === 'occupied'
-                  ? '👥'
-                  : '📅'}
-              </Text>
-
-              <Text style={styles.tableText}>
+              {table.status === 'available' ? (
+                <Text style={[styles.plusIcon, { fontSize: plusFs }]}>+</Text>
+              ) : (
+                <Text style={{ fontSize: emojiFs, marginBottom: 4 }}>
+                  {table.status === 'occupied' ? '👥' : '📅'}
+                </Text>
+              )}
+              <Text
+                style={[
+                  styles.tableText,
+                  { fontSize: cardFont },
+                  table.status === 'reserved' && { color: '#FFF' },
+                ]}
+              >
                 {table.id}
               </Text>
             </TouchableOpacity>
@@ -222,176 +273,131 @@ export default function TableSelectionScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F4F6F8',
   },
 
+  // ── HEADER ────────────────────────────────────
   header: {
     backgroundColor: '#002748',
-    paddingTop: 20,
-    paddingBottom: 24,
-    paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    height: 120,
+    paddingVertical: 16,
+    height: 200,
   },
-
   backButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1.5,
-    borderColor: '#FFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 20,
+    marginRight: 16,
+    marginTop: -50,
   },
-
-  backIcon: {
-    width: 22,
-    height: 22,
-  },
-
   headerTitle: {
-    fontSize: 22,
     fontWeight: '700',
     color: '#FFF',
+    marginTop: -50,
   },
 
-  content: {
-    paddingBottom: 110,
-  },
-
+  // ── FLOOR TABS ────────────────────────────────
   floorContainer: {
-    paddingTop: 18,
-    paddingBottom: 6,
-    paddingHorizontal: 16,
+    paddingBottom: 8,
     gap: 10,
   },
-
   floorButton: {
-    minWidth: 110,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
+    minWidth: 90,
+    paddingHorizontal: 16,
     borderRadius: 14,
     backgroundColor: '#B7C1CC',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
   },
-
   activeFloorButton: {
     backgroundColor: '#FFFFFF',
   },
-
   floorText: {
-    fontSize: 14,
     fontWeight: '700',
-    color: '#2B2B2B',
+    color: '#555',
   },
-
   activeFloorText: {
     color: '#000',
   },
 
+  // ── BANNER ────────────────────────────────────
   banner: {
-    marginHorizontal: 16,
-    marginTop: 8,
+    marginTop: 10,
     backgroundColor: '#7FAFD2',
     borderRadius: 12,
-    height: 42,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
   },
-
-  bannerIconImage: {
-    width: 24,
-    height: 24,
-  },
-
   bannerText: {
     color: '#FFF',
-    fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
 
+  // ── STATUS ────────────────────────────────────
   statusContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    marginTop: 14,
+    marginTop: 12,
+    gap: 8,
   },
-
-  statusItem: {
-    width: '31%',
-    alignItems: 'center',
-  },
-
   statusBox: {
-    width: '100%',
-    minHeight: 48,
+    flex: 1,
     borderRadius: 12,
-    marginBottom: 6,
+    paddingVertical: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 6,
   },
-
   availableBox: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#DDD',
   },
-
   statusNumber: {
-    fontSize: 20,
     fontWeight: '800',
     color: '#000',
-    lineHeight: 22,
   },
-
   statusLabel: {
-    fontSize: 12,
     fontWeight: '700',
     color: '#111',
-    lineHeight: 14,
+    marginTop: 2,
   },
 
+  // ── SECTION TITLE ─────────────────────────────
   sectionTitle: {
-    paddingHorizontal: 16,
-    marginTop: 18,
-    marginBottom: 12,
-    fontSize: 13,
+    marginTop: 14,
+    marginBottom: 10,
     fontWeight: '700',
     color: '#666',
   },
 
+  // ── TABLE GRID ────────────────────────────────
   grid: {
-    paddingHorizontal: 16,
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
   },
-
   tableCard: {
-    width: '23%',
-    aspectRatio: 1,
-    borderRadius: 12,
-    marginBottom: 14,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
   },
-
-  tableIcon: {
-    fontSize: 20,
-    marginBottom: 4,
+  tableCardAvailable: {
+    borderWidth: 1.5,
+    borderColor: '#DDD',
   },
-
+  plusIcon: {
+    fontWeight: '300',
+    color: '#333',
+    marginBottom: 2,
+  },
   tableText: {
-    fontSize: 15,
     fontWeight: '800',
     color: '#000',
   },

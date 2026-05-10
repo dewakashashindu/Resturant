@@ -1,7 +1,5 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { useWindowDimensions } from 'react-native';
-
 import {
   Image,
   SafeAreaView,
@@ -10,70 +8,141 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  useWindowDimensions,
+  View
 } from 'react-native';
 
 export default function LoginScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const router = useRouter();
-  const { width } = useWindowDimensions();
-  const isTablet = width >= 768;
-  const logoWidth = isTablet ? 280 : Math.min(220, width * 0.7);
+  const { width, height } = useWindowDimensions();
+
+  // ── BREAKPOINTS ────────────────────────────────
+  const isTablet = width  >= 600;
+  const isSmall  = height < 700;
+
+  // ── RESPONSIVE VALUES ──────────────────────────
+  const logoW       = isTablet ? 280 : isSmall ? 160 : Math.min(220, width * 0.7);
+  const logoH       = isTablet ? 90  : isSmall ? 55  : 75;
+  const logoMT      = isTablet ? 80  : isSmall ? 40  : 60;
+
+  const titleFs     = isTablet ? 48  : isSmall ? 20  : 24;
+  const subtitleFs  = isTablet ? 24  : isSmall ? 13  : 14;
+  const headerMT    = isTablet ? 50  : isSmall ? 24  : 36;
+
+  const inputH      = isTablet ? 72  : isSmall ? 48  : 54;
+  const inputFs     = isTablet ? 24  : isSmall ? 14  : 16;
+  const inputMT     = isTablet ? 24  : isSmall ? 14  : 20;
+  const inputRadius = isTablet ? 16  : 12;
+
+  const btnH        = isTablet ? 72  : isSmall ? 48  : 54;
+  const btnFs       = isTablet ? 24  : isSmall ? 17  : 20;
+  const btnMT       = isTablet ? 40  : isSmall ? 20  : 32;
+  const btnRadius   = isTablet ? 16  : 12;
+
+  const forgotFs    = isTablet ? 24  : isSmall ? 13  : 15;
+  const forgotMT    = isTablet ? 16  : isSmall ? 10  : 14;
+  const signupFs    = isTablet ? 24  : isSmall ? 13  : 14;
+  const signupMT    = isTablet ? 28  : isSmall ? 16  : 22;
+
+  const hPad        = isTablet ? 40  : 20;
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <View style={styles.logoContainer}>
-  <Image
-    source={require('../../assets/images/CAPTURE 1.png')}
-    style={[styles.logoImage, { width: logoWidth }]}
-    resizeMode="contain"
-  />
-</View>
-      <View style={styles.topCircle} />
-      <View style={styles.bottomCircle} />
 
-      <View style={styles.headerContainer}>
-        <Text style={styles.title}>Welcome !</Text>
-        <Text style={styles.subtitle}>Enter your details to sign in.</Text>
-      </View>
+      {/* ── DECORATIVE CIRCLES ── */}
+      <View style={[styles.topCircle, {
+        width:  isTablet ? 220 : 160,
+        height: isTablet ? 220 : 160,
+        top:    isTablet ? 120 : 80,
+      }]} />
+      <View style={[styles.bottomCircle, {
+        width:  isTablet ? 240 : 190,
+        height: isTablet ? 240 : 190,
+      }]} />
 
-      <View style={styles.inputContainer}>
-        <TextInput
-          placeholder="Username"
-          placeholderTextColor="rgba(0,0,0,0.5)"
-          style={styles.input}
-          value={username}
-          onChangeText={setUsername}
+      {/* ── LOGO ── */}
+      <View style={[styles.logoContainer, { marginTop: logoMT }]}>
+        <Image
+          source={require('../../assets/images/CAPTURE 1.png')}
+          style={{ width: logoW, height: logoH }}
+          resizeMode="contain"
         />
       </View>
 
-      <View style={styles.inputContainer}>
+      {/* ── HEADER TEXT ── */}
+      <View style={{ marginTop: headerMT }}>
+        <Text style={[styles.title, { fontSize: titleFs }]}>
+          Welcome !
+        </Text>
+        <Text style={[styles.subtitle, { fontSize: subtitleFs }]}>
+          Enter your details to sign in.
+        </Text>
+      </View>
+
+      {/* ── USERNAME ── */}
+      <View style={{ marginTop: inputMT }}>
+        <TextInput
+          placeholder="Username"
+          placeholderTextColor="rgba(0,0,0,0.4)"
+          style={[
+            styles.input,
+            { height: inputH, fontSize: inputFs, borderRadius: inputRadius },
+          ]}
+          value={username}
+          onChangeText={setUsername}
+          autoCapitalize="none"
+        />
+      </View>
+
+      {/* ── PASSWORD ── */}
+      <View style={{ marginTop: inputMT }}>
         <TextInput
           placeholder="Password"
-          placeholderTextColor="rgba(0,0,0,0.5)"
+          placeholderTextColor="rgba(0,0,0,0.4)"
           secureTextEntry
-          style={styles.input}
+          style={[
+            styles.input,
+            { height: inputH, fontSize: inputFs, borderRadius: inputRadius },
+          ]}
           value={password}
           onChangeText={setPassword}
         />
       </View>
 
-      <TouchableOpacity onPress={() => router.push('/auth/forgotpassword')}>
-        <Text style={styles.forgotText}>Forgot Password?</Text>
+      {/* ── FORGOT PASSWORD ── */}
+      <TouchableOpacity
+        style={{ marginTop: forgotMT, alignSelf: 'flex-end' }}
+        onPress={() => router.push('/auth/forgotpassword')}
+      >
+        <Text style={[styles.forgotText, { fontSize: forgotFs }]}>
+          Forgot Password?
+        </Text>
       </TouchableOpacity>
 
+      {/* ── LOGIN BUTTON ── */}
       <TouchableOpacity
-  style={styles.loginButton}
-  onPress={() => router.replace('/(tabs)')}
->
-  <Text style={styles.loginText}>Login</Text>
-</TouchableOpacity>
+        style={[
+          styles.loginButton,
+          { height: btnH, borderRadius: btnRadius, marginTop: btnMT },
+        ]}
+        onPress={() => router.replace('/(tabs)')}
+        activeOpacity={0.85}
+      >
+        <Text style={[styles.loginText, { fontSize: btnFs }]}>Login</Text>
+      </TouchableOpacity>
 
-      <View style={styles.signupContainer}>
-        <Text style={styles.signupText}>Don't have an account?</Text>
+      {/* ── SIGN UP ── */}
+      <View style={[styles.signupContainer, { marginTop: signupMT }]}>
+        <Text style={[styles.signupText, { fontSize: signupFs }]}>
+          Don't have an account?
+        </Text>
         <TouchableOpacity onPress={() => router.push('/auth/signup')}>
-          <Text style={styles.signupLink}> Sign Up</Text>
+          <Text style={[styles.signupLink, { fontSize: signupFs }]}>
+            {' '}Sign Up
+          </Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -84,97 +153,75 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
   },
+
+  // ── DECORATIVE CIRCLES ──────────────────────────
   topCircle: {
     position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 100,
+    borderRadius: 110,
     backgroundColor: 'rgba(98,145,185,0.35)',
-    top: 100,
     left: -70,
   },
   bottomCircle: {
     position: 'absolute',
-    width: 190,
-    height: 190,
-    borderRadius: 100,
+    borderRadius: 110,
     backgroundColor: 'rgba(98,145,185,0.35)',
     bottom: -60,
     right: -70,
   },
-   logoContainer: {
+
+  // ── LOGO ────────────────────────────────────────
+  logoContainer: {
     alignItems: 'center',
-    marginTop: 100,
   },
 
- 
-  logoImage: {
-    width:220,
-    height:80,
-  },
-  headerContainer: {
-    marginTop: 50,
-  },
+  // ── TEXT ────────────────────────────────────────
   title: {
-    fontSize: 24,
     fontWeight: '600',
     color: '#000',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   subtitle: {
-    fontSize: 14,
     color: '#555',
   },
-  inputContainer: {
-    marginTop: 24,
-  },
+
+  // ── INPUT ───────────────────────────────────────
   input: {
     width: '100%',
-    height: 54,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#075EA7',
-    borderRadius: 12,
     paddingHorizontal: 16,
-    fontSize: 16,
     color: '#000',
     backgroundColor: '#fff',
   },
-  forgotContainer: {
-    alignSelf: 'flex-end',
-    marginTop: 20,
-  },
+
+  // ── FORGOT ──────────────────────────────────────
   forgotText: {
-    fontSize: 15,
     color: '#075EA7',
     fontWeight: '500',
   },
+
+  // ── BUTTON ──────────────────────────────────────
   loginButton: {
     width: '100%',
-    height: 54,
     backgroundColor: '#0062AA',
-    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 40,
   },
   loginText: {
     color: '#fff',
-    fontSize: 20,
     fontWeight: '700',
   },
+
+  // ── SIGN UP ─────────────────────────────────────
   signupContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 28,
   },
   signupText: {
-    fontSize: 14,
     color: '#3B4054',
   },
   signupLink: {
-    fontSize: 14,
     color: '#075EA7',
     fontWeight: '600',
   },
