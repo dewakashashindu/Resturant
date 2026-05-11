@@ -34,6 +34,14 @@ import { categories, Category, SubCategory } from '../../data/categories';
 
 type Level = 'category' | 'subcategory' | 'items';
 
+type SearchResult = {
+  key: string;
+  itemId: string;
+  item: NonNullable<SubCategory['items'][number]>;
+  categoryLabel: string;
+  subCategoryLabel: string;
+};
+
 
 
 // ── COLORED CARD (Screen 1 & 2) ────────────────
@@ -120,8 +128,6 @@ interface ItemCardProps {
 
   label: string;
 
-  itemId?: string;
-
   price?: number;
 
   icon?: ImageSourcePropType;
@@ -136,7 +142,7 @@ interface ItemCardProps {
 
 
 
-const ItemCard = ({ label, itemId, price, icon, onAdd, quantity, onIncrement, onDecrement, onPressDetails }: ItemCardProps) => {
+const ItemCard = ({ label, price, icon, onAdd, quantity, onIncrement, onDecrement, onPressDetails }: ItemCardProps) => {
 
   const { width, height } = useWindowDimensions();
 
@@ -180,11 +186,6 @@ const ItemCard = ({ label, itemId, price, icon, onAdd, quantity, onIncrement, on
           {label}
         </Text>
 
-        {!!itemId && (
-          <Text style={[styles.itemIdText, { fontSize: priceFs }]} numberOfLines={1}>
-            ID: {itemId}
-          </Text>
-        )}
       </TouchableOpacity>
 
 
@@ -352,6 +353,22 @@ export default function ItemSelection() {
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const matchesSearch = (value?: string) => !normalizedSearch || (value ?? '').toLowerCase().includes(normalizedSearch);
+
+  const allSearchResults: SearchResult[] = categories.flatMap((category) =>
+    category.subCategories.flatMap((subCategory, subIndex) =>
+      subCategory.items.map((item, itemIndex) => ({
+        key: `${category.label}-${subCategory.label}-${itemIndex}`,
+        itemId: `ITEM-${String(subIndex + 1).padStart(2, '0')}-${String(itemIndex + 1).padStart(2, '0')}`,
+        item,
+        categoryLabel: category.label,
+        subCategoryLabel: subCategory.label,
+      }))
+    )
+  );
+
+  const searchResults = allSearchResults.filter(({ item, itemId, categoryLabel, subCategoryLabel }) =>
+    matchesSearch(item.label) || matchesSearch(itemId) || matchesSearch(categoryLabel) || matchesSearch(subCategoryLabel)
+  );
 
   const filteredCategories = categories.filter((cat) => matchesSearch(cat.label));
 
@@ -643,9 +660,45 @@ export default function ItemSelection() {
 
         <Text style={[styles.sectionTitle, { fontSize: sectionFont, marginTop: sectionMT }]}>
 
-          {sectionLabel}
+          {normalizedSearch ? `SEARCH RESULTS — ${searchResults.length}` : sectionLabel}
 
         </Text>
+
+        {normalizedSearch ? (
+          <>
+            <Text style={styles.searchScopeText}>
+              Searching all categories, subcategories, and item IDs
+            </Text>
+
+            <View style={[styles.grid, { gap: gridGap }]}> 
+              {searchResults.map(({ item, key, itemId }, i) => {
+                const qty = quantities[key] ?? 0;
+                return (
+                  <ItemCard
+                    key={i}
+                    label={item.label}
+                    price={item.price}
+                    icon={item.icon}
+                    quantity={qty}
+                    onPressDetails={() => openItemDetails({ key, label: item.label, price: item.price, icon: item.icon })}
+                    onAdd={() => {
+                      setQuantities(q => ({ ...q, [key]: 1 }));
+                      console.log('Add to order:', item.label, '| Rs.', item.price, '| Table:', tableId);
+                    }}
+                    onIncrement={() => setQuantities(q => ({ ...q, [key]: (q[key] ?? 0) + 1 }))}
+                    onDecrement={() => setQuantities(q => {
+                      const next = { ...q };
+                      const v = (next[key] ?? 0) - 1;
+                      if (v <= 0) delete next[key]; else next[key] = v;
+                      return next;
+                    })}
+                  />
+                );
+              })}
+            </View>
+          </>
+        ) : (
+          <>
 
 
 
@@ -727,7 +780,6 @@ export default function ItemSelection() {
                 <ItemCard
                   key={i}
                   label={item.label}
-                  itemId={itemId}
                   price={item.price}
                   icon={item.icon}
                   quantity={qty}
@@ -755,6 +807,9 @@ export default function ItemSelection() {
 
           </View>
 
+        )}
+
+          </>
         )}
 
       </ScrollView>
@@ -802,7 +857,6 @@ export default function ItemSelection() {
                 </View>
 
                 <Text style={styles.sheetTitle}>{selectedItem?.label ?? ''}</Text>
-                <Text style={styles.sheetItemId}>ID: {selectedItem?.key ?? ''}</Text>
                 <Text style={styles.sheetPrice}>Lkr {selectedItem?.price?.toFixed(2) ?? '0.00'}</Text>
 
                 <View style={styles.remarkInputWrap}>
@@ -868,7 +922,7 @@ const styles = StyleSheet.create({
 
   dropdownArrow:   { width: 0, height: 0, borderLeftWidth: 4, borderRightWidth: 4, borderTopWidth: 5, borderStyle: 'solid', backgroundColor: 'transparent', borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: '#FFF' },
 
-  searchWrap:      { marginTop: 12 },
+  searchWrap:      { marginTop: 32 },
 
   searchInput:     { width: '100%', height: 42, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.16)', color: '#FFF', paddingHorizontal: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)' },
 
@@ -900,7 +954,6 @@ const styles = StyleSheet.create({
 
 
 
-  // SCONTENT 
 
   content:         { paddingTop: 4 },
 
@@ -918,6 +971,8 @@ const styles = StyleSheet.create({
 
   sectionTitle:    { fontWeight: '700', color: '#666', marginBottom: 12 },
 
+  searchScopeText: { color: '#6B7280', fontSize: 12, marginBottom: 12 },
+
 
 
   
@@ -926,7 +981,7 @@ const styles = StyleSheet.create({
 
 
 
-  // ── COLORED CARD (S1 & S2) ──────────────────
+  //  COLORED CARD (S1 & S2)
 
   colorCard:       { borderRadius: 14, alignItems: 'center', justifyContent: 'center', padding: 10, overflow: 'hidden', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, marginBottom: 12 },
 
@@ -938,7 +993,7 @@ const styles = StyleSheet.create({
 
 
 
-  // ── WHITE ITEM CARD (S3) ────────────────────
+  //  WHITE ITEM CARD (
 
   itemCard:        { backgroundColor: '#FFF', borderRadius: 12, marginBottom: 14, overflow: 'hidden', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, alignItems: 'center', paddingBottom: 10 },
   itemTopArea:     { alignItems: 'center', width: '100%' },
@@ -948,8 +1003,6 @@ const styles = StyleSheet.create({
   fillImage:       { width: '100%', height: '100%' },
 
   itemLabel:       { fontWeight: '600', color: '#000', marginTop: 8, paddingHorizontal: 6, textAlign: 'center' },
-
-  itemIdText:      { color: '#0062AA', fontWeight: '700', marginTop: 2, paddingHorizontal: 6, textAlign: 'center' },
 
   itemPrice:       { color: '#666', fontWeight: '500', marginTop: 2 },
 
@@ -980,8 +1033,6 @@ const styles = StyleSheet.create({
   sheetAddBadgeText: { fontSize: 12, fontWeight: '500', color: '#000', marginRight: 4 },
   sheetAddPlus:    { fontSize: 14, fontWeight: '500', color: '#000' },
   sheetTitle:      { marginTop: 18, marginHorizontal: 18, fontSize: 24, fontWeight: '600', color: '#000' },
-
-  sheetItemId:     { marginTop: 4, marginHorizontal: 18, fontSize: 14, fontWeight: '700', color: '#0062AA' },
 
   sheetPrice:      { marginTop: 8, marginHorizontal: 18, fontSize: 16, fontWeight: '400', color: '#000' },
   remarkInputWrap: { marginTop: 14, marginHorizontal: 18, borderWidth: 2, borderColor: '#0062AA', borderRadius: 8, height: 54, justifyContent: 'center' },

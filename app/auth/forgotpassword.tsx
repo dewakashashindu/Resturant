@@ -51,7 +51,7 @@ export default function ForgotPasswordScreen() {
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* ── DECORATIVE CIRCLES ── */}
+      {/*  DECORATIVE CIRCLES  */}
       <View style={[styles.topCircle, {
         width:  isTablet ? 220 : 146,
         height: isTablet ? 220 : 146,
@@ -62,7 +62,7 @@ export default function ForgotPasswordScreen() {
         height: isTablet ? 240 : 182,
       }]} />
 
-      {/* ── LOGO ── */}
+      {/* LOGO */}
       <View style={[styles.logoContainer, { marginTop: logoMT }]}>
         <Image
           source={require('../../assets/images/CAPTURE 1.png')}
@@ -71,7 +71,7 @@ export default function ForgotPasswordScreen() {
         />
       </View>
 
-      {/* ── HEADER ── */}
+      {/* HEADER */}
       <View style={{ marginTop: headerMT }}>
         <Text style={[styles.title, { fontSize: titleFs }]}>
           Forgot Password?
@@ -81,7 +81,7 @@ export default function ForgotPasswordScreen() {
         </Text>
       </View>
 
-      {/* ── OTP NOTE ── */}
+      {/* OTP NOTE */}
       <View style={[styles.noteContainer, { marginTop: noteMT }]}>
         <Text style={[styles.noteText, { fontSize: noteFs }]}>
           Please verify your account using{'\n'}
@@ -90,7 +90,7 @@ export default function ForgotPasswordScreen() {
         </Text>
       </View>
 
-      {/* ── USERNAME INPUT ── */}
+      {/* USERNAME INPUT */}
       <View style={{ marginTop: inputMT }}>
         <TextInput
           placeholder="Username"
@@ -105,7 +105,7 @@ export default function ForgotPasswordScreen() {
         />
       </View>
 
-      {/* ── BUTTON ── */}
+      {/*BUTTON */}
       <TouchableOpacity
         style={[
           styles.button,
@@ -119,7 +119,7 @@ export default function ForgotPasswordScreen() {
         </Text>
       </TouchableOpacity>
 
-      {/* ── SIGN UP LINK ── */}
+      {/*  SIGN UP LINK */}
       <View style={[styles.signupContainer, { marginTop: signupMT }]}>
         <Text style={[styles.signupText, { fontSize: signupFs }]}>
           Don't have an account?
@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
 
-  // ── DECORATIVE CIRCLES ──────────────────────────
+  
   topCircle: {
     position: 'absolute',
     borderRadius: 999,
@@ -155,12 +155,12 @@ const styles = StyleSheet.create({
     right: -50,
   },
 
-  // ── LOGO ────────────────────────────────────────
+  
   logoContainer: {
     alignItems: 'center',
   },
 
-  // ── TEXT ────────────────────────────────────────
+  
   title: {
     fontWeight: '600',
     color: '#000',
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
     color: '#555',
   },
 
-  // ── NOTE ────────────────────────────────────────
+  
   noteContainer: {
     alignItems: 'center',
   },
@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // ── INPUT ───────────────────────────────────────
+ 
   input: {
     width: '100%',
     borderWidth: 1.5,
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
 
-  // ── BUTTON ──────────────────────────────────────
+  
   button: {
     width: '100%',
     backgroundColor: '#0062AA',
@@ -205,7 +205,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // ── SIGN UP ─────────────────────────────────────
+  
   signupContainer: {
     flexDirection: 'row',
     justifyContent: 'center',

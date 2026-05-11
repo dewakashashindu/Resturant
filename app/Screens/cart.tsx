@@ -2,18 +2,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    FlatList,
-    Image,
-    Modal,
-    SafeAreaView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    useWindowDimensions,
-    View,
+  FlatList,
+  Image,
+  Modal,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  useWindowDimensions,
+  View,
 } from 'react-native';
 
 interface CartItem {
@@ -287,6 +287,7 @@ export default function CartScreen() {
         data={cartItems}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
+        style={{ flex: 1 }}
         contentContainerStyle={[
           styles.listContent,
           { paddingHorizontal: hPad, paddingBottom: listBottomPad },
@@ -294,6 +295,17 @@ export default function CartScreen() {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>Your cart is empty</Text>
+          </View>
+        }
+        ListFooterComponent={
+          <View style={[styles.addMoreWrap, { paddingHorizontal: hPad }]}> 
+            <TouchableOpacity
+              style={styles.addMoreBtn}
+              activeOpacity={0.85}
+              onPress={() => router.push(`/Screens/selectitems${tableId ? `?tableId=${encodeURIComponent(String(tableId))}` : ''}` as never)}
+            >
+              <Text style={styles.addMoreText}>Add More</Text>
+            </TouchableOpacity>
           </View>
         }
       />
@@ -308,7 +320,7 @@ export default function CartScreen() {
             {total.toFixed(2)}
           </Text>
         </View>
-        <TouchableOpacity style={[styles.confirmBtn, { height: btnH }]}>
+        <TouchableOpacity style={[styles.confirmBtn, { height: btnH }]} onPress={() => router.push('/Screens/BillingScreen' as never)} activeOpacity={0.85}>
           <Text style={[styles.confirmText, { fontSize: isTablet ? 24 : isSmall ? 16 : 18 }]}>
             Confirm
           </Text>
@@ -363,6 +375,9 @@ const styles = StyleSheet.create({
   listContent:        { paddingHorizontal: 16, paddingBottom: 100 },
   emptyContainer:     { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   emptyText:          { color: '#999', fontSize: 16, fontWeight: '500' },
+  addMoreWrap:        { marginTop: 8, marginBottom: 4 },
+  addMoreBtn:         { height: 52, borderRadius: 12, borderWidth: 1.5, borderColor: '#002748', backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+  addMoreText:        { color: '#002748', fontSize: 16, fontWeight: '700' },
   itemContainer:      { marginTop: 24 },
   itemHeader:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   itemName:           { fontWeight: '500', color: 'black' },

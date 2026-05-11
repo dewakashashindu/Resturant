@@ -1,15 +1,15 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    Image,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    useWindowDimensions,
-    View
+  Image,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View
 } from 'react-native';
 
 type TableStatus = 'occupied' | 'reserved' | 'available';
@@ -241,9 +241,17 @@ const tables = floorTables[selectedFloor] || [];
                 table.status === 'available' && styles.tableCardAvailable,
               ]}
               onPress={() => {
-                if (table.status === 'available') {
-                  router.push('/Screens/paxcount');
+                if (table.status === 'occupied') {
+                  router.push('/Screens/selectitems');
+                  return;
                 }
+
+                if (table.status === 'reserved') {
+                  router.push('/Screens/paxcount');
+                  return;
+                }
+
+                router.push('/Screens/paxcount');
               }}
             >
               {table.status === 'available' ? (

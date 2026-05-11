@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons'; // ← ADD
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -14,41 +15,40 @@ import {
 } from 'react-native';
 
 export default function SignUpScreen() {
-  const [username, setUsername]               = useState('');
-  const [phoneNumber, setPhoneNumber]         = useState('');
-  const [password, setPassword]               = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [username,         setUsername]         = useState('');
+  const [phoneNumber,      setPhoneNumber]      = useState('');
+  const [password,         setPassword]         = useState('');
+  const [confirmPassword,  setConfirmPassword]  = useState('');
+  const [showPassword,     setShowPassword]     = useState(false); // ← ADD
+  const [showConfirm,      setShowConfirm]      = useState(false); // ← ADD
+
   const router = useRouter();
   const { width, height } = useWindowDimensions();
 
-  // ── BREAKPOINTS ────────────────────────────────
   const isTablet = width  >= 600;
   const isSmall  = height < 700;
 
-  // ── RESPONSIVE VALUES (matches login.tsx) ──────
   const logoW       = isTablet ? 280 : isSmall ? 160 : Math.min(220, width * 0.7);
   const logoH       = isTablet ? 90  : isSmall ? 50  : 75;
   const logoMT      = isTablet ? 60  : isSmall ? 24  : 40;
-
   const titleFs     = isTablet ? 48  : isSmall ? 20  : 24;
   const subtitleFs  = isTablet ? 24  : isSmall ? 13  : 14;
-  const headerMT    = isTablet ? 50 : isSmall ? 16  : 28;
-
+  const headerMT    = isTablet ? 50  : isSmall ? 16  : 28;
   const inputH      = isTablet ? 72  : isSmall ? 44  : 54;
   const inputFs     = isTablet ? 24  : isSmall ? 14  : 16;
   const inputMT     = isTablet ? 24  : isSmall ? 12  : 16;
   const inputRadius = isTablet ? 16  : 12;
-
   const btnH        = isTablet ? 72  : isSmall ? 44  : 54;
   const btnFs       = isTablet ? 24  : isSmall ? 17  : 20;
   const btnMT       = isTablet ? 32  : isSmall ? 16  : 24;
   const btnRadius   = isTablet ? 16  : 12;
-
-  const signupFs    = isTablet ? 24 : isSmall ? 13  : 14;
+  const signupFs    = isTablet ? 24  : isSmall ? 13  : 14;
   const signupMT    = isTablet ? 24  : isSmall ? 14  : 20;
   const hPad        = isTablet ? 40  : 20;
-  const isPasswordLengthValid = password.length >= 4 && password.length <= 8;
-  const showMismatchMessage = confirmPassword.length > 0 && password !== confirmPassword;
+  const eyeSize     = isTablet ? 26  : 22; // ← ADD
+
+  const isPasswordLengthValid  = password.length >= 4 && password.length <= 8;
+  const showMismatchMessage    = confirmPassword.length > 0 && password !== confirmPassword;
 
   const handleSignUp = () => {
     if (!username || !password || !confirmPassword || !phoneNumber) {
@@ -71,7 +71,6 @@ export default function SignUpScreen() {
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* ── DECORATIVE CIRCLES ── */}
       <View style={[styles.topCircle, {
         width:  isTablet ? 220 : 150,
         height: isTablet ? 220 : 150,
@@ -82,7 +81,6 @@ export default function SignUpScreen() {
         height: isTablet ? 240 : 180,
       }]} />
 
-      {/* ── LOGO ── */}
       <View style={[styles.logoContainer, { marginTop: logoMT }]}>
         <Image
           source={require('../../assets/images/CAPTURE 1.png')}
@@ -91,17 +89,14 @@ export default function SignUpScreen() {
         />
       </View>
 
-      {/* ── HEADER ── */}
       <View style={{ marginTop: headerMT }}>
-        <Text style={[styles.title, { fontSize: titleFs }]}>
-          Create Account
-        </Text>
+        <Text style={[styles.title, { fontSize: titleFs }]}>Create Account</Text>
         <Text style={[styles.subtitle, { fontSize: subtitleFs }]}>
           Enter your details to sign up.
         </Text>
       </View>
 
-      {/* ── USERNAME ── */}
+      {/* ── USERNAME — unchanged ── */}
       <View style={{ marginTop: inputMT }}>
         <TextInput
           placeholder="Username"
@@ -113,7 +108,7 @@ export default function SignUpScreen() {
         />
       </View>
 
-      {/* ── PHONE ── */}
+      {/* ── PHONE — unchanged ── */}
       <View style={{ marginTop: inputMT }}>
         <TextInput
           placeholder="Phone Number"
@@ -125,37 +120,61 @@ export default function SignUpScreen() {
         />
       </View>
 
-      {/* ── PASSWORD ── */}
+      {/* ── PASSWORD — added eye button ── */}
       <View style={{ marginTop: inputMT }}>
-        <TextInput
-          placeholder="Password"
-          placeholderTextColor="rgba(0,0,0,0.4)"
-          secureTextEntry
-          style={[styles.input, { height: inputH, fontSize: inputFs, borderRadius: inputRadius }]}
-          value={password}
-          onChangeText={setPassword}
-        />
+        <View style={[styles.inputWrapper, { height: inputH, borderRadius: inputRadius }]}>
+          <TextInput
+            placeholder="Password"
+            placeholderTextColor="rgba(0,0,0,0.4)"
+            secureTextEntry={!showPassword}
+            style={[styles.inputInner, { fontSize: inputFs }]}
+            value={password}
+            onChangeText={setPassword}
+          />
+          <TouchableOpacity
+            style={styles.eyeBtn}
+            onPress={() => setShowPassword(v => !v)}
+          >
+            <Ionicons
+              name={showPassword ? 'eye' : 'eye-off'}
+              size={eyeSize}
+              color="rgba(0,0,0,0.5)"
+            />
+          </TouchableOpacity>
+        </View>
         {!isPasswordLengthValid && password.length > 0 && (
           <Text style={styles.validationText}>Password must be 4 to 8 characters.</Text>
         )}
       </View>
 
-      {/* ── CONFIRM PASSWORD ── */}
+      {/* ── CONFIRM PASSWORD — added eye button ── */}
       <View style={{ marginTop: inputMT }}>
-        <TextInput
-          placeholder="Confirm Password"
-          placeholderTextColor="rgba(0,0,0,0.4)"
-          secureTextEntry
-          style={[styles.input, { height: inputH, fontSize: inputFs, borderRadius: inputRadius }]}
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-        />
+        <View style={[styles.inputWrapper, { height: inputH, borderRadius: inputRadius }]}>
+          <TextInput
+            placeholder="Confirm Password"
+            placeholderTextColor="rgba(0,0,0,0.4)"
+            secureTextEntry={!showConfirm}
+            style={[styles.inputInner, { fontSize: inputFs }]}
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+          />
+          <TouchableOpacity
+            style={styles.eyeBtn}
+            onPress={() => setShowConfirm(v => !v)}
+          >
+            <Ionicons
+              name={showConfirm ? 'eye' : 'eye-off'}
+              size={eyeSize}
+              color="rgba(0,0,0,0.5)"
+            />
+          </TouchableOpacity>
+        </View>
         {showMismatchMessage && (
           <Text style={styles.mismatchText}>Passwords do not match.</Text>
         )}
       </View>
 
-      {/* ── SIGN UP BUTTON ── */}
+      {/* ── SIGN UP BUTTON — unchanged ── */}
       <TouchableOpacity
         style={[styles.signUpButton, { height: btnH, borderRadius: btnRadius, marginTop: btnMT }]}
         onPress={handleSignUp}
@@ -164,15 +183,13 @@ export default function SignUpScreen() {
         <Text style={[styles.signUpText, { fontSize: btnFs }]}>Sign Up</Text>
       </TouchableOpacity>
 
-      {/* ── SIGN IN LINK ── */}
+      {/* ── SIGN IN LINK — unchanged ── */}
       <View style={[styles.footerContainer, { marginTop: signupMT }]}>
         <Text style={[styles.footerText, { fontSize: signupFs }]}>
           Already have an account?
         </Text>
         <TouchableOpacity onPress={() => router.push('/auth/login')}>
-          <Text style={[styles.signInText, { fontSize: signupFs }]}>
-            {' '}Sign In
-          </Text>
+          <Text style={[styles.signInText, { fontSize: signupFs }]}>{' '}Sign In</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -180,42 +197,14 @@ export default function SignUpScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
+  container:    { flex: 1, backgroundColor: '#FFFFFF' },
+  topCircle:    { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(97,145,185,0.54)', left: -60 },
+  bottomCircle: { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(97,145,185,0.54)', bottom: -50, right: -60 },
+  logoContainer:{ alignItems: 'center' },
+  title:        { fontWeight: '600', color: '#000', marginBottom: 6 },
+  subtitle:     { color: '#555' },
 
-  // ── DECORATIVE CIRCLES ──────────────────────────
-  topCircle: {
-    position: 'absolute',
-    borderRadius: 110,
-    backgroundColor: 'rgba(97,145,185,0.54)',
-    left: -60,
-  },
-  bottomCircle: {
-    position: 'absolute',
-    borderRadius: 110,
-    backgroundColor: 'rgba(97,145,185,0.54)',
-    bottom: -50,
-    right: -60,
-  },
-
-  // ── LOGO ────────────────────────────────────────
-  logoContainer: {
-    alignItems: 'center',
-  },
-
-  // ── TEXT ────────────────────────────────────────
-  title: {
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 6,
-  },
-  subtitle: {
-    color: '#555',
-  },
-
-  // ── INPUT ───────────────────────────────────────
+  // ── PLAIN INPUT (username & phone) — unchanged ──
   input: {
     width: '100%',
     borderWidth: 1.5,
@@ -225,40 +214,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
 
-  // ── BUTTON ──────────────────────────────────────
-  signUpButton: {
+  // ── PASSWORD WRAPPER with eye button ────────────
+  inputWrapper: {
     width: '100%',
-    backgroundColor: '#0062AA',
+    borderWidth: 1.5,
+    borderColor: '#075EA7',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    backgroundColor: '#fff',
+  },
+  inputInner: {
+    flex: 1,
+    color: '#000',
+    height: '100%',
+  },
+  eyeBtn: {
+    paddingLeft: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  signUpText: {
-    color: '#fff',
-    fontWeight: '700',
-  },
-  mismatchText: {
-    marginTop: 8,
-    color: '#D64545',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  validationText: {
-    marginTop: 8,
-    color: '#D64545',
-    fontSize: 13,
-    fontWeight: '500',
-  },
 
-  // ── FOOTER ──────────────────────────────────────
-  footerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  footerText: {
-    color: '#3B4054',
-  },
-  signInText: {
-    color: '#075EA7',
-    fontWeight: '600',
-  },
+  signUpButton:   { width: '100%', backgroundColor: '#0062AA', justifyContent: 'center', alignItems: 'center' },
+  signUpText:     { color: '#fff', fontWeight: '700' },
+  validationText: { marginTop: 8, color: '#D64545', fontSize: 13, fontWeight: '500' },
+  mismatchText:   { marginTop: 8, color: '#D64545', fontSize: 13, fontWeight: '500' },
+  footerContainer:{ flexDirection: 'row', justifyContent: 'center' },
+  footerText:     { color: '#3B4054' },
+  signInText:     { color: '#075EA7', fontWeight: '600' },
 });

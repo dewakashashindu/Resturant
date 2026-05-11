@@ -6,7 +6,7 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export const unstable_settings = {
-  anchor: '(tabs)',
+  anchor: 'auth/login',
 };
 
 export default function RootLayout() {
@@ -27,7 +27,10 @@ export default function RootLayout() {
    <Stack.Screen name="Screens/paxcount" options={{ headerShown: false }} />
     <Stack.Screen name="Screens/selectitems" options={{ headerShown: false }} />
     <Stack.Screen name="Screens/cart" options={{ headerShown: false }} />
-   
+    <Stack.Screen name="Screens/settings" options={{ headerShown: false }} />
+    <Stack.Screen name="auth/changepassword" options={{ headerShown: false }} />
+<Stack.Screen name="Screens/BillingScreen" options={{ headerShown: false }} />
+
 </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>
