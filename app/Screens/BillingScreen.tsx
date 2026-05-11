@@ -25,7 +25,7 @@ export default function BillingScreen() {
   const { tableId } = useLocalSearchParams<{ tableId: string }>();
   const { width, height } = useWindowDimensions();
 
-  // ── SAMPLE DATA ──────────────────────────────
+  // SAMPLE DATA 
   const [billItems, setBillItems] = useState<BillItem[]>([
     { id: '1', name: 'Orange Juice',   price: 1250, quantity: 1 },
     { id: '2', name: 'Chicken Burger', price: 1300, quantity: 3 },
@@ -35,7 +35,7 @@ export default function BillingScreen() {
   const isTablet = width  >= 600;
   const isSmall  = height < 700;
 
-  // ── RESPONSIVE ───────────────────────────────
+  // RESPONSIVE 
   const hPad        = isTablet ? 40  : 16;
   const headerH     = isTablet ? 110 : isSmall ? 80 : 100;
   const backIconSize= isTablet ? 22  : isSmall ? 14 : 34;
@@ -52,7 +52,7 @@ export default function BillingScreen() {
   const qtySize     = isTablet ? 20  : isSmall ? 14 : 16;
   const qtyBtnSize  = isTablet ? 28  : isSmall ? 20 : 24;
 
-  // ── UPDATE QUANTITY ──────────────────────────
+  //  UPDATE QUANTITY 
   const updateQuantity = (itemId: string, delta: number) => {
     setBillItems(prev =>
       prev.map(item =>
@@ -65,7 +65,7 @@ export default function BillingScreen() {
 
   const grossTotal = billItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-  // ── DATE & TIME ──────────────────────────────
+  // DATE & TIME 
   const now     = new Date();
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', day: '2-digit', year: 'numeric' });
@@ -74,7 +74,7 @@ export default function BillingScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFF" />
 
-      {/* ── HEADER ── */}
+      {/* HEADER  */}
       <View style={[styles.header, { height: headerH, paddingHorizontal: hPad }]}>
         <TouchableOpacity
           style={[styles.backButton, { width: backBtnSize, height: backBtnSize, borderRadius: backBtnSize / 2 }]}
@@ -97,7 +97,7 @@ export default function BillingScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, { paddingHorizontal: hPad, paddingBottom: 120 }]}
       >
-        {/* ── LOGO ── */}
+        {/*  LOGO */}
         <View style={styles.logoContainer}>
           <Image
             source={require('../../assets/images/CAPTURE 1.png')}
@@ -106,7 +106,7 @@ export default function BillingScreen() {
           />
         </View>
 
-        {/* ── TABLE & DATE ── */}
+        {/* TABLE & DATE */}
         <Text style={[styles.tableNumber, { fontSize: tableFs }]}>
           Table Number - {tableId ?? 'GF 05'}
         </Text>
@@ -114,10 +114,10 @@ export default function BillingScreen() {
           {timeStr}{'  '}{dateStr}
         </Text>
 
-        {/* ── DIVIDER ── */}
+        {/* DIVIDER*/}
         <View style={styles.topDivider} />
 
-        {/* ── BILL ITEMS ── */}
+        {/* BILL ITEMS  */}
         {billItems.map((item) => (
           <View key={item.id} style={styles.itemRow}>
             {/* Name */}
@@ -154,7 +154,7 @@ export default function BillingScreen() {
         {/* ── BOTTOM DIVIDER ── */}
         <View style={styles.bottomDivider} />
 
-        {/* ── GROSS TOTAL ── */}
+        {/* GROSS TOTAL */}
         <View style={styles.totalRow}>
           <Text style={[styles.totalLabel, { fontSize: totalFs }]}>
             Gross Total (Lkr)
@@ -205,18 +205,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // ── CONTENT ─────────────────────────────────────
+  
   content: {
     paddingTop: 16,
   },
 
-  // ── LOGO ────────────────────────────────────────
+  
   logoContainer: {
     alignItems: 'center',
     marginBottom: 12,
   },
 
-  // ── TABLE & DATE ────────────────────────────────
+  
   tableNumber: {
     fontWeight: '500',
     color: '#000',
@@ -230,14 +230,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  // ── TOP DIVIDER ─────────────────────────────────
   topDivider: {
     height: 1,
     backgroundColor: 'rgba(0,0,0,0.15)',
     marginBottom: 16,
   },
 
-  // ── ITEM ROW ────────────────────────────────────
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -255,7 +253,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
   },
 
-  // ── QTY PILL ────────────────────────────────────
+
   qtyPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -273,7 +271,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  // ── BOTTOM DIVIDER ──────────────────────────────
+  
   bottomDivider: {
     height: 5,
     backgroundColor: 'rgba(0,0,0,0.2)',
@@ -281,7 +279,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
 
-  // ── TOTAL ROW ───────────────────────────────────
+
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -297,7 +295,7 @@ const styles = StyleSheet.create({
     color: '#000',
   },
 
-  // ── FOOTER ──────────────────────────────────────
+  
   footer: {
     position: 'absolute',
     bottom: 0,
@@ -307,7 +305,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
 
-  // PRINT BUTTON 
+  
   printBtn: {
     backgroundColor: '#8D9ED4',
     borderRadius: 12,

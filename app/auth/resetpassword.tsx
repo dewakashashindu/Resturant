@@ -78,7 +78,7 @@ export default function ResetPasswordScreen() {
         </Text>
       </View>
 
-      {/* ── PASSWORD — added eye button ── */}
+      {/*PASSWORD*/}
       <View style={{ marginTop: inputMT }}>
         <View style={[styles.inputWrapper, { height: inputH, borderRadius: inputRadius }]}>
           <TextInput
@@ -105,7 +105,7 @@ export default function ResetPasswordScreen() {
         )}
       </View>
 
-      {/* ── CONFIRM PASSWORD — added eye button ── */}
+      {/* CONFIRM PASSWORD */}
       <View style={{ marginTop: inputMT }}>
         <View style={[styles.inputWrapper, { height: inputH, borderRadius: inputRadius }]}>
           <TextInput
@@ -132,7 +132,7 @@ export default function ResetPasswordScreen() {
         )}
       </View>
 
-      {/* ── RESET BUTTON ── */}
+      {/* RESET BUTTON */}
       <TouchableOpacity
         style={[styles.button, { height: btnH, borderRadius: btnRadius, marginTop: btnMT }]}
         onPress={() => {
@@ -150,7 +150,7 @@ export default function ResetPasswordScreen() {
         onSignIn={() => router.push('/auth/login')}
       />
 
-      {/* ── SIGN UP LINK — unchanged ── */}
+      {/* SIGN UP LINK — unchanged */}
       <View style={[styles.signupContainer, { marginTop: signupMT }]}>
         <Text style={[styles.signupText, { fontSize: signupFs }]}>
           Don't have an account?
@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
   title:        { fontWeight: '600', color: '#000', marginBottom: 8 },
   subtitle:     { color: '#555' },
 
-  // ── PASSWORD WRAPPER with eye button ────────────
+  // PASSWORD WRAPPER with eye button 
   inputWrapper: {
     width: '100%',
     borderWidth: 1.5,

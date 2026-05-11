@@ -82,7 +82,7 @@ export default function LoginScreen() {
         </Text>
       </View>
 
-      {/* ── USERNAME — unchanged ── */}
+      {/* USERNAME — unchanged */}
       <View style={{ marginTop: inputMT }}>
         <TextInput
           placeholder="Username"
@@ -94,7 +94,7 @@ export default function LoginScreen() {
         />
       </View>
 
-      {/* ── PASSWORD — added eye button ── */}
+      {/* PASSWORD — added eye button */}
       <View style={{ marginTop: inputMT }}>
         <View style={[styles.inputWrapper, { height: inputH, borderRadius: inputRadius }]}>
           <TextInput
@@ -151,7 +151,7 @@ const styles = StyleSheet.create({
   title:        { fontWeight: '600', color: '#000', marginBottom: 6 },
   subtitle:     { color: '#555' },
 
-  // ── USERNAME input (unchanged) ──────────────────
+  // USERNAME input 
   input: {
     width: '100%',
     borderWidth: 1.5,
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
 
-  // ── PASSWORD wrapper with eye button ────────────
+  // PASSWORD wrapper with eye button 
   inputWrapper: {
     width: '100%',
     borderWidth: 1.5,

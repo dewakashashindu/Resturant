@@ -96,7 +96,7 @@ export default function SignUpScreen() {
         </Text>
       </View>
 
-      {/* ── USERNAME — unchanged ── */}
+      {/* USERNAME */}
       <View style={{ marginTop: inputMT }}>
         <TextInput
           placeholder="Username"
@@ -108,7 +108,7 @@ export default function SignUpScreen() {
         />
       </View>
 
-      {/* ── PHONE — unchanged ── */}
+      {/*PHONE */}
       <View style={{ marginTop: inputMT }}>
         <TextInput
           placeholder="Phone Number"
@@ -120,7 +120,7 @@ export default function SignUpScreen() {
         />
       </View>
 
-      {/* ── PASSWORD — added eye button ── */}
+      {/*PASSWORD  */}
       <View style={{ marginTop: inputMT }}>
         <View style={[styles.inputWrapper, { height: inputH, borderRadius: inputRadius }]}>
           <TextInput
@@ -147,7 +147,7 @@ export default function SignUpScreen() {
         )}
       </View>
 
-      {/* ── CONFIRM PASSWORD — added eye button ── */}
+      {/* CONFIRM PASSWORD — added eye button */}
       <View style={{ marginTop: inputMT }}>
         <View style={[styles.inputWrapper, { height: inputH, borderRadius: inputRadius }]}>
           <TextInput
@@ -174,7 +174,7 @@ export default function SignUpScreen() {
         )}
       </View>
 
-      {/* ── SIGN UP BUTTON — unchanged ── */}
+      {/* SIGN UP BUTTON — unchanged */}
       <TouchableOpacity
         style={[styles.signUpButton, { height: btnH, borderRadius: btnRadius, marginTop: btnMT }]}
         onPress={handleSignUp}
@@ -204,7 +204,7 @@ const styles = StyleSheet.create({
   title:        { fontWeight: '600', color: '#000', marginBottom: 6 },
   subtitle:     { color: '#555' },
 
-  // ── PLAIN INPUT (username & phone) — unchanged ──
+
   input: {
     width: '100%',
     borderWidth: 1.5,
@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
 
-  // ── PASSWORD WRAPPER with eye button ────────────
+  
   inputWrapper: {
     width: '100%',
     borderWidth: 1.5,
