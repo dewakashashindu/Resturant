@@ -21,17 +21,14 @@ export default function DefineTableScreen() {
   const isTablet = width >= 600;
   const isSmall  = height < 700;
 
-  // ── RESPONSIVE VALUES ──────────────────────────
   const hPad          = isTablet ? 24 : 16;
   const headerMT      = Platform.OS === 'android' ? (isTablet ? 20 : 16) : 10;
   const headerTitleFs = isTablet ? 32 : 24;
   const backIconSize  = isTablet ? 56 : 44;
 
-  // Card fills most of screen width (same as ModeSelection)
   const cardW         = isTablet ? width * 0.90 : width - hPad * 2;
   const innerPad      = isTablet ? 32 : 24;
 
-  // Inner element sizes
   const tableImgSize  = isTablet ? 140 : isSmall ? 90  : 110;
   const imgMB         = isTablet ? 40  : isSmall ? 20  : 30;
   const inputH        = isTablet ? 60  : isSmall ? 48  : 54;
@@ -40,11 +37,22 @@ export default function DefineTableScreen() {
   const btnFs         = isTablet ? 22  : isSmall ? 17  : 20;
   const btnIconSize   = isTablet ? 32  : isSmall ? 18  : 24;
 
+  // ── Handle Forward Navigation with data ──────────────────────────────────
+  const handleNext = () => {
+    // Optional check: Ensure the user typed a name before going forward
+    if (!tableName.trim()) return; 
+
+    router.push({
+      pathname: '/Screens/paxcount',
+      params: { tableName: tableName.trim() } // Forwarding the variable here
+    });
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#FFFFFF" barStyle="dark-content" />
 
-      {/* ── BACK BUTTON (absolute, same as ModeSelection) ── */}
+      {/* BACK BUTTON */}
       <TouchableOpacity
         style={styles.backButtonAbsolute}
         onPress={() => router.back()}
@@ -56,17 +64,16 @@ export default function DefineTableScreen() {
         />
       </TouchableOpacity>
 
-      {/* ── WRAPPER: centers header + card ── */}
       <View style={styles.contentWrapper}>
 
-        {/* ── HEADER ── */}
+        {/* HEADER */}
         <View style={[styles.header, { marginTop: headerMT, paddingHorizontal: hPad }]}>
           <Text style={[styles.headerTitle, { fontSize: headerTitleFs }]}>
             Define a Table
           </Text>
         </View>
 
-        {/* ── MAIN CARD ── */}
+        {/* MAIN CARD */}
         <View style={[styles.mainCard, { width: cardW, padding: innerPad }]}>
 
           {/* Table Image */}
@@ -92,7 +99,7 @@ export default function DefineTableScreen() {
           <TouchableOpacity
             style={[styles.nextButton, { height: btnH, marginTop: isSmall ? 16 : 24 }]}
             activeOpacity={0.8}
-            onPress={() => router.push('/Screens/paxcount')}
+            onPress={handleNext} // Calls the routing function with parameters
           >
             <Text style={[styles.nextText, { fontSize: btnFs }]}>Next</Text>
             <Image
@@ -113,25 +120,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
-
-  // ── BACK BUTTON ─────────────────────────────────
-  // Matches ModeSelection exactly
   backButtonAbsolute: {
-   position: 'absolute',
-  left: 24,
-  top: 100,
-  zIndex: 10,
-    },
-
-  // ── WRAPPER ─────────────────────────────────────
-  // Same as ModeSelection — centers everything
+    position: 'absolute',
+    left: 24,
+    top: 100,
+    zIndex: 10,
+  },
   contentWrapper: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-
-  // ── HEADER ──────────────────────────────────────
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -143,9 +142,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000',
   },
-
-  // ── MAIN CARD ───────────────────────────────────
-  // Same shadow/radius as ModeSelection
   mainCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -154,15 +150,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.12,
     shadowRadius: 8,
-    alignItems: 'center',   // centers image horizontally
+    alignItems: 'center',   
   },
-
-  // ── TABLE IMAGE ─────────────────────────────────
   tableImage: {
     alignSelf: 'center',
   },
-
-  // ── INPUT ───────────────────────────────────────
   input: {
     width: '100%',
     borderWidth: 1.5,
@@ -172,8 +164,6 @@ const styles = StyleSheet.create({
     color: '#000',
     backgroundColor: '#FAFAFA',
   },
-
-  // ── NEXT BUTTON ─────────────────────────────────
   nextButton: {
     width: '100%',
     backgroundColor: '#0062AA',

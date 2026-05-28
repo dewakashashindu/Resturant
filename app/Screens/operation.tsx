@@ -1,15 +1,15 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
 import {
-    Image,
-    Platform,
-    SafeAreaView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    useWindowDimensions,
-    View,
+  Image,
+  Platform,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
 } from 'react-native';
 
 export default function ModeSelectionScreen() {
@@ -17,27 +17,24 @@ export default function ModeSelectionScreen() {
   const { width, height } = useWindowDimensions();
 
   const isTablet = width >= 600;
-  const isSmall  = height < 700;
+  const isSmall = height < 700;
 
-  // ── RESPONSIVE VALUES 
-  const hPad         = isTablet ? 24 : 16;
-  const headerMT     = Platform.OS === 'android' ? (isTablet ? 20 : 16) : 10;
-  const headerTitleFs= isTablet ? 32 : 24;
+  const hPad = isTablet ? 24 : 16;
+  const headerMT = Platform.OS === 'android' ? (isTablet ? 20 : 16) : 10;
+  const headerTitleFs = isTablet ? 32 : 24;
   const backIconSize = isTablet ? 56 : 44;
 
-  // Main card fills most of screen width
-  const cardW        = isTablet ? width * 0.90 : width - hPad * 2;
+  const cardW = isTablet ? width * 0.9 : width - hPad * 2;
 
-  // Mode card: 2 per row inside main card, with gap
-  const innerPad     = isTablet ? 24 : 16;
-  const modeGap      = isTablet ? 20 : 14;
-  const modeCardW    = (cardW - innerPad * 2 - modeGap) / 2;
-  const modeCardH    = isTablet ? modeCardW * 0.72 : modeCardW * 0.80;
+  const innerPad = isTablet ? 24 : 16;
+  const modeGap = isTablet ? 20 : 14;
+  const modeCardW = (cardW - innerPad * 2 - modeGap) / 2;
+  const modeCardH = isTablet ? modeCardW * 0.72 : modeCardW * 0.8;
 
-  const iconSize     = isTablet ? modeCardW * 0.45 : modeCardW * 0.48;
-  const labelFs      = isTablet ? 18 : 12;
-  const labelPadH    = isTablet ? 32 : 16;
-  const labelPadV    = isTablet ? 8  : 4;
+  const iconSize = isTablet ? modeCardW * 0.45 : modeCardW * 0.48;
+  const labelFs = isTablet ? 18 : 12;
+  const labelPadH = isTablet ? 32 : 16;
+  const labelPadV = isTablet ? 8 : 4;
 
   const modes = [
     {
@@ -66,11 +63,15 @@ export default function ModeSelectionScreen() {
     },
   ];
 
+  const handleBillPress = () => {
+    router.push('/Screens/BillingScreen');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#F3F3F3" />
 
-      {/* ── BACK BUTTON ── */}
+      {/* BACK BUTTON */}
       <TouchableOpacity
         style={styles.backButtonAbsolute}
         onPress={() => router.back()}
@@ -82,16 +83,30 @@ export default function ModeSelectionScreen() {
         />
       </TouchableOpacity>
 
-      {/* ── WRAPPER: Centers header + card together ── */}
       <View style={styles.contentWrapper}>
-        {/* ── HEADER ── */}
-        <View style={[styles.header, { marginTop: headerMT, paddingHorizontal: hPad }]}>
-          <Text style={[styles.headerTitle, { fontSize: headerTitleFs }]}>
+        {/* HEADER */}
+        <View
+          style={[
+            styles.header,
+            {
+              marginTop: headerMT,
+              paddingHorizontal: hPad,
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.headerTitle,
+              {
+                fontSize: headerTitleFs,
+              },
+            ]}
+          >
             Mode Selection
           </Text>
         </View>
 
-        {/* ── MAIN CARD ── */}
+        {/* MAIN CARD */}
         <View
           style={[
             styles.mainCard,
@@ -120,16 +135,31 @@ export default function ModeSelectionScreen() {
               >
                 <Image
                   source={mode.image}
-                  style={{ width: iconSize, height: iconSize, marginBottom: isTablet ? 16 : 12 }}
+                  style={{
+                    width: iconSize,
+                    height: iconSize,
+                    marginBottom: isTablet ? 16 : 12,
+                  }}
                   resizeMode="contain"
                 />
+
                 <View
                   style={[
                     styles.labelContainer,
-                    { paddingHorizontal: labelPadH, paddingVertical: labelPadV },
+                    {
+                      paddingHorizontal: labelPadH,
+                      paddingVertical: labelPadV,
+                    },
                   ]}
                 >
-                  <Text style={[styles.label, { fontSize: labelFs }]}>
+                  <Text
+                    style={[
+                      styles.label,
+                      {
+                        fontSize: labelFs,
+                      },
+                    ]}
+                  >
                     {mode.label}
                   </Text>
                 </View>
@@ -137,6 +167,20 @@ export default function ModeSelectionScreen() {
             ))}
           </View>
         </View>
+
+        {/* BILL BUTTON */}
+        <TouchableOpacity
+          style={[
+            styles.billButton,
+            {
+              width: cardW,
+              marginTop: 18,
+            },
+          ]}
+          onPress={handleBillPress}
+        >
+          <Text style={styles.billText}>Bill</Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -148,66 +192,79 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F3F3',
   },
 
-header: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  justifyContent: 'center',
-  paddingTop: 16,      
-  paddingBottom: 16,
-  position: 'relative',
-},
+  backButtonAbsolute: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? 12 : 8,
+    left: 12,
+    zIndex: 10,
+    padding: 8,
+  },
 
-backButtonAbsolute: {
-  position: 'absolute',
-  left: 24,
-  top: 100,
-  zIndex: 10,
-  
-},
+  header: {
+    alignItems: 'center',
+    marginBottom: 18,
+  },
 
-headerTitle: {
-  fontWeight: '600',
-  color: '#000',
-  fontSize: 22,
-},
+  headerTitle: {
+    fontWeight: '600',
+    color: '#000',
+    fontSize: 22,
+  },
 
-  
   contentWrapper: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
 
-  // ── MAIN CARD ─────────────────────────────────
   mainCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
+
     elevation: 5,
+
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: {
+      width: 0,
+      height: 3,
+    },
     shadowOpacity: 0.12,
     shadowRadius: 8,
   },
 
-  // ── GRID ──────────────────────────────────────
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
   },
 
-  // ── MODE CARD ─────────────────────────────────
   modeCard: {
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
+
   labelContainer: {
     backgroundColor: '#000',
     borderRadius: 20,
   },
+
   label: {
     color: '#fff',
     fontWeight: '600',
+  },
+
+  billButton: {
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: '#002748',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  billText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
   },
 });

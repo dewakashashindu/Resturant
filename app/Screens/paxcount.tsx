@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
     Image,
@@ -12,17 +12,23 @@ import {
     useWindowDimensions,
     View,
 } from 'react-native';
+import { useCartStore } from '../../services/cartStore';
 
 export default function PaxCountScreen() {
   const router = useRouter();
+  const clearCart = useCartStore((state) => state.clearCart);
   const { width, height } = useWindowDimensions();
+  
+  // ── 1. RECEIVE THE TABLE NAME AND FLOOR FROM THE PREVIOUS SCREEN ──
+  const { tableName, floor } = useLocalSearchParams<{ tableName: string; floor?: string }>();
+
   const [localPax, setLocalPax]   = useState('');
   const [foreignPax, setForeignPax] = useState('');
 
   const isTablet = width  >= 600;
   const isSmall  = height < 700;
 
-  // ── RESPONSIVE VALUES (same pattern as DefineTable) ──
+  // ── RESPONSIVE VALUES ──
   const hPad          = isTablet ? 24 : 16;
   const headerMT      = Platform.OS === 'android' ? (isTablet ? 20 : 16) : 10;
   const headerTitleFs = isTablet ? 32 : 24;
@@ -38,6 +44,8 @@ export default function PaxCountScreen() {
   const btnH          = isTablet ? 60  : isSmall ? 48  : 54;
   const btnFs         = isTablet ? 22  : isSmall ? 17  : 20;
   const inputMB       = isTablet ? 16  : isSmall ? 10  : 12;
+  
+  // Validates that at least one of the inputs contains text
   const canContinue   = localPax.trim() !== '' || foreignPax.trim() !== '';
 
   return (
@@ -107,16 +115,25 @@ export default function PaxCountScreen() {
 
           {/* Confirm Button */}
           <TouchableOpacity
-            style={[styles.nextButton, { height: btnH, marginTop: isSmall ? 8 : 12 }]}
+            style={[
+              styles.nextButton, 
+              { height: btnH, marginTop: isSmall ? 8 : 12 },
+              !canContinue && styles.disabledButton // Visual indicator if disabled
+            ]}
             activeOpacity={0.8}
             onPress={() => {
               if (!canContinue) return;
 
+              clearCart();
+
+              // ── 2. FORWARD ALL VARIABLES TOGETHER, INCLUDING FLOOR ──
               router.push({
                 pathname: '/Screens/selectitems',
                 params: {
+                  tableName: tableName || '', // Carried over from the previous screen
                   localPax: localPax.trim() || '0',
                   foreignPax: foreignPax.trim() || '0',
+                  floor: floor || '',
                 },
               });
             }}
@@ -136,23 +153,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
-
-  // ── BACK BUTTON ─────────────────────────────────
   backButtonAbsolute: {
     position: 'absolute',
     left: 24,
     top: 100,
     zIndex: 10,
   },
-
-  // ── WRAPPER ─────────────────────────────────────
   contentWrapper: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-
-  // ── HEADER ──────────────────────────────────────
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -164,8 +175,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000',
   },
-
-  // ── MAIN CARD ───────────────────────────────────
   mainCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -176,13 +185,9 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     alignItems: 'center',
   },
-
-  // ── IMAGE ───────────────────────────────────────
   tableImage: {
     alignSelf: 'center',
   },
-
-  // ── INPUT ───────────────────────────────────────
   input: {
     width: '100%',
     borderWidth: 1.5,
@@ -192,8 +197,6 @@ const styles = StyleSheet.create({
     color: '#000',
     backgroundColor: '#FAFAFA',
   },
-
-  // ── BUTTON ──────────────────────────────────────
   nextButton: {
     width: '100%',
     backgroundColor: '#0062AA',
@@ -202,6 +205,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 10,
+  },
+  disabledButton: {
+    backgroundColor: '#A0C4DF', // Greys out slightly if inputs are empty
   },
   nextText: {
     color: '#FFF',

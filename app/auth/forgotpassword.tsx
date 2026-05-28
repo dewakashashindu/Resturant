@@ -1,16 +1,17 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Image,
-  SafeAreaView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  useWindowDimensions,
-  View,
+    Image,
+    SafeAreaView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    useWindowDimensions,
+    View
 } from 'react-native';
+import { apiClient } from '../../services/api';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
@@ -47,6 +48,36 @@ export default function ForgotPasswordScreen() {
   const signupMT    = isTablet ? 24  : isSmall ? 14  : 18;
   const hPad        = isTablet ? 40  : 20;
 
+  const [phoneNumber, setPhoneNumber] = useState('');
+const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    if (!username.trim()) {
+      setMessage('');
+      setPhoneNumber('');
+      return;
+    }
+
+    const validateUsername = async () => {
+      try {
+        const response = await apiClient.forgotPassword(username);
+          if (response.ok) {
+            setPhoneNumber(response.data.phoneNumber);
+            setMessage(`Please verify your account using the OTP that will be sent to ${response.data.phoneNumber}.`);
+          } else {
+            setMessage('Please enter valid username');
+            setPhoneNumber('');
+          }
+        } catch (e) {
+          const error: any = e as any;
+          setMessage('Please enter valid username');
+          setPhoneNumber('');
+      }
+    };
+
+    validateUsername();
+  }, [username]);
+
   return (
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
@@ -81,15 +112,6 @@ export default function ForgotPasswordScreen() {
         </Text>
       </View>
 
-      {/* OTP NOTE */}
-      <View style={[styles.noteContainer, { marginTop: noteMT }]}>
-        <Text style={[styles.noteText, { fontSize: noteFs }]}>
-          Please verify your account using{'\n'}
-          the OTP that will be sent to{' '}
-          <Text style={styles.boldText}>07*****131.</Text>
-        </Text>
-      </View>
-
       {/* USERNAME INPUT */}
       <View style={{ marginTop: inputMT }}>
         <TextInput
@@ -105,19 +127,31 @@ export default function ForgotPasswordScreen() {
         />
       </View>
 
-      {/*BUTTON */}
-      <TouchableOpacity
-        style={[
-          styles.button,
-          { height: btnH, borderRadius: btnRadius, marginTop: btnMT },
-        ]}
-        onPress={() => router.push('/auth/resetpassword')}
-        activeOpacity={0.85}
-      >
-        <Text style={[styles.buttonText, { fontSize: btnFs }]}>
-          Check Username
-        </Text>
-      </TouchableOpacity>
+      {/* OTP NOTE */}
+     {message !== '' && (
+  <View style={[styles.noteContainer, { marginTop: noteMT }]}>
+    <Text style={[styles.noteText, { fontSize: noteFs }]}>{message}</Text>
+  </View>
+)}
+
+      {/* RESET PASSWORD BUTTON - Only show if valid username */}
+      {phoneNumber && (
+        <TouchableOpacity
+          style={[
+            styles.button,
+            { height: btnH, borderRadius: btnRadius, marginTop: btnMT },
+          ]}
+          onPress={() => router.push({
+            pathname: '/auth/resetpassword',
+            params: { username },
+          })}
+          activeOpacity={0.85}
+        >
+          <Text style={[styles.buttonText, { fontSize: btnFs }]}>
+            Proceed to Reset
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/*  SIGN UP LINK */}
       <View style={[styles.signupContainer, { marginTop: signupMT }]}>

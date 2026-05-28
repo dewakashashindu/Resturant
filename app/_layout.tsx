@@ -1,9 +1,14 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync();
 
 export const unstable_settings = {
   anchor: 'auth/login',
@@ -12,26 +17,41 @@ export const unstable_settings = {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
+  useEffect(() => {
+    // Hide the splash screen after a short delay or when your app is ready
+    const prepare = async () => {
+      try {
+        // You can add font loading or API calls here
+        await new Promise(resolve => setTimeout(resolve, 2000)); 
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        await SplashScreen.hideAsync(); //
+      }
+    };
+
+    prepare();
+  }, []);
+
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      
-       <Stack initialRouteName="auth/login">
-  <Stack.Screen name="auth/login" options={{ headerShown: false }} />
-  <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
-  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-  <Stack.Screen name="auth/forgotpassword" options={{ headerShown: false }} />
-   <Stack.Screen name="auth/resetpassword" options={{ headerShown: false }} />
-  <Stack.Screen name="Screens/operation" options={{ headerShown: false }} />
-  <Stack.Screen name="Screens/tableselection" options={{ headerShown: false }} />
-  <Stack.Screen name="Screens/definetable" options={{ headerShown: false }} />
-   <Stack.Screen name="Screens/paxcount" options={{ headerShown: false }} />
-    <Stack.Screen name="Screens/selectitems" options={{ headerShown: false }} />
-    <Stack.Screen name="Screens/cart" options={{ headerShown: false }} />
-    <Stack.Screen name="Screens/settings" options={{ headerShown: false }} />
-    <Stack.Screen name="auth/changepassword" options={{ headerShown: false }} />
-<Stack.Screen name="Screens/BillingScreen" options={{ headerShown: false }} />
-
-</Stack>
+      <Stack initialRouteName="auth/login">
+        <Stack.Screen name="auth/login" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/forgotpassword" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/resetpassword" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/operation" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/tableselection" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/definetable" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/paxcount" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/selectitems" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/cart" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/settings" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/changepassword" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/BillingScreen" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/manageaccess" options={{ headerShown: false }} />
+      </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>
   );

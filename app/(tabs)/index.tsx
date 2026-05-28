@@ -1,21 +1,42 @@
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-    Image,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    useWindowDimensions,
-    View,
+  Image,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
 } from 'react-native';
+import { useAuthStore } from '../../services/authStore';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
+ 
+  const [currentDate, setCurrentDate] = useState(new Date());
 
+  const userName = useAuthStore((state) => state.user?.userName);
+  const displayName = userName ? `Mr. ${userName}` : 'Mr. Perera';
+
+  useEffect(() => {
+    const id = setInterval(() => setCurrentDate(new Date()), 60 * 1000);
+    return () => {
+      clearInterval(id);
+    };
+  }, []);
+
+  const formattedDate = currentDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: '2-digit', year: 'numeric' });
+  const getGreeting = (d: Date) => {
+    const h = d.getHours();
+    if (h < 12) return 'Good Morning,';
+    if (h < 17) return 'Good Afternoon,';
+    return 'Good Evening,';
+  };
+  const greetingText = getGreeting(currentDate);
   const isTablet  = width >= 600;
   const isSmall   = height < 680;
 
@@ -114,18 +135,12 @@ export default function HomeScreen() {
           {/* GREETING ROW */}
           <View style={styles.headerRow}>
             <View>
-              <Text style={[styles.greeting, { fontSize: greetSize }]}>
-                Good Morning,
-              </Text>
-              <Text style={[styles.name, { fontSize: nameSize }]}>
-                Mr. Perera
-              </Text>
+              <Text style={[styles.greeting, { fontSize: greetSize }]}>{greetingText}</Text>
+              <Text style={[styles.name, { fontSize: nameSize }]}>{displayName}</Text>
             </View>
 
             <View style={styles.dateContainer}>
-              <Text style={[styles.dateText, { fontSize: dateSize }]}>
-                Tuesday, May 05 2026
-              </Text>
+              <Text style={[styles.dateText, { fontSize: dateSize }]}>{formattedDate}</Text>
             </View>
           </View>
         </View>

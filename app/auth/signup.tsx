@@ -1,26 +1,31 @@
-import { Ionicons } from '@expo/vector-icons'; // ← ADD
+import { apiClient } from '@/services/api';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  Alert,
-  Image,
-  SafeAreaView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  useWindowDimensions,
-  View,
+    Image,
+    SafeAreaView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    useWindowDimensions,
+    View,
 } from 'react-native';
 
 export default function SignUpScreen() {
-  const [username,         setUsername]         = useState('');
-  const [phoneNumber,      setPhoneNumber]      = useState('');
-  const [password,         setPassword]         = useState('');
-  const [confirmPassword,  setConfirmPassword]  = useState('');
-  const [showPassword,     setShowPassword]     = useState(false); // ← ADD
-  const [showConfirm,      setShowConfirm]      = useState(false); // ← ADD
+  const [username,        setUsername]        = useState('');
+  const [phoneNumber,     setPhoneNumber]     = useState('');
+  const [password,        setPassword]        = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword,    setShowPassword]    = useState(false);
+  const [showConfirm,     setShowConfirm]     = useState(false);
+
+  const [usernameError,  setUsernameError]  = useState('');
+  const [phoneError,     setPhoneError]     = useState('');
+  const [passwordError,  setPasswordError]  = useState('');
+  const [confirmError,   setConfirmError]   = useState('');
 
   const router = useRouter();
   const { width, height } = useWindowDimensions();
@@ -45,28 +50,146 @@ export default function SignUpScreen() {
   const signupFs    = isTablet ? 24  : isSmall ? 13  : 14;
   const signupMT    = isTablet ? 24  : isSmall ? 14  : 20;
   const hPad        = isTablet ? 40  : 20;
-  const eyeSize     = isTablet ? 26  : 22; // ← ADD
+  const eyeSize     = isTablet ? 26  : 22;
 
-  const isPasswordLengthValid  = password.length >= 4 && password.length <= 8;
-  const showMismatchMessage    = confirmPassword.length > 0 && password !== confirmPassword;
+  // ─── Patterns ────────────────────────────────────────────────────────────
+  const usernamePattern = /^[A-Za-z0-9]+$/;
+  const passwordPattern = /^[A-Za-z0-9!@#]+$/;
+  const phonePattern    = /^[0-9]+$/;
 
-  const handleSignUp = () => {
-    if (!username || !password || !confirmPassword || !phoneNumber) {
-      Alert.alert('Error', 'Please fill all fields');
-      return;
+  // ─── Validators (real-time) ───────────────────────────────────────────────
+  const validateUsername = (value: string): boolean => {
+    if (!value) {
+      setUsernameError('');
+      return false;
     }
-    if (!isPasswordLengthValid) {
-      Alert.alert('Error', 'Password must be 4 to 8 characters');
-      return;
+    if (!usernamePattern.test(value)) {
+      setUsernameError('Username can only contain letters and numbers. Symbols are not allowed.');
+      return false;
     }
-    if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
+    if (value.length < 4) {
+      setUsernameError('Username must be at least 4 characters.');
+      return false;
     }
-    Alert.alert('Success', 'Account Created Successfully');
-    router.push('/auth/login');
+    if (value.length > 8) {
+      setUsernameError('Username must be no more than 8 characters.');
+      return false;
+    }
+    setUsernameError('');
+    return true;
   };
 
+  const validatePhone = (value: string): boolean => {
+    if (!value) {
+      setPhoneError('');
+      return false;
+    }
+    if (!phonePattern.test(value)) {
+      setPhoneError('Phone number can only contain digits.');
+      return false;
+    }
+    if (value.length < 10) {
+      setPhoneError('Phone number must be exactly 10 digits.');
+      return false;
+    }
+    setPhoneError('');
+    return true;
+  };
+
+  const validatePassword = (value: string): boolean => {
+    if (!value) {
+      setPasswordError('');
+      return false;
+    }
+    if (!passwordPattern.test(value)) {
+      setPasswordError('Password can only contain letters, numbers, and ! @ #');
+      return false;
+    }
+    if (value.length < 4) {
+      setPasswordError('Password must be at least 4 characters.');
+      return false;
+    }
+    if (value.length > 8) {
+      setPasswordError('Password must be no more than 8 characters.');
+      return false;
+    }
+    setPasswordError('');
+    return true;
+  };
+
+  const validateConfirm = (value: string, pw: string): boolean => {
+    if (!value) {
+      setConfirmError('');
+      return false;
+    }
+    if (value !== pw) {
+      setConfirmError('Passwords do not match.');
+      return false;
+    }
+    setConfirmError('');
+    return true;
+  };
+
+  // ─── Final check on tap (catches empty fields) ────────────────────────────
+  const validateAll = (): boolean => {
+    let valid = true;
+
+    if (!username.trim()) {
+      setUsernameError('Please enter a username.');
+      valid = false;
+    } else if (!validateUsername(username)) {
+      valid = false;
+    }
+
+    if (!phoneNumber.trim()) {
+      setPhoneError('Please enter your phone number.');
+      valid = false;
+    } else if (!validatePhone(phoneNumber)) {
+      valid = false;
+    }
+
+    if (!password.trim()) {
+      setPasswordError('Please enter a password.');
+      valid = false;
+    } else if (!validatePassword(password)) {
+      valid = false;
+    }
+
+    if (!confirmPassword.trim()) {
+      setConfirmError('Please confirm your password.');
+      valid = false;
+    } else if (!validateConfirm(confirmPassword, password)) {
+      valid = false;
+    }
+
+    return valid;
+  };
+
+  // ─── Sign up handler ──────────────────────────────────────────────────────
+  const handleSignUp = async () => {
+    if (!validateAll()) return;
+
+    try {
+      const result = await apiClient.signup(username, password, phoneNumber);
+
+      if (!result.ok) {
+        const msg: string = result.data?.message ?? '';
+        if (msg.toLowerCase().includes('username')) {
+          setUsernameError(msg);
+        } else {
+          setPasswordError(msg || 'Signup failed. Please try again.');
+        }
+        return;
+      }
+
+      router.push('/auth/login');
+    } catch (e) {
+      const err: any = e as any;
+      setPasswordError('Something went wrong. Please try again.');
+    }
+  };
+
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
@@ -96,45 +219,98 @@ export default function SignUpScreen() {
         </Text>
       </View>
 
-      {/* USERNAME */}
+      {/* ── USERNAME ── */}
       <View style={{ marginTop: inputMT }}>
         <TextInput
           placeholder="Username"
           placeholderTextColor="rgba(0,0,0,0.4)"
-          style={[styles.input, { height: inputH, fontSize: inputFs, borderRadius: inputRadius }]}
-          value={username}
-          onChangeText={setUsername}
           autoCapitalize="none"
+          autoCorrect={false}
+          style={[
+            styles.input,
+            {
+              height:       inputH,
+              fontSize:     inputFs,
+              borderRadius: inputRadius,
+              borderColor:  usernameError ? '#D32F2F' : '#075EA7',
+            },
+          ]}
+          value={username}
+          onChangeText={(text) => {
+            // Block symbols from being typed at all
+            const filtered = text.replace(/[^A-Za-z0-9]/g, '');
+            // Block beyond 8 chars
+            const trimmed = filtered.slice(0, 8);
+            setUsername(trimmed);
+            validateUsername(trimmed);
+          }}
         />
+        {usernameError ? (
+          <View style={styles.errorRow}>
+            <Ionicons name="alert-circle" size={14} color="#D32F2F" style={{ marginTop: 1 }} />
+            <Text style={styles.errorText}>{usernameError}</Text>
+          </View>
+        ) : null}
       </View>
 
-      {/*PHONE */}
+      {/* ── PHONE ── */}
       <View style={{ marginTop: inputMT }}>
         <TextInput
           placeholder="Phone Number"
           placeholderTextColor="rgba(0,0,0,0.4)"
-          keyboardType="phone-pad"
-          style={[styles.input, { height: inputH, fontSize: inputFs, borderRadius: inputRadius }]}
+          keyboardType="number-pad"
+          maxLength={10}
+          style={[
+            styles.input,
+            {
+              height:       inputH,
+              fontSize:     inputFs,
+              borderRadius: inputRadius,
+              borderColor:  phoneError ? '#D32F2F' : '#075EA7',
+            },
+          ]}
           value={phoneNumber}
-          onChangeText={setPhoneNumber}
+          onChangeText={(text) => {
+            // Strip any non-digit (safety net on top of number-pad)
+            const digits = text.replace(/[^0-9]/g, '').slice(0, 10);
+            setPhoneNumber(digits);
+            validatePhone(digits);
+          }}
         />
+        {phoneError ? (
+          <View style={styles.errorRow}>
+            <Ionicons name="alert-circle" size={14} color="#D32F2F" style={{ marginTop: 1 }} />
+            <Text style={styles.errorText}>{phoneError}</Text>
+          </View>
+        ) : null}
       </View>
 
-      {/*PASSWORD  */}
+      {/* ── PASSWORD ── */}
       <View style={{ marginTop: inputMT }}>
-        <View style={[styles.inputWrapper, { height: inputH, borderRadius: inputRadius }]}>
+        <View
+          style={[
+            styles.inputWrapper,
+            {
+              height:       inputH,
+              borderRadius: inputRadius,
+              borderColor:  passwordError ? '#D32F2F' : '#075EA7',
+            },
+          ]}
+        >
           <TextInput
             placeholder="Password"
             placeholderTextColor="rgba(0,0,0,0.4)"
             secureTextEntry={!showPassword}
             style={[styles.inputInner, { fontSize: inputFs }]}
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(text) => {
+              setPassword(text);
+              validatePassword(text);
+              // Re-validate confirm if already typed
+              if (confirmPassword) validateConfirm(confirmPassword, text);
+            }}
           />
-          <TouchableOpacity
-            style={styles.eyeBtn}
-            onPress={() => setShowPassword(v => !v)}
-          >
+          <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(v => !v)}>
             <Ionicons
               name={showPassword ? 'eye' : 'eye-off'}
               size={eyeSize}
@@ -142,26 +318,38 @@ export default function SignUpScreen() {
             />
           </TouchableOpacity>
         </View>
-        {!isPasswordLengthValid && password.length > 0 && (
-          <Text style={styles.validationText}>Password must be 4 to 8 characters.</Text>
-        )}
+        {passwordError ? (
+          <View style={styles.errorRow}>
+            <Ionicons name="alert-circle" size={14} color="#D32F2F" style={{ marginTop: 1 }} />
+            <Text style={styles.errorText}>{passwordError}</Text>
+          </View>
+        ) : null}
       </View>
 
-      {/* CONFIRM PASSWORD — added eye button */}
+      {/* ── CONFIRM PASSWORD ── */}
       <View style={{ marginTop: inputMT }}>
-        <View style={[styles.inputWrapper, { height: inputH, borderRadius: inputRadius }]}>
+        <View
+          style={[
+            styles.inputWrapper,
+            {
+              height:       inputH,
+              borderRadius: inputRadius,
+              borderColor:  confirmError ? '#D32F2F' : '#075EA7',
+            },
+          ]}
+        >
           <TextInput
             placeholder="Confirm Password"
             placeholderTextColor="rgba(0,0,0,0.4)"
             secureTextEntry={!showConfirm}
             style={[styles.inputInner, { fontSize: inputFs }]}
             value={confirmPassword}
-            onChangeText={setConfirmPassword}
+            onChangeText={(text) => {
+              setConfirmPassword(text);
+              validateConfirm(text, password);
+            }}
           />
-          <TouchableOpacity
-            style={styles.eyeBtn}
-            onPress={() => setShowConfirm(v => !v)}
-          >
+          <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowConfirm(v => !v)}>
             <Ionicons
               name={showConfirm ? 'eye' : 'eye-off'}
               size={eyeSize}
@@ -169,12 +357,15 @@ export default function SignUpScreen() {
             />
           </TouchableOpacity>
         </View>
-        {showMismatchMessage && (
-          <Text style={styles.mismatchText}>Passwords do not match.</Text>
-        )}
+        {confirmError ? (
+          <View style={styles.errorRow}>
+            <Ionicons name="alert-circle" size={14} color="#D32F2F" style={{ marginTop: 1 }} />
+            <Text style={styles.errorText}>{confirmError}</Text>
+          </View>
+        ) : null}
       </View>
 
-      {/* SIGN UP BUTTON — unchanged */}
+      {/* ── SIGN UP BUTTON ── */}
       <TouchableOpacity
         style={[styles.signUpButton, { height: btnH, borderRadius: btnRadius, marginTop: btnMT }]}
         onPress={handleSignUp}
@@ -183,7 +374,7 @@ export default function SignUpScreen() {
         <Text style={[styles.signUpText, { fontSize: btnFs }]}>Sign Up</Text>
       </TouchableOpacity>
 
-      {/* ── SIGN IN LINK — unchanged ── */}
+      {/* ── SIGN IN LINK ── */}
       <View style={[styles.footerContainer, { marginTop: signupMT }]}>
         <Text style={[styles.footerText, { fontSize: signupFs }]}>
           Already have an account?
@@ -197,49 +388,60 @@ export default function SignUpScreen() {
 }
 
 const styles = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#FFFFFF' },
-  topCircle:    { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(97,145,185,0.54)', left: -60 },
-  bottomCircle: { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(97,145,185,0.54)', bottom: -50, right: -60 },
-  logoContainer:{ alignItems: 'center' },
-  title:        { fontWeight: '600', color: '#000', marginBottom: 6 },
-  subtitle:     { color: '#555' },
-
+  container:     { flex: 1, backgroundColor: '#FFFFFF' },
+  topCircle:     { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(97,145,185,0.54)', left: -60 },
+  bottomCircle:  { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(97,145,185,0.54)', bottom: -50, right: -60 },
+  logoContainer: { alignItems: 'center' },
+  title:         { fontWeight: '600', color: '#000', marginBottom: 6 },
+  subtitle:      { color: '#555' },
 
   input: {
-    width: '100%',
-    borderWidth: 1.5,
-    borderColor: '#075EA7',
+    width:             '100%',
+    borderWidth:       1.5,
     paddingHorizontal: 16,
-    color: '#000',
-    backgroundColor: '#fff',
+    color:             '#000',
+    backgroundColor:   '#fff',
   },
 
-  
   inputWrapper: {
-    width: '100%',
-    borderWidth: 1.5,
-    borderColor: '#075EA7',
-    flexDirection: 'row',
-    alignItems: 'center',
+    width:             '100%',
+    borderWidth:       1.5,
+    flexDirection:     'row',
+    alignItems:        'center',
     paddingHorizontal: 16,
-    backgroundColor: '#fff',
+    backgroundColor:   '#fff',
   },
+
   inputInner: {
-    flex: 1,
-    color: '#000',
+    flex:   1,
+    color:  '#000',
     height: '100%',
   },
+
   eyeBtn: {
-    paddingLeft: 8,
+    paddingLeft:    8,
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems:     'center',
   },
 
-  signUpButton:   { width: '100%', backgroundColor: '#0062AA', justifyContent: 'center', alignItems: 'center' },
-  signUpText:     { color: '#fff', fontWeight: '700' },
-  validationText: { marginTop: 8, color: '#D64545', fontSize: 13, fontWeight: '500' },
-  mismatchText:   { marginTop: 8, color: '#D64545', fontSize: 13, fontWeight: '500' },
-  footerContainer:{ flexDirection: 'row', justifyContent: 'center' },
-  footerText:     { color: '#3B4054' },
-  signInText:     { color: '#075EA7', fontWeight: '600' },
+  errorRow: {
+    flexDirection: 'row',
+    alignItems:    'flex-start',
+    gap:           4,
+    marginTop:     6,
+    paddingLeft:   2,
+  },
+
+  errorText: {
+    color:    '#D32F2F',
+    fontSize: 13,
+    flex:     1,
+    flexWrap: 'wrap',
+  },
+
+  signUpButton:    { width: '100%', backgroundColor: '#0062AA', justifyContent: 'center', alignItems: 'center' },
+  signUpText:      { color: '#fff', fontWeight: '700' },
+  footerContainer: { flexDirection: 'row', justifyContent: 'center' },
+  footerText:      { color: '#3B4054' },
+  signInText:      { color: '#075EA7', fontWeight: '600' },
 });

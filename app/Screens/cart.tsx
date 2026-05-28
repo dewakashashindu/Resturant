@@ -1,11 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { default as React, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   Modal,
   SafeAreaView,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -15,22 +18,32 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-
-interface CartItem {
-  id: string;
-  name: string;
-  price: number;
-  quantity: number;
-  remark?: string;
-}
+import { apiClient } from '../../services/api';
+import { CartItem, useCartStore } from '../../services/cartStore';
+import { useOrderStore } from '../../services/orderStore';
 
 export default function CartScreen() {
   const router = useRouter();
-  const { tableId } = useLocalSearchParams<{ tableId: string }>();
+  const { tableName, tableId, localPax, foreignPax, floor, status } = useLocalSearchParams<{
+    tableName?: string;
+    tableId?: string;
+    localPax?: string;
+    foreignPax?: string;
+    floor?: string;
+    status?: string;
+  }>();
   const { width, height } = useWindowDimensions();
 
   const isTablet = width >= 600;
   const isSmall = height < 700;
+
+  const predefinedRemarks = [
+    'No Spicy',
+    'Extra Spicy',
+    'Less Sugar',
+    'No Onions',
+    'Takeaway'
+  ];
 
   const hPad = isTablet ? 40 : 16;
   const headerMT = isTablet ? 60 : isSmall ? 12 : 20;
@@ -45,109 +58,300 @@ export default function CartScreen() {
   const listBottomPad = isTablet ? 140 : 110;
   const footerPad = isTablet ? 24 : 16;
 
-  // ── ONLY CHANGED: table badge responsive ──────
   const badgeFs   = isTablet ? 14 : isSmall ? 11 : 12;
   const badgePadH = isTablet ? 16 : isSmall ? 10 : 12;
   const badgePadV = isTablet ? 8  : isSmall ? 5  : 6;
 
-  const [cartItems, setCartItems] = useState<CartItem[]>([
-    { id: '1', name: 'Orange juice',   price: 1250, quantity: 1 },
-    { id: '2', name: 'Chicken Burger', price: 1300, quantity: 1 },
-  ]);
+  const cartItems = useCartStore((state) => state.cartItems);
+  const updateQuantityInCart = useCartStore((state) => state.updateQuantity);
+  const clearCartInStore = useCartStore((state) => state.clearCart);
 
-  // ── ONLY CHANGED: renamed to dropdownVisible ──
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [remarkVisible, setRemarkVisible] = useState(false);
   const [activeRemarkItemId, setActiveRemarkItemId] = useState<string | null>(null);
+  const [activeRemarkItemName, setActiveRemarkItemName] = useState('');
   const [remarkDraft, setRemarkDraft] = useState('');
+  const [remarksByCode, setRemarksByCode] = useState<Record<string, string>>({});
+  const [modalTags, setModalTags] = useState<string[]>([]);
+  const [isViewingRemarkPresets, setIsViewingRemarkPresets] = useState(false);
+  const [remarkOptions, setRemarkOptions] = useState<string[]>(predefinedRemarks);
+  const [loadingRemarkOptions, setLoadingRemarkOptions] = useState(false);
+  const [editingTagIndex, setEditingTagIndex] = useState<number | null>(null);
+
+  const [confirming, setConfirming] = useState(false);
+
+  const displayTable = tableName ?? tableId ?? 'GF 1';
+  const displayLocalPax = localPax ?? '0';
+  const displayForeignPax = foreignPax ?? '0';
 
   const tableInfo = [
-    { label: 'Table',  value: tableId ?? 'GF 1'  },
-    { label: 'Status', value: 'Active'             },
-    { label: 'Floor',  value: 'Ground Floor'       },
+    { label: 'Table', value: displayTable },
+    { label: 'Floor', value: floor ?? '—' },
+    { label: 'Local Pax', value: displayLocalPax },
+    { label: 'Foreign Pax', value: displayForeignPax },
+    { label: 'Status', value: status ?? 'Active' },
   ];
 
-  const updateQuantity = (itemId: string, delta: number) => {
-    setCartItems(items =>
-      items
-        .map(item => item.id === itemId ? { ...item, quantity: item.quantity + delta } : item)
-        .filter(item => item.quantity > 0)
-    );
-  };
+  // Counts only unique types of items
+  const totalItemsCount = cartItems.length;
 
-  const removeItem = (itemId: string) => {
-    setCartItems(items => items.filter(item => item.id !== itemId));
-  };
-
-  const clearCart = () => setCartItems([]);
+  useEffect(() => {
+    void loadRemarkOptions();
+  }, []);
 
   const openRemarkModal = (item: CartItem) => {
-    setActiveRemarkItemId(item.id);
-    setRemarkDraft(item.remark ?? '');
+    setActiveRemarkItemId(item.menuItemCode);
+    setActiveRemarkItemName(item.menuItmDes);
+    const existing = (item.itemRemarks ?? remarksByCode[item.menuItemCode] ?? '').trim();
+    const parts = existing ? existing.split(',').map(s => s.trim()).filter(Boolean) : [];
+    setModalTags(parts);
+    setRemarkDraft('');
+    setEditingTagIndex(null);
+    setIsViewingRemarkPresets(false);
     setRemarkVisible(true);
   };
 
-  const saveRemark = () => {
-    if (!activeRemarkItemId) return;
-    setCartItems(items =>
-      items.map(item =>
-        item.id === activeRemarkItemId
-          ? { ...item, remark: remarkDraft.trim() }
-          : item
-      )
-    );
-    setRemarkVisible(false);
-    setActiveRemarkItemId(null);
+  const loadRemarkOptions = async () => {
+    setLoadingRemarkOptions(true);
+    try {
+      const descriptions = await apiClient.getOrderDescriptions();
+      console.log('Fetched database remarks:', descriptions);
+      if (descriptions.length > 0) {
+        setRemarkOptions(descriptions);
+      } else {
+        console.log('No database remarks found, using fallback presets.');
+        setRemarkOptions(predefinedRemarks);
+      }
+    } catch (error) {
+      console.log('Failed to fetch database remarks:', error);
+      setRemarkOptions(predefinedRemarks);
+    } finally {
+      setLoadingRemarkOptions(false);
+    }
   };
 
-  const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const editTag = (tag: string, index: number) => {
+    setRemarkDraft(tag);
+    setEditingTagIndex(index);
+    setModalTags(prev => prev.filter((_, i) => i !== index));
+  };
 
-  const renderItem = ({ item }: { item: CartItem }) => (
-    <View style={styles.itemContainer}>
-      <View style={styles.itemHeader}>
-        <Text style={[styles.itemName, { fontSize: itemTitleFs }]}>{item.name}</Text>
-        <TouchableOpacity onPress={() => removeItem(item.id)}>
-          <Ionicons name="trash-outline" size={isTablet ? 28 : 22} color="rgba(0,0,0,0.5)" />
-        </TouchableOpacity>
-      </View>
+  const addTag = (tag: string) => {
+    const t = String(tag || '').trim();
+    if (!t) return;
+    setModalTags(prev => {
+      if (editingTagIndex !== null) {
+        const next = [...prev];
+        const insertAt = Math.max(0, Math.min(editingTagIndex, next.length));
+        next.splice(insertAt, 0, t);
+        return next;
+      }
+      return prev.includes(t) ? prev : [...prev, t];
+    });
+    setRemarkDraft('');
+    setEditingTagIndex(null);
+    setIsViewingRemarkPresets(false);
+  };
 
-      <Text style={[styles.itemPrice, { fontSize: priceFs }]}>Lkr {item.price.toFixed(2)}</Text>
+  const removeTag = (tag: string) => {
+    setModalTags(prev => {
+      const removeIndex = prev.indexOf(tag);
+      if (removeIndex === -1) return prev;
+      const next = prev.filter((t, i) => i !== removeIndex);
+      setEditingTagIndex(current => {
+        if (current === null) return null;
+        if (current === removeIndex) return null;
+        return current > removeIndex ? current - 1 : current;
+      });
+      return next;
+    });
+  };
 
-      <View style={styles.itemFooter}>
-        <TouchableOpacity style={styles.remarkBtn} onPress={() => openRemarkModal(item)}>
-          <Text style={[styles.remarkText, { fontSize: remarkFs }]}>
-            {item.remark ? 'Edit Order Remark' : 'Add Order Remark'}
-          </Text>
-          {!!item.remark && (
-            <Text style={styles.remarkPreview} numberOfLines={1}>{item.remark}</Text>
-          )}
-        </TouchableOpacity>
+  const saveRemarks = () => {
+    if (!activeRemarkItemId) return;
+    const trimmedDraft = remarkDraft.trim();
+    const finalTags = [...modalTags];
 
-        <View style={styles.quantityContainer}>
-          <TouchableOpacity
-            style={[styles.qtyBtn, { width: qtyBtnSize, height: qtyBtnSize, borderRadius: qtyBtnSize / 2 }]}
-            onPress={() => updateQuantity(item.id, -1)}
-          >
-            <Text style={styles.qtyText}>-</Text>
-          </TouchableOpacity>
-          <Text style={[styles.qtyValue, { fontSize: qtyFs }]}>{item.quantity}</Text>
-          <TouchableOpacity
-            style={[styles.qtyBtn, { width: qtyBtnSize, height: qtyBtnSize, borderRadius: qtyBtnSize / 2 }]}
-            onPress={() => updateQuantity(item.id, 1)}
-          >
-            <Text style={styles.qtyText}>+</Text>
+    if (trimmedDraft) {
+      if (editingTagIndex !== null) {
+        const insertAt = Math.max(0, Math.min(editingTagIndex, finalTags.length));
+        finalTags.splice(insertAt, 0, trimmedDraft);
+      } else if (!finalTags.includes(trimmedDraft)) {
+        finalTags.push(trimmedDraft);
+      }
+    }
+
+    const compiled = finalTags.join(', ');
+    const currentItem = cartItems.find((item) => item.menuItemCode === activeRemarkItemId);
+
+    if (currentItem) {
+      useCartStore.getState().upsertCartItem({
+        menuItemCode: currentItem.menuItemCode,
+        menuItmDes: currentItem.menuItmDes,
+        salesPrice: currentItem.salesPrice,
+        quantity: currentItem.quantity,
+        itemRemarks: compiled,
+      });
+    }
+
+    setRemarksByCode(items => ({
+      ...items,
+      [activeRemarkItemId]: compiled,
+    }));
+    setRemarkVisible(false);
+    setActiveRemarkItemId(null);
+    setActiveRemarkItemName('');
+    setEditingTagIndex(null);
+    setIsViewingRemarkPresets(false);
+  };
+
+  const total = cartItems.reduce((sum, item) => sum + item.salesPrice * item.quantity, 0);
+
+  const removeItem = (item: CartItem) => {
+    updateQuantityInCart(item.menuItemCode, -item.quantity);
+    setRemarksByCode(items => {
+      const next = { ...items };
+      delete next[item.menuItemCode];
+      return next;
+    });
+  };
+
+  const handleConfirm = async () => {
+    if (!cartItems || cartItems.length === 0) {
+      Alert.alert('Cart is empty', 'Please add items before confirming.');
+      return;
+    }
+
+    const payload = {
+      tableNo: tableName ?? displayTable,
+      userId: 'SYSTEM',
+      tableGrpId: tableId ?? '',
+      lPax: Number(localPax ?? 0),
+      fPax: Number(foreignPax ?? 0),
+      items: cartItems.map((i) => ({
+        menuItemCode: i.menuItemCode,
+        quantity: i.quantity,
+        salesPrice: i.salesPrice,
+        itemRemarks: i.itemRemarks || remarksByCode[i.menuItemCode] || '',
+      })),
+    };
+
+    try {
+      setConfirming(true);
+      const res = await apiClient.confirmCart(payload);
+      console.log('confirmCart response', res);
+      if (res.ok || (res.data && res.data.ok)) {
+          // persist confirmed order details so Billing screen can show them
+          useOrderStore.getState().setLastConfirmedOrder({
+            ...payload,
+            items: payload.items.map((it) => ({
+              ...it,
+              salesPrice: cartItems.find(c => c.menuItemCode === it.menuItemCode)?.salesPrice ?? 0,
+              menuItmDes: cartItems.find(c => c.menuItemCode === it.menuItemCode)?.menuItmDes ?? '',
+            })),
+            createdAt: new Date().toISOString(),
+          });
+
+          // Keep cart intact so Billing -> Cart navigation shows live items instantly.
+          // clearCartInStore();
+          // setRemarksByCode({});
+        // Navigate to Billing screen with params
+        router.push({
+          pathname: '/Screens/BillingScreen',
+          params: {
+            tableName: tableName ?? displayTable,
+            localPax: displayLocalPax,
+            foreignPax: displayForeignPax,
+            floor: floor ?? '',
+            status: status ?? '',
+          },
+        });
+      } else {
+        console.error('confirmCart error', res.data);
+        const serverMsg = res.data && (res.data.message || JSON.stringify(res.data));
+        Alert.alert('Error', serverMsg || 'Failed to save order');
+      }
+    } catch {
+      const message = 'Failed to save order';
+      console.error('confirmCart exception', message);
+      Alert.alert('Error', message || 'Failed to save order');
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const decrementItem = (item: CartItem) => {
+    if (item.quantity <= 1) {
+      removeItem(item);
+      return;
+    }
+    updateQuantityInCart(item.menuItemCode, -1);
+  };
+
+  const incrementItem = (item: CartItem) => {
+    updateQuantityInCart(item.menuItemCode, 1);
+  };
+
+  const renderItem = ({ item }: { item: CartItem }) => {
+    // Calculate total price for this specific item based on quantity
+    const itemTotal = item.salesPrice * item.quantity;
+    const remarkText = (item.itemRemarks || remarksByCode[item.menuItemCode] || '').trim();
+
+    return (
+      <View style={styles.itemContainer}>
+        <View style={styles.itemHeader}>
+          <Text style={[styles.itemName, { fontSize: itemTitleFs }]}>{item.menuItmDes}</Text>
+          <TouchableOpacity onPress={() => removeItem(item)}>
+            <Ionicons name="trash-outline" size={isTablet ? 28 : 22} color="rgba(0,0,0,0.5)" />
           </TouchableOpacity>
         </View>
+
+        {/* Updated Price Layout: Single Price x Qty = Total Price */}
+        <Text style={[styles.itemPrice, { fontSize: priceFs }]}>
+          Lkr {item.salesPrice.toFixed(2)} × {item.quantity} = Lkr {itemTotal.toFixed(2)}
+        </Text>
+
+        {!!remarkText && (
+          <TouchableOpacity style={styles.itemRemarkBlock} activeOpacity={0.8} onPress={() => openRemarkModal(item)}>
+            <Text style={[styles.remarkPreview, { fontSize: remarkFs - 1 }]} numberOfLines={2}>
+              {remarkText}
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        <View style={styles.itemFooter}>
+          <TouchableOpacity style={styles.remarkBtn} onPress={() => openRemarkModal(item)}>
+            <Text style={[styles.remarkText, { fontSize: remarkFs }]}>
+              {remarkText ? 'Edit Order Remark' : 'Add Order Remark'}
+            </Text>
+          </TouchableOpacity>
+
+          <View style={styles.quantityContainer}>
+            <TouchableOpacity
+              style={[styles.qtyBtn, { width: qtyBtnSize, height: qtyBtnSize, borderRadius: qtyBtnSize / 2 }]}
+              onPress={() => decrementItem(item)}
+            >
+              <Text style={styles.qtyText}>-</Text>
+            </TouchableOpacity>
+            <Text style={[styles.qtyValue, { fontSize: qtyFs }]}>{item.quantity}</Text>
+            <TouchableOpacity
+              style={[styles.qtyBtn, { width: qtyBtnSize, height: qtyBtnSize, borderRadius: qtyBtnSize / 2 }]}
+              onPress={() => incrementItem(item)}
+            >
+              <Text style={styles.qtyText}>+</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        <View style={styles.divider} />
       </View>
-      <View style={styles.divider} />
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
 
-      {/* HEADER — unchanged */}
+      {/* HEADER */}
       <View style={[styles.header, { marginTop: headerMT, paddingHorizontal: hPad }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButtonAbsolute}>
           <Image
@@ -159,7 +363,6 @@ export default function CartScreen() {
 
         <Text style={[styles.headerTitle, { fontSize: titleFs }]}>Cart</Text>
 
-        {/* ── ONLY THIS PART CHANGED ── */}
         <TouchableOpacity
           style={[
             styles.tableBadge,
@@ -169,13 +372,13 @@ export default function CartScreen() {
           activeOpacity={0.8}
         >
           <Text style={[styles.tableBadgeText, { fontSize: badgeFs }]}>
-            {tableId ?? 'GF 1'}
+            {displayTable}
           </Text>
           <View style={styles.dropdownArrow} />
         </TouchableOpacity>
       </View>
 
-      {/* ── ONLY THIS PART CHANGED: modal matches selectitems ── */}
+      {/* TABLE INFO MODAL */}
       <Modal
         visible={dropdownVisible}
         transparent
@@ -193,7 +396,6 @@ export default function CartScreen() {
                   minWidth: isTablet ? 240 : 200,
                 },
               ]}>
-                {/* Dropdown Header */}
                 <View style={styles.dropdownHeader}>
                   <Text style={[styles.dropdownTitle, { fontSize: isTablet ? 16 : 14 }]}>
                     Table Info
@@ -207,7 +409,6 @@ export default function CartScreen() {
 
                 <View style={styles.ddDivider} />
 
-                {/* Info Rows */}
                 {tableInfo.map((info, i) => (
                   <View key={i} style={styles.dropdownRow}>
                     <Text style={[styles.dropdownLabel, { fontSize: isTablet ? 14 : 13 }]}>
@@ -221,11 +422,12 @@ export default function CartScreen() {
 
                 <View style={styles.ddDivider} />
 
-                {/* Change Table Button */}
                 <TouchableOpacity
                   style={[styles.changeTableBtn, { paddingVertical: isTablet ? 12 : 10 }]}
                   onPress={() => {
                     setDropdownVisible(false);
+                    clearCartInStore();
+                    setRemarksByCode({});
                     router.push('/Screens/tableselection');
                   }}
                 >
@@ -239,54 +441,129 @@ export default function CartScreen() {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* ORDER REMARK OVERLAY (like selectitems bottom overlay) */}
+      {/* ORDER REMARK OVERLAY */}
       <Modal
         visible={remarkVisible}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setRemarkVisible(false)}
       >
         <TouchableWithoutFeedback onPress={() => setRemarkVisible(false)}>
-          <View style={styles.sheetOverlay}>
+          <View style={styles.remarkModalOverlay}>
             <TouchableWithoutFeedback>
-              <View style={styles.bottomSheet}>
-                <View style={styles.sheetHandle} />
-                <Text style={styles.sheetTitle}>Order Remark</Text>
+              <View style={styles.remarkCard}>
+                {!isViewingRemarkPresets ? (
+                  <>
+                    <View style={styles.remarkCardHeader}>
+                      <Text style={styles.remarkCardHeaderTitle}>Order Remark</Text>
+                      <TouchableOpacity onPress={() => setRemarkVisible(false)} activeOpacity={0.8}>
+                        <Ionicons name="close" size={22} color="#0F172A" />
+                      </TouchableOpacity>
+                    </View>
 
-                <View style={styles.remarkInputWrap}>
-                  <TextInput
-                    value={remarkDraft}
-                    onChangeText={setRemarkDraft}
-                    placeholder="Type order remark"
-                    placeholderTextColor="rgba(0,0,0,0.5)"
-                    style={styles.remarkInput}
-                    multiline
-                    numberOfLines={3}
-                  />
-                </View>
+                    <View style={styles.remarkCardBody}>
+                      <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.remarkCardContent} style={styles.remarkScrollArea}>
+                        <View style={styles.tagsWrap}>
+                          {modalTags.map((t, index) => (
+                            <View key={`${t}-${index}`} style={styles.tagBadge}>
+                              <TouchableOpacity onPress={() => editTag(t, index)} style={styles.tagLabelBtn} activeOpacity={0.75}>
+                                <Text style={styles.tagText}>{t}</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => removeTag(t)} style={styles.tagClose}>
+                                <Ionicons name="close" size={14} color="#fff" />
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+                        </View>
 
-                <TouchableOpacity style={styles.saveRemarkBtn} onPress={saveRemark} activeOpacity={0.85}>
-                  <Text style={styles.saveRemarkText}>Save Remark</Text>
-                </TouchableOpacity>
+                        <View style={styles.remarkInputRow}>
+                          <View style={styles.remarkInputShell}>
+                            <TextInput
+                              value={remarkDraft}
+                              onChangeText={setRemarkDraft}
+                              placeholder="Type custom remark"
+                              placeholderTextColor="rgba(0,0,0,0.5)"
+                              style={styles.remarkInput}
+                            />
+                            <TouchableOpacity
+                              onPress={() => {
+                                setIsViewingRemarkPresets(true);
+                              }}
+                              style={styles.remarkDropdownIconBtn}
+                              activeOpacity={0.8}
+                            >
+                              <Ionicons name="chevron-down" size={20} color="#0062AA" />
+                            </TouchableOpacity>
+                          </View>
+
+                          <TouchableOpacity style={styles.addTagBtn} onPress={() => addTag(remarkDraft)}>
+                            <Text style={styles.addTagText}>Add Tag</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </ScrollView>
+
+                      <TouchableOpacity style={styles.saveRemarkBtn} onPress={saveRemarks} activeOpacity={0.85}>
+                        <Text style={styles.saveRemarkText}>Save Remarks</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.remarkCardHeader}>
+                      <TouchableOpacity onPress={() => setIsViewingRemarkPresets(false)} activeOpacity={0.8} style={styles.remarkHeaderIconBtn}>
+                        <Ionicons name="arrow-back" size={22} color="#0F172A" />
+                      </TouchableOpacity>
+                      <Text style={styles.remarkCardHeaderTitle}>Select Preset Remark</Text>
+                      <TouchableOpacity onPress={() => setRemarkVisible(false)} activeOpacity={0.8} style={styles.remarkHeaderIconBtn}>
+                        <Ionicons name="close" size={22} color="#0F172A" />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.presetsDivider} />
+
+                    {loadingRemarkOptions ? (
+                      <View style={styles.presetsLoaderWrap}>
+                        <ActivityIndicator size="small" color="#002748" />
+                      </View>
+                    ) : (
+                      <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.presetsListContent}>
+                        {remarkOptions.map((r) => (
+                          <TouchableOpacity key={r} style={styles.presetsRow} onPress={() => addTag(r)}>
+                            <Text style={styles.presetsRowText}>{r}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </>
+                )}
               </View>
             </TouchableWithoutFeedback>
           </View>
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* CLEAR CART — unchanged */}
-      <TouchableOpacity
-        style={[styles.clearCartBtn, { paddingHorizontal: hPad }]}
-        onPress={clearCart}
-      >
-        <Text style={[styles.clearCartText, { fontSize: clearCartFs }]}>Clear Cart</Text>
-      </TouchableOpacity>
+      {/* ITEMS COUNT & CLEAR CART */}
+      <View style={[styles.actionHeaderRow, { paddingHorizontal: hPad }]}>
+        <Text style={[styles.itemsCountText, { fontSize: clearCartFs + 1 }]}>
+          Items: {totalItemsCount}
+        </Text>
+        
+        <TouchableOpacity
+          style={styles.clearCartBtn}
+          onPress={() => {
+            clearCartInStore();
+            setRemarksByCode({});
+          }}
+        >
+          <Text style={[styles.clearCartText, { fontSize: clearCartFs }]}>Clear Cart</Text>
+        </TouchableOpacity>
+      </View>
 
-      {/* LIST — unchanged */}
+      {/* LIST */}
       <FlatList
         data={cartItems}
         renderItem={renderItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.menuItemCode}
         style={{ flex: 1 }}
         contentContainerStyle={[
           styles.listContent,
@@ -302,7 +579,18 @@ export default function CartScreen() {
             <TouchableOpacity
               style={styles.addMoreBtn}
               activeOpacity={0.85}
-              onPress={() => router.push(`/Screens/selectitems${tableId ? `?tableId=${encodeURIComponent(String(tableId))}` : ''}` as never)}
+              onPress={() =>
+                router.push({
+                  pathname: '/Screens/selectitems',
+                  params: {
+                    tableName: tableName ?? displayTable,
+                    localPax: displayLocalPax,
+                    foreignPax: displayForeignPax,
+                    floor: floor ?? '',
+                    status: status ?? '',
+                  },
+                })
+              }
             >
               <Text style={styles.addMoreText}>Add More</Text>
             </TouchableOpacity>
@@ -310,7 +598,7 @@ export default function CartScreen() {
         }
       />
 
-      {/* FOOTER — unchanged */}
+      {/* FOOTER */}
       <View style={[styles.footer, { padding: footerPad }]}>
         <View style={styles.totalRow}>
           <Text style={[styles.totalLabel, { fontSize: isTablet ? 18 : 16 }]}>
@@ -320,16 +608,20 @@ export default function CartScreen() {
             {total.toFixed(2)}
           </Text>
         </View>
-        <TouchableOpacity style={[styles.confirmBtn, { height: btnH }]} onPress={() => router.push('/Screens/BillingScreen' as never)} activeOpacity={0.85}>
-          <Text style={[styles.confirmText, { fontSize: isTablet ? 24 : isSmall ? 16 : 18 }]}>
-            Confirm
-          </Text>
-          <Ionicons
-            name="checkmark-circle-outline"
-            size={isTablet ? 28 : 24}
-            color="white"
-            style={{ marginLeft: 8 }}
-          />
+        <TouchableOpacity
+          style={[styles.confirmBtn, { height: btnH }]}
+          onPress={handleConfirm}
+          activeOpacity={0.85}
+          disabled={confirming}
+        >
+          {confirming ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <Text style={[styles.confirmText, { fontSize: isTablet ? 24 : isSmall ? 16 : 18 }]}>Confirm</Text>
+              <Ionicons name="checkmark-circle-outline" size={isTablet ? 28 : 24} color="white" style={{ marginLeft: 8 }} />
+            </>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -339,24 +631,20 @@ export default function CartScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: 'white' },
 
-  // ── HEADER — unchanged ────────────────────────
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     minHeight: 56,
     position: 'relative',
-    
   },
   headerTitle:        { fontWeight: '500', color: 'black', textAlign: 'center', flex: 1, top: 25 },
   backButtonAbsolute: { position: 'absolute', left: 20, top: 30, zIndex: 2 },
 
-  // ── TABLE BADGE — only changed colors/style ───
   tableBadge:     { flexDirection: 'row', backgroundColor: 'rgba(0,98,170,0.15)', borderRadius: 20, alignItems: 'center', gap: 6, top: 25, },
   tableBadgeText: { color: '#000', fontWeight: '600' },
   dropdownArrow:  { width: 0, height: 0, borderLeftWidth: 4, borderRightWidth: 4, borderTopWidth: 5, borderStyle: 'solid', backgroundColor: 'transparent', borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: '#000' },
 
-  // ── MODAL — changed to match selectitems ──────
   modalOverlay:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
   dropdown:        { position: 'absolute', backgroundColor: '#FFF', borderRadius: 14, paddingVertical: 8, elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8 },
   dropdownHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8 },
@@ -369,9 +657,20 @@ const styles = StyleSheet.create({
   changeTableBtn:  { marginHorizontal: 12, marginTop: 4, marginBottom: 6, backgroundColor: '#002748', borderRadius: 10, alignItems: 'center' },
   changeTableText: { color: '#FFF', fontWeight: '700' },
 
-  // ── REST — all unchanged ──────────────────────
-  clearCartBtn:       { alignSelf: 'flex-end', marginRight: 16, marginTop: 30 },
+  actionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 45,
+    marginBottom: 5,
+  },
+  itemsCountText: {
+    color: '#334155',
+    fontWeight: '700',
+  },
+  clearCartBtn:       { alignSelf: 'flex-end' },
   clearCartText:      { color: '#DB6161', fontWeight: '500' },
+  
   listContent:        { paddingHorizontal: 16, paddingBottom: 100 },
   emptyContainer:     { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   emptyText:          { color: '#999', fontSize: 16, fontWeight: '500' },
@@ -382,10 +681,11 @@ const styles = StyleSheet.create({
   itemHeader:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   itemName:           { fontWeight: '500', color: 'black' },
   itemPrice:          { color: 'black', fontWeight: '400', marginTop: 4 },
-  itemFooter:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 },
-  remarkBtn:          { },
-  remarkText:         { color: '#0A70C7', fontWeight: '500' },
-  remarkPreview:      { color: '#555', fontSize: 12, marginTop: 4, maxWidth: 170 },
+  itemRemarkBlock:    { marginTop: 6, alignSelf: 'stretch' },
+  itemFooter:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, width: '100%' },
+  remarkBtn:          { flexShrink: 1 },
+  remarkText:         { color: '#64748B', fontWeight: '600' },
+  remarkPreview:      { color: '#64748B', fontSize: 12, maxWidth: '100%', textAlign: 'left' },
   quantityContainer:  { flexDirection: 'row', alignItems: 'center', gap: 15 },
   qtyBtn:             { borderWidth: 1, borderColor: 'black', alignItems: 'center', justifyContent: 'center' },
   qtyText:            { fontSize: 18, fontWeight: '500' },
@@ -398,13 +698,31 @@ const styles = StyleSheet.create({
   confirmBtn:         { backgroundColor: '#8D9ED4', borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   confirmText:        { color: 'white', fontWeight: '700' },
 
-  // remark bottom overlay
-  sheetOverlay:       { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.25)' },
-  bottomSheet:        { backgroundColor: '#FFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: 24, overflow: 'hidden' },
-  sheetHandle:        { alignSelf: 'center', width: 54, height: 5, borderRadius: 999, backgroundColor: '#D9D9D9', marginTop: 10, marginBottom: 14 },
-  sheetTitle:         { marginHorizontal: 18, marginBottom: 12, fontSize: 22, fontWeight: '600', color: '#000' },
-  remarkInputWrap:    { marginHorizontal: 18, borderWidth: 2, borderColor: '#0062AA', borderRadius: 8, minHeight: 96, justifyContent: 'center' },
-  remarkInput:        { paddingHorizontal: 14, paddingVertical: 10, fontSize: 16, color: '#000', textAlignVertical: 'top' },
-  saveRemarkBtn:      { marginTop: 16, marginHorizontal: 18, height: 52, borderRadius: 8, backgroundColor: '#8D9ED4', alignItems: 'center', justifyContent: 'center' },
+  remarkModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
+  remarkCard:        { width: '90%', maxWidth: 560, height: 320, borderRadius: 20, backgroundColor: '#fff', padding: 16, overflow: 'hidden', elevation: 18, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 16 },
+  remarkCardHeader:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  remarkCardHeaderTitle: { fontSize: 16, fontWeight: '800', color: '#0F172A', flex: 1, textAlign: 'center' },
+  remarkHeaderIconBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  remarkCardBody:    { flex: 1 },
+  remarkScrollArea:   { flex: 1 },
+  remarkCardContent:  { paddingBottom: 4 },
+  remarkItemTitle: { fontSize: 22, fontWeight: '800', color: '#000', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 14 },
+  presetsDivider:     { height: 1, backgroundColor: '#E2E8F0', marginBottom: 8 },
+  presetsLoaderWrap:  { alignItems: 'center', justifyContent: 'center', paddingVertical: 18 },
+  remarkInput:        { height: 48, paddingHorizontal: 12, fontSize: 16, color: '#000', textAlignVertical: 'center', flex: 1 },
+  saveRemarkBtn:      { marginTop: 14, height: 48, borderRadius: 8, backgroundColor: '#8D9ED4', alignItems: 'center', justifyContent: 'center' },
   saveRemarkText:     { color: '#FFF', fontSize: 16, fontWeight: '600' },
+  tagsWrap:           { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  tagBadge:           { backgroundColor: '#0062AA', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, flexDirection: 'row', alignItems: 'center', marginRight: 8, marginBottom: 8 },
+  tagLabelBtn:        { paddingRight: 4 },
+  tagText:            { color: '#FFF', fontSize: 13, marginRight: 6 },
+  tagClose:           { width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(0,0,0,0.2)', alignItems: 'center', justifyContent: 'center' },
+  remarkInputRow:     { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 },
+  remarkInputShell:   { flex: 1, position: 'relative' },
+  remarkDropdownIconBtn: { position: 'absolute', right: 8, top: 0, bottom: 0, width: 36, alignItems: 'center', justifyContent: 'center' },
+  addTagBtn:          { backgroundColor: '#002748', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  addTagText:         { color: '#FFF', fontWeight: '700' },
+  presetsListContent: { paddingVertical: 2 },
+  presetsRow:         { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F4F4F4' },
+  presetsRowText:     { color: '#003366', fontWeight: '600' },
 });
