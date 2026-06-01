@@ -2,23 +2,25 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Image,
-  ImageSourcePropType,
-  Modal,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  useWindowDimensions,
-  View,
+    ActivityIndicator,
+    Image,
+    ImageSourcePropType,
+    Modal,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    useWindowDimensions,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { apiClient } from '../../services/api';
+import { apiClient, getCachedOrderDescriptions } from '../../services/api';
 import { useCartStore } from '../../services/cartStore';
+import useItemStore from '../../services/itemStore';
+import { storage } from '../../services/storage';
 
 type ViewMode = 'categories' | 'menu';
 
@@ -37,6 +39,7 @@ type MenuRow = {
   LDes: string;
   Type: 'C' | 'I';
   SalesPrice: string | number;
+  icon?: ImageSourcePropType;
 };
 
 type MainTab = {
@@ -113,6 +116,221 @@ type SelectedItem = {
 };
 
 const FALLBACK_REMARK_TAG_PRESETS = ['No Spicy', 'Less Spicy', 'Takeaway', 'No Onion', 'Extra Sauce', 'No Garlic'];
+
+const LEVEL_KEYS = ['Level1', 'Level2', 'Level3', 'Level4', 'Level5', 'Level6', 'Level7'] as const;
+const MENU_SNAPSHOT_KEY = 'menu_items_cache_v1';
+const CACHED_CATEGORIES_KEY = 'cached_categories';
+const CACHED_ITEMS_KEY = 'cached_items';
+
+const getText = (value: unknown) => String(value ?? '').trim();
+
+const getCategoryDisplayName = (category: Record<string, any>) => {
+  const primary = getText(
+    category.name
+    ?? category.categoryName
+    ?? category.category_name
+    ?? category.CategoryName
+    ?? category.CategoryLabel
+    ?? category.label
+    ?? category.LDes
+    ?? category.L1Des
+  );
+
+  if (primary) return primary;
+
+  return getText(category.id ?? category.categoryId ?? category.code ?? category.Level ?? '');
+};
+
+const getSubCategoryCode = (item: Record<string, any>) =>
+  getText(item.Level1 ?? item.level1 ?? item.CategoryLevel1 ?? item.level ?? item.code ?? item.id ?? '');
+
+const getSubCategoryLabel = (item: Record<string, any>) =>
+  getText(
+    item.L1DES
+    ?? item.L1Des
+    ?? item.LDes
+    ?? item.name
+    ?? item.categoryName
+    ?? item.category_name
+    ?? item.SubCategoryName
+    ?? item.subCategoryName
+    ?? item.label
+  );
+
+const isVisibleCachedItem = (item: Record<string, any>) => {
+  const displayInFront = getText(item.DisplayInFront);
+  const menuAssiEnable = getText(item.MenuAssiEnable);
+  const menuItemEnable = getText(item.MenuItemEnable);
+
+  const flags = [displayInFront, menuAssiEnable, menuItemEnable].filter(Boolean);
+  if (flags.length === 0) return true;
+  return flags.every((value) => value === '1' || value.toLowerCase() === 'true');
+};
+
+const getLevelValue = (item: Record<string, any>, level: number) => getText(item[LEVEL_KEYS[level - 1]]);
+
+const getLevelDescription = (item: Record<string, any>, level: number) => {
+  const key = `L${level}Des`;
+  return getText(item[key] ?? item[`${key.toLowerCase()}`]);
+};
+
+const getMenuItemCode = (item: Record<string, any>) =>
+  getText(item.MenuItemCode ?? item.ItemCode ?? item.ItemId ?? item.Level7 ?? item.Level ?? item.code);
+
+const getMenuItemLabel = (item: Record<string, any>) =>
+  getText(item.MenuItmDes ?? item.MenuItemDes ?? item.ItemName ?? item.itemName ?? item.label ?? item.LDes ?? getMenuItemCode(item));
+
+const getMenuItemPrice = (item: Record<string, any>) => Number(item.SalesPrice ?? item.salesPrice ?? 0) || 0;
+
+const toImageSource = (value: unknown): ImageSourcePropType | undefined => {
+  if (!value) return undefined;
+  if (typeof value === 'string') {
+    const uri = value.trim();
+    return uri ? { uri } : undefined;
+  }
+  return value as ImageSourcePropType;
+};
+
+const getMenuItemImageSource = (item: Record<string, any>) => toImageSource(
+  item.ItemImageUrl
+  ?? item.ImageUrl
+  ?? item.imageUrl
+  ?? item.PhotoUrl
+  ?? item.photoUrl
+  ?? item.Image
+  ?? item.image
+  ?? item.icon
+);
+
+const readCachedMenuItems = () => {
+  try {
+    const rawSnapshot = storage.getString(MENU_SNAPSHOT_KEY);
+    if (rawSnapshot) {
+      const snapshot = JSON.parse(rawSnapshot);
+      if (Array.isArray(snapshot?.items)) {
+        return snapshot.items;
+      }
+    }
+
+    const rawItems = storage.getString(CACHED_ITEMS_KEY);
+    if (rawItems) {
+      const parsedItems = JSON.parse(rawItems);
+      if (Array.isArray(parsedItems)) {
+        return parsedItems;
+      }
+    }
+  } catch (error) {
+    console.log('[ItemSelection] Failed to read cached menu items', error);
+  }
+
+  return [];
+};
+
+const readCachedMenuCategories = () => {
+  try {
+    const rawCategories = storage.getString(CACHED_CATEGORIES_KEY);
+    if (!rawCategories) return [];
+
+    const parsedCategories = JSON.parse(rawCategories);
+    return Array.isArray(parsedCategories) ? parsedCategories : [];
+  } catch (error) {
+    console.log('[ItemSelection] Failed to read cached menu categories', error);
+    return [];
+  }
+};
+
+const buildTabsFromItems = (items: Record<string, any>[]): MainTab[] => {
+  const tabs = new Map<string, MainTab>();
+
+  for (const item of items) {
+    if (!isVisibleCachedItem(item)) continue;
+    const code = getText(item.Category ?? item.CategoryCode ?? item.category);
+    if (!code) continue;
+
+    const label = getText(item.CategoryName ?? item.CategoryLabel ?? item.categoryName) || FALLBACK_TABS.find((tab) => tab.code === code)?.label || code;
+    if (!tabs.has(code)) {
+      tabs.set(code, { code, label });
+    }
+  }
+
+  return Array.from(tabs.values());
+};
+
+const buildCategoriesFromItems = (items: Record<string, any>[], tabCode: string): DynamicCategory[] => {
+  const categories = new Map<string, DynamicCategory>();
+
+  for (const item of items) {
+    if (!isVisibleCachedItem(item)) continue;
+    if (tabCode && getText(item.Category ?? item.CategoryCode ?? item.category) !== tabCode) continue;
+
+    const id = getSubCategoryCode(item);
+    if (!id) continue;
+
+    const label = getSubCategoryLabel(item) || id;
+    if (!categories.has(id)) {
+      categories.set(id, {
+        id,
+        label,
+        type: 'C',
+        price: Number(item.SalesPrice ?? 0) || 0,
+        listingOrder: Number(item.L1LitingOrder ?? item.listingOrder ?? 0) || 0,
+        color: String(item.color ?? '#E3F2FD'),
+          icon: getMenuItemImageSource(item),
+      });
+    }
+  }
+
+  return Array.from(categories.values()).sort((a, b) => a.listingOrder - b.listingOrder || a.label.localeCompare(b.label));
+};
+
+const buildMenuRowsFromItems = (items: Record<string, any>[], codes: string[], level: number): MenuRow[] => {
+  const rows = new Map<string, MenuRow>();
+  const path = codes.filter(Boolean);
+
+  for (const item of items) {
+    if (!isVisibleCachedItem(item)) continue;
+
+    let matchesPath = true;
+    for (let i = 0; i < path.length; i += 1) {
+      const code = i === 0 ? getSubCategoryCode(item) : getLevelValue(item, i + 1);
+      if (String(code ?? '').trim() !== String(path[i] ?? '').trim()) {
+        matchesPath = false;
+        break;
+      }
+    }
+    if (!matchesPath) continue;
+
+    const nextLevel = level + 1;
+    const nextLevelValue = getLevelValue(item, nextLevel);
+    const nextLevelDescription = getLevelDescription(item, nextLevel);
+
+    if (nextLevelValue) {
+      if (!rows.has(nextLevelValue)) {
+        rows.set(nextLevelValue, {
+          Level: nextLevelValue,
+          LDes: nextLevelDescription || nextLevelValue,
+          Type: 'C',
+          SalesPrice: '0',
+        });
+      }
+      continue;
+    }
+
+    const itemCode = getMenuItemCode(item);
+    if (!itemCode) continue;
+    if (!rows.has(itemCode)) {
+      rows.set(itemCode, {
+        Level: itemCode,
+        LDes: getMenuItemLabel(item),
+        Type: 'I',
+        SalesPrice: String(getMenuItemPrice(item)),
+        icon: getMenuItemImageSource(item),
+      });
+    }
+  }
+
+  return Array.from(rows.values());
+};
 
 const splitRemarkTags = (value?: string) =>
   String(value ?? '')
@@ -207,12 +425,18 @@ export default function ItemSelection() {
   const router = useRouter();
   const { tableName, localPax, foreignPax, status, floor } = useLocalSearchParams<{ tableName: string; localPax: string; foreignPax: string; status?: string; floor?: string; }>();
   const { width, height } = useWindowDimensions();
+  const storeItems = useItemStore((state) => state.items);
+  const storeHydrated = useItemStore((state) => state.isHydrated);
+  const hydrateItems = useItemStore((state) => state.hydrateItems);
+  const [cachedItems, setCachedItems] = useState<Record<string, any>[]>([]);
+  const [cachedCategories, setCachedCategories] = useState<Record<string, any>[]>([]);
+  const [isCacheHydrated, setIsCacheHydrated] = useState(false);
 
   const [tabsList, setTabsList] = useState<MainTab[]>([]);
   const [selectedTabCode, setSelectedTabCode] = useState('');
   const [categoriesList, setCategoriesList] = useState<DynamicCategory[]>([]);
   const [menuRows, setMenuRows] = useState<MenuRow[]>([]);
-  const [loadingTabs, setLoadingTabs] = useState<boolean>(true);
+  const [loadingTabs, setLoadingTabs] = useState<boolean>(false);
   const [loadingCategories, setLoadingCategories] = useState<boolean>(false);
   const [menuLoading, setMenuLoading] = useState(false);
 
@@ -227,7 +451,7 @@ export default function ItemSelection() {
   const [selectedRemarks, setSelectedRemarks] = useState<string[]>([]);
   const [currentTypedText, setCurrentTypedText] = useState('');
   const [isViewingPresets, setIsViewingPresets] = useState(false);
-  const [remarkOptions, setRemarkOptions] = useState<string[]>(FALLBACK_REMARK_TAG_PRESETS);
+  const [remarkOptions, setRemarkOptions] = useState<string[]>(() => getCachedOrderDescriptions());
   const [loadingRemarkOptions, setLoadingRemarkOptions] = useState(false);
   const [editingTagIndex, setEditingTagIndex] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -241,48 +465,85 @@ export default function ItemSelection() {
   const isTablet = width >= 600;
   const isSmall = height < 700;
 
-  const normalizeTab = (tab: any): MainTab => ({ code: String(tab.CategoryCode ?? tab.Category ?? tab.category ?? '').trim(), label: String(tab.CategoryName ?? tab.label ?? tab.CategoryName ?? '').trim() });
-
-  const hasVisibleCategories = async (tabCode: string) => {
-    if (!tabCode) return false;
+  useEffect(() => {
     try {
-      const response = await apiClient.getSubCategories(tabCode);
-      return Boolean(response.ok && Array.isArray(response.data?.subCategories) && response.data.subCategories.length > 0);
-    } catch { return false; }
-  };
-
-  const fetchMenuTabs = async () => {
-    setLoadingTabs(true);
-    try {
-      const response = await apiClient.getMainTabs();
-      if (response.ok && response.data?.tabs) {
-        const formattedTabs = response.data.tabs.map(normalizeTab).filter((t: MainTab) => t.code);
-        const filteredTabs: MainTab[] = [];
-        for (const tab of formattedTabs.length > 0 ? formattedTabs : FALLBACK_TABS) {
-          if (await hasVisibleCategories(tab.code)) filteredTabs.push(tab);
-        }
-        setTabsList(filteredTabs.length > 0 ? filteredTabs : []);
-        setSelectedTabCode(filteredTabs[0]?.code ?? '');
-      } else {
-        const fallbackVisibleTabs: MainTab[] = [];
-        for (const tab of FALLBACK_TABS) if (await hasVisibleCategories(tab.code)) fallbackVisibleTabs.push(tab);
-        setTabsList(fallbackVisibleTabs);
-        setSelectedTabCode(fallbackVisibleTabs[0]?.code ?? '');
-      }
-    } catch (e) {
-      const error: any = e as any;
-      console.error('Error loading tabs', error);
-      const fallbackVisibleTabs: MainTab[] = [];
-      for (const tab of FALLBACK_TABS) if (await hasVisibleCategories(tab.code)) fallbackVisibleTabs.push(tab);
-      setTabsList(fallbackVisibleTabs);
-      setSelectedTabCode(fallbackVisibleTabs[0]?.code ?? '');
-    } finally { setLoadingTabs(false); }
-  };
-
-  useEffect(() => { fetchMenuTabs(); }, []);
+      setCachedItems(readCachedMenuItems());
+      setCachedCategories(readCachedMenuCategories());
+    } catch (error) {
+      console.log('[ItemSelection] Failed to read MMKV menu cache', error);
+      setCachedItems([]);
+      setCachedCategories([]);
+    } finally {
+      setIsCacheHydrated(true);
+    }
+  }, []);
 
   useEffect(() => {
-    void loadRemarkOptions();
+    if (cachedItems.length > 0) return;
+    if (storeItems.length > 0) {
+      setCachedItems(storeItems);
+      return;
+    }
+
+    if (storeHydrated) return;
+
+    void hydrateItems().catch((error) => {
+      console.log('[ItemSelection] hydrateItems failed', error);
+    });
+  }, [cachedItems.length, hydrateItems, storeHydrated, storeItems]);
+
+  useEffect(() => {
+    if (cachedItems.length === 0) {
+      setTabsList([]);
+      setSelectedTabCode('');
+      if (cachedCategories.length > 0) {
+        const mappedCategories = cachedCategories.map((cat) => ({
+          id: String(cat.id ?? cat.Level ?? '').trim(),
+          label: getSubCategoryLabel(cat) || String(cat.id ?? cat.Level ?? '').trim(),
+          type: String(cat.type ?? cat.Type ?? 'C'),
+          price: Number(cat.price ?? cat.SalesPrice ?? 0),
+          listingOrder: Number(cat.listingOrder ?? cat.L1LitingOrder ?? 0),
+          color: String(cat.color ?? '#E3F2FD'),
+          icon: getMenuItemImageSource(cat),
+        })).filter((cat) => Boolean(cat.id));
+        setCategoriesList(mappedCategories);
+      } else {
+        setCategoriesList([]);
+      }
+      setMenuRows([]);
+      return;
+    }
+
+    const visibleTabs = buildTabsFromItems(cachedItems);
+    if (visibleTabs.length > 0) {
+      setTabsList(visibleTabs);
+      if (!selectedTabCode || !visibleTabs.some((tab) => tab.code === selectedTabCode)) {
+        setSelectedTabCode(visibleTabs[0].code);
+      }
+    }
+  }, [cachedItems]);
+
+  useEffect(() => {
+    if (!cachedItems.length) {
+      setCategoriesList([]);
+      return;
+    }
+
+    setCategoriesList(buildCategoriesFromItems(cachedItems, selectedTabCode));
+  }, [cachedItems, selectedTabCode]);
+
+  useEffect(() => {
+    if (!cachedItems.length || viewMode !== 'menu' || menuCodes.length === 0) {
+      if (!cachedItems.length) setMenuRows([]);
+      return;
+    }
+
+    setMenuRows(buildMenuRowsFromItems(cachedItems, menuCodes, menuLevel));
+  }, [cachedItems, menuCodes, menuLevel, viewMode]);
+
+  useEffect(() => {
+    // Read directly from lightning-fast MMKV local memory with zero delay.
+    setRemarkOptions(getCachedOrderDescriptions());
   }, []);
 
   const prevTableRef = useRef<string | undefined>(undefined);
@@ -295,48 +556,21 @@ export default function ItemSelection() {
       setCategoriesList([]);
       setMenuRows([]);
       setViewMode('categories');
-      fetchMenuTabs();
     }
     prevTableRef.current = tableName;
   }, [tableName]);
 
   useEffect(() => {
-    if (!selectedTabCode) return;
-    async function fetchMenuCategoriesForTab() {
-      setLoadingCategories(true);
-      try {
-        const response = await apiClient.getSubCategories(selectedTabCode);
-        if (response.ok && Array.isArray(response.data?.subCategories)) {
-          const dynamicData = response.data.subCategories.map((cat: any) => ({
-            id: String(cat.Level ?? cat.Level1 ?? cat.level ?? ''),
-            label: String(cat.LDes ?? cat.L1Des ?? cat.label ?? ''),
-            type: String(cat.Type ?? 'C'),
-            price: Number(cat.SalesPrice ?? 0),
-            listingOrder: Number(cat.L1LitingOrder ?? cat.listingOrder ?? 0),
-            color: String(cat.color ?? '#E3F2FD'),
-            icon: cat.icon,
-          }));
-          setCategoriesList(dynamicData);
-        } else setCategoriesList([]);
-      } catch (e) { const error: any = e as any; console.error('Error loading sub-categories', error); setCategoriesList([]); }
-      finally { setLoadingCategories(false); }
+    if (!selectedTabCode) {
+      setCategoriesList([]);
+      return;
     }
-    fetchMenuCategoriesForTab();
-  }, [selectedTabCode]);
+
+    setCategoriesList(buildCategoriesFromItems(cachedItems, selectedTabCode));
+  }, [cachedItems, selectedTabCode]);
 
   const fetchMenuRows = async (level: number, codes: string[]) => {
-    setMenuLoading(true);
-    try {
-      const response = await apiClient.getMenuLevel({ intLevel: level, level1: codes[0], level2: codes[1], level3: codes[2], level4: codes[3], level5: codes[4], level6: codes[5], level7: codes[6] });
-      if (response.ok && Array.isArray(response.data?.rows)) {
-        setMenuRows(response.data.rows.map((row: any) => ({
-          Level: normalizeMenuItemCode(row.Level ?? row.level ?? ''),
-          LDes: String(row.LDes ?? row.ldes ?? row.label ?? '').trim(),
-          Type: row.Type === 'I' ? 'I' : 'C',
-          SalesPrice: row.SalesPrice ?? row.salesPrice ?? '0',
-        })));
-      } else setMenuRows([]);
-    } catch (e) { const error: any = e as any; console.error('Error loading menu rows', error); setMenuRows([]); } finally { setMenuLoading(false); }
+    setMenuRows(buildMenuRowsFromItems(cachedItems, codes, level));
   };
 
   const openCategory = async (category: DynamicCategory) => { setActiveCategory(category); setMenuLevel(1); setMenuCodes([category.id]); setMenuLabels([category.label]); setViewMode('menu'); await fetchMenuRows(1, [category.id]); };
@@ -524,7 +758,9 @@ export default function ItemSelection() {
     closeItemDetails();
   };
 
-  if (loadingTabs || loadingCategories || menuLoading) return (<SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}><ActivityIndicator size="large" color="#002748" /></SafeAreaView>);
+  const isInitialLoading = !isCacheHydrated;
+
+  if (isInitialLoading) return (<SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}><ActivityIndicator size="large" color="#002748" /></SafeAreaView>);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -590,7 +826,7 @@ export default function ItemSelection() {
           <>
             {viewMode === 'categories' && (<View style={[styles.grid, { gap: gridGap }]}>{filteredCategories.map((cat, i) => (<ColorCard key={cat.id || i} label={cat.label} color={cat.color} icon={cat.icon} onPress={() => { openCategory(cat); }} />))}</View>)}
 
-            {viewMode === 'menu' && (<View style={[styles.grid, { gap: gridGap }]}>{categoriesRows.map((row, i) => (<ColorCard key={`${row.Level}-cat-${i}`} label={row.LDes} color="#E3F2FD" onPress={() => openMenuRow(row)} />))}{itemsRows.map((row, i) => (<ItemCard key={`${row.Level}-item-${i}`} label={row.LDes} price={Number(row.SalesPrice) || 0} quantity={getCartQuantity(row.Level)} remarks={getCartRemarks(row.Level)} onPressDetails={() => openItemDetails({ key: row.Level, label: row.LDes, price: Number(row.SalesPrice) || 0 })} onAdd={() => addToCart({ menuItemCode: row.Level, menuItmDes: row.LDes, salesPrice: Number(row.SalesPrice) || 0, itemRemarks: '' })} onIncrement={() => updateQuantity(row.Level, 1)} onDecrement={() => updateQuantity(row.Level, -1)} />))}{(categoriesRows.length + itemsRows.length) % 3 !== 0 && (<View style={{ width: (width - 32 - 24) / 3 }} />)}</View>)}
+            {viewMode === 'menu' && (<View style={[styles.grid, { gap: gridGap }]}>{categoriesRows.map((row, i) => (<ColorCard key={`${row.Level}-cat-${i}`} label={row.LDes} color="#E3F2FD" icon={row.icon} onPress={() => openMenuRow(row)} />))}{itemsRows.map((row, i) => (<ItemCard key={`${row.Level}-item-${i}`} label={row.LDes} price={Number(row.SalesPrice) || 0} icon={row.icon} quantity={getCartQuantity(row.Level)} remarks={getCartRemarks(row.Level)} onPressDetails={() => openItemDetails({ key: row.Level, label: row.LDes, price: Number(row.SalesPrice) || 0, icon: row.icon })} onAdd={() => addToCart({ menuItemCode: row.Level, menuItmDes: row.LDes, salesPrice: Number(row.SalesPrice) || 0, itemRemarks: '' })} onIncrement={() => updateQuantity(row.Level, 1)} onDecrement={() => updateQuantity(row.Level, -1)} />))}{(categoriesRows.length + itemsRows.length) % 3 !== 0 && (<View style={{ width: (width - 32 - 24) / 3 }} />)}</View>)}
           </>
         )}
       </ScrollView>

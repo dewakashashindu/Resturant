@@ -13,9 +13,10 @@ import {
     View,
 } from 'react-native';
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from '../../services/api';
 import { useAuthStore } from '../../services/authStore';
+import useItemStore from '../../services/itemStore';
+import { AUTH_SESSION_KEYS, storage } from '../../services/storage';
 
 export default function LoginScreen() {
   const [username, setUsername]           = useState('');
@@ -26,7 +27,8 @@ export default function LoginScreen() {
 
   const router = useRouter();
   const { width, height } = useWindowDimensions();
-  const setUser = useAuthStore((state) => state.setUser);
+  const setSession = useAuthStore((state) => state.setSession);
+  const prefetchMenuBootstrapData = useItemStore((state) => state.prefetchMenuBootstrapData);
 
   const isTablet = width >= 600;
   const isSmall  = height < 700;
@@ -99,16 +101,49 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
+    console.log('[Login] submit pressed', {
+      username,
+      passwordLength: password.length,
+      hasStoredToken: Boolean(storage.getString(AUTH_SESSION_KEYS.token)),
+      hasStoredUsername: Boolean(storage.getString(AUTH_SESSION_KEYS.username)),
+    });
+
     const isUsernameValid = validateUsername(username);
     const isPasswordValid = validatePassword(password);
 
-    if (!isUsernameValid || !isPasswordValid) return;
+    console.log('[Login] validation result', {
+      isUsernameValid,
+      isPasswordValid,
+      usernameError,
+      passwordError,
+    });
+
+    if (!isUsernameValid || !isPasswordValid) {
+      console.log('[Login] stopped before API call because validation failed');
+      return;
+    }
 
     try {
+      console.log('[Login] calling apiClient.login');
       const result = await apiClient.login(username, password);
+
+      console.log('[Login] apiClient.login response', {
+        ok: result.ok,
+        hasData: Boolean(result.data),
+        tokenPresent: Boolean(result.data?.token),
+        user: result.data?.user,
+        error: result.error,
+        message: result.data?.message,
+      });
 
       if (!result.ok) {
         const msg: string = result.data?.message ?? result.error ?? '';
+
+        console.log('[Login] API returned non-ok response', {
+          message: msg,
+          rawData: result.data,
+          rawError: result.error,
+        });
 
         if (
           msg.toLowerCase().includes('user not found') ||
@@ -123,20 +158,30 @@ export default function LoginScreen() {
         return;
       }
 
-      await AsyncStorage.setItem('username', username);
       if (result.data?.token) {
-        await AsyncStorage.setItem('token', result.data.token);
+        const loggedInUserName = String(result.data?.user?.username ?? username).trim();
+        const loggedInUserId = result.data?.user?.id ?? result.data?.user?.userId ?? loggedInUserName;
+
+        setSession({
+          token: result.data.token,
+          user: {
+            userName: loggedInUserName,
+            userId: loggedInUserId,
+          },
+        });
+
+        void prefetchMenuBootstrapData().catch((error) => {
+          console.log('[Login] bootstrap menu prefetch failed', error);
+        });
+
+        router.replace('/(tabs)');
+        return;
+      } else {
+        setPasswordError('Login succeeded but no token was returned.');
+        return;
       }
-
-      const loggedInUserName = String(result.data?.user?.username ?? username).trim();
-      const loggedInUserId = result.data?.user?.id ?? result.data?.user?.userId ?? loggedInUserName;
-      setUser({
-        userName: loggedInUserName,
-        userId: loggedInUserId,
-      });
-
-      router.replace('/(tabs)');
     } catch (e) {
+      console.log('[Login] caught error during login flow', e);
       setPasswordError('Cannot connect to server. Check backend URL and server status.');
     }
   };

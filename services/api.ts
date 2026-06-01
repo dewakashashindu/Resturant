@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { storage } from './storage';
 
 type ExpoConstantsLike = typeof Constants & {
   expoConfig?: { hostUri?: string };
@@ -41,6 +42,50 @@ const resolveApiBaseUrl = () => {
 };
 
 const API_BASE_URL = resolveApiBaseUrl();
+
+const GLOBAL_PRESET_REMARKS_KEY = 'global_preset_remarks';
+
+// 1. Get cached remarks instantly from local memory (No network latency)
+export const getCachedOrderDescriptions = (): string[] => {
+  try {
+    const cachedData = storage.getString(GLOBAL_PRESET_REMARKS_KEY);
+    if (cachedData) {
+      const parsed = JSON.parse(cachedData);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((value) => String(value ?? '').trim())
+          .filter(Boolean);
+      }
+    }
+  } catch (error) {
+    console.log('❌ Error reading MMKV cache:', error);
+  }
+
+  // Hardcoded fallback list in case MMKV is completely empty on first launch
+  return ['TAKE A WAY', 'LESS OIL', 'NO BEEF', 'LESS CHILI'];
+};
+
+// 2. Background sync function to fetch fresh records from SQL and save to MMKV
+export const syncGlobalOrderDescriptions = async (): Promise<void> => {
+  try {
+    // Replace with your exact Node.js backend server URL/IP address
+    const response = await fetch(`${API_BASE_URL}/api/remarks/order-descriptions`);
+    const data = await response.json();
+
+    if (data.ok && Array.isArray(data.descriptions)) {
+      const cleanedDescriptions = data.descriptions
+        .map((value: unknown) => String(value ?? '').trim())
+        .filter(Boolean);
+
+      // Save the fresh string array from SQL Server straight into MMKV
+      storage.set(GLOBAL_PRESET_REMARKS_KEY, JSON.stringify(cleanedDescriptions));
+      console.log('✅ [MMKV Global Sync] Cache successfully updated with fresh SQL DB data!');
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log('⚠️ [MMKV Global Sync] Server unreachable. Keeping existing cache:', message);
+  }
+};
 
 export interface CartItem {
   menuItemCode: string;
@@ -529,16 +574,84 @@ export const apiClient = {
     return { ok: response.ok, data };
   },
 
+  getMenuItems: async (since?: string) => {
+    try {
+      const url = since ? `${API_BASE_URL}/api/menu/items?since=${encodeURIComponent(since)}` : `${API_BASE_URL}/api/menu/items`;
+      console.log('[api] getMenuItems URL=', url);
+      const response = await fetch(url);
+      const contentType = response.headers.get('content-type') || '';
+      let data: any = null;
+      try {
+        if (contentType.includes('application/json')) {
+          data = await response.json();
+        } else {
+          data = await response.text();
+        }
+      } catch (err) {
+        try {
+          data = await response.text();
+        } catch (_) {
+          data = null;
+        }
+      }
+
+      console.log('[api] getMenuItems parsed data=', data);
+      return { ok: response.ok, data };
+    } catch (err) {
+      console.log('[api] getMenuItems fetch error', (err as any)?.message ?? String(err));
+      const msg = (err as any)?.message ?? String(err);
+      return { ok: false, data: { message: msg } };
+    }
+  },
+
+  getVoidPresets: async () => {
+    try {
+      const url = `${API_BASE_URL}/api/void-remarks`;
+      const response = await fetch(url);
+      const contentType = response.headers.get('content-type') || '';
+      let data: any = null;
+      try {
+        if (contentType.includes('application/json')) {
+          data = await response.json();
+        } else {
+          data = await response.text();
+        }
+      } catch (err) {
+        try {
+          data = await response.text();
+        } catch (_) {
+          data = null;
+        }
+      }
+
+      return { ok: response.ok, data };
+    } catch (err) {
+      const msg = (err as any)?.message ?? String(err);
+      return { ok: false, data: { message: msg } };
+    }
+  },
+
   getOrderDescriptions: async (): Promise<string[]> => {
+    const cached = getCachedOrderDescriptions();
+
+    // Kick off a background refresh without blocking UI consumers.
+    syncGlobalOrderDescriptions().catch((error) => {
+      console.log('⚠️ [MMKV Global Sync] Background refresh failed:', error);
+    });
+
     const response = await requestJson<{ ok?: boolean; descriptions?: string[] }>(`${API_BASE_URL}/api/remarks/order-descriptions`);
 
     if (!response.ok || !Array.isArray(response.data?.descriptions)) {
-      return [];
+      return cached;
     }
 
-    return response.data.descriptions
+    const freshDescriptions = response.data.descriptions
       .map((value) => String(value ?? '').trim())
       .filter(Boolean);
+
+    storage.set(GLOBAL_PRESET_REMARKS_KEY, JSON.stringify(freshDescriptions));
+
+    return freshDescriptions;
   },
 
   getTableGroup: async (tableNo: string) => {

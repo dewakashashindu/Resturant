@@ -2,22 +2,29 @@ import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Image,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    useWindowDimensions,
-    View,
+  ActivityIndicator,
+  Image,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
 } from 'react-native';
 import { apiClient } from '../../services/api';
 import { useCartStore } from '../../services/cartStore';
 
 type TableStatus = 'occupied' | 'reserved' | 'available';
 type TableItem   = { id: string; status: TableStatus };
+
+const getApiBaseUrl = () => {
+  const envBaseUrl = String((globalThis as any)?.process?.env?.EXPO_PUBLIC_API_BASE_URL ?? '').trim();
+  return envBaseUrl || 'http://192.168.1.153:3000';
+};
+
+const API_BASE_URL = getApiBaseUrl().replace(/\/$/, '');
 
 export default function TableSelectionScreen() {
   const router = useRouter();
@@ -58,18 +65,22 @@ export default function TableSelectionScreen() {
   useEffect(() => {
     const loadFloors = async () => {
       try {
-        const result = await apiClient.getFloors();
-        if (result.ok) {
-          const records: any[] = Array.isArray(result.data)
-            ? result.data
-            : Array.isArray(result.data?.floors)
-            ? result.data.floors
+        const response = await fetch(`${API_BASE_URL}/api/floors`);
+        const data = await response.json();
+
+        if (response.ok) {
+          const records: any[] = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.floors)
+            ? data.floors
             : [];
 
           const names = records.map(
             (f: any) => f.GroupName || f.groupName || String(f)
           );
           setFloors(names);
+        } else {
+          console.error('Failed to load floors:', data);
         }
       } catch (error) {
         console.error('Failed to load floors:', error);
@@ -85,14 +96,19 @@ export default function TableSelectionScreen() {
   const loadCounts = async (floor?: string) => {
     setLoadingCounts(true);
     try {
-      // request counts (optionally filtered by floor)
-      const result = await apiClient.getTableCounts(floor);
-      if (result.ok) {
-        setAvailableCount(result.data.VaccantCount ?? 0);
-        setOccupiedCount(result.data.OccupiedCount ?? 0);
-        setReservedCount(result.data.ReservedCount ?? 0);
+      const countsUrl = floor
+        ? `${API_BASE_URL}/api/tables/counts?floor=${encodeURIComponent(floor)}`
+        : `${API_BASE_URL}/api/tables/counts`;
+
+      const response = await fetch(countsUrl);
+      const data = await response.json();
+
+      if (response.ok) {
+        setAvailableCount(data.VaccantCount ?? 0);
+        setOccupiedCount(data.OccupiedCount ?? 0);
+        setReservedCount(data.ReservedCount ?? 0);
       } else {
-        console.error('Counts API error:', result.data);
+        console.error('Counts API error:', data);
       }
     } catch (e) {
       const err: any = e as any;

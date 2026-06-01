@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { useOrderStore } from './orderStore';
+import { storage } from './storage';
 
 export type CartItem = {
   itemRemarks: string;
@@ -6,6 +8,23 @@ export type CartItem = {
   menuItmDes: string;
   salesPrice: number;
   quantity: number;
+};
+
+export type HeldOrderSnapshot = {
+  source: 'billing';
+  savedAt: string;
+  tableNo: string;
+  tableGrpId: string;
+  userId: string;
+  lPax: number;
+  fPax: number;
+  grossTotal: number;
+  itemCount: number;
+  items: CartItem[];
+  itemRemarksByCode: Record<string, string>;
+  voidMetadata: Record<string, { remark: string; manager: string }>;
+  pendingAdditions: Record<string, number>;
+  billingHasChanges: boolean;
 };
 
 type CartItemInput = Partial<CartItem> & Record<string, unknown>;
@@ -72,6 +91,48 @@ type CartStore = {
   updateQuantity: (menuItemCode: string, delta: number) => void;
   setCartItems: (items: CartItem[]) => void;
   clearCart: () => void;
+  saveCurrentOrderToHold: (tableNumber: string, snapshot: Omit<HeldOrderSnapshot, 'source' | 'savedAt' | 'itemCount' | 'tableNo'> & { tableNo?: string; savedAt?: string }) => HeldOrderSnapshot | null;
+  getHeldTables: () => string[];
+  loadHeldOrderForTable: (tableNumber: string) => HeldOrderSnapshot | null;
+  clearHeldOrderForTable: (tableNumber: string) => void;
+  clearAllHeldOrders: () => void;
+  getHeldOrder: (tableNumber?: string) => HeldOrderSnapshot | null;
+};
+
+const HELD_ORDERS_MAP_KEY = 'held_orders_map_v1';
+const LEGACY_HELD_ORDER_KEY = 'held_order_v1';
+
+type HeldOrdersMap = Record<string, HeldOrderSnapshot>;
+
+const normalizeTableNumber = (value: unknown) => toText(value, '');
+
+const readHeldOrdersMap = (): HeldOrdersMap => {
+  try {
+    const raw = storage.getString(HELD_ORDERS_MAP_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as HeldOrdersMap;
+      }
+    }
+
+    const legacyRaw = storage.getString(LEGACY_HELD_ORDER_KEY);
+    if (legacyRaw) {
+      const legacyParsed = JSON.parse(legacyRaw);
+      const legacyTable = normalizeTableNumber((legacyParsed as any)?.tableNo);
+      if (legacyParsed && typeof legacyParsed === 'object' && legacyTable) {
+        return { [legacyTable]: legacyParsed as HeldOrderSnapshot };
+      }
+    }
+  } catch (error) {
+    console.log('[CartStore] readHeldOrdersMap failed', error);
+  }
+
+  return {};
+};
+
+const writeHeldOrdersMap = (map: HeldOrdersMap) => {
+  storage.set(HELD_ORDERS_MAP_KEY, JSON.stringify(map));
 };
 
 export const useCartStore = create<CartStore>((set, get) => ({
@@ -155,4 +216,95 @@ export const useCartStore = create<CartStore>((set, get) => ({
   setCartItems: (items) => set({ cartItems: normalizeCartItems(items), isDirty: false }),
 
   clearCart: () => set({ cartItems: [], isDirty: false }),
+
+  saveCurrentOrderToHold: (tableNumber, snapshot) => {
+    const normalizedItems = normalizeCartItems(snapshot.items || []);
+    const normalizedTableNo = normalizeTableNumber(tableNumber || snapshot.tableNo);
+    if (!normalizedTableNo) {
+      console.log('[CartStore] saveCurrentOrderToHold skipped: missing table number');
+      return null;
+    }
+
+    const heldOrder: HeldOrderSnapshot = {
+      source: 'billing',
+      savedAt: snapshot.savedAt ?? new Date().toISOString(),
+      tableNo: normalizedTableNo,
+      tableGrpId: String(snapshot.tableGrpId ?? '').trim(),
+      userId: String(snapshot.userId ?? 'SYSTEM').trim(),
+      lPax: Number(snapshot.lPax ?? 0) || 0,
+      fPax: Number(snapshot.fPax ?? 0) || 0,
+      grossTotal: Number(snapshot.grossTotal ?? 0) || 0,
+      itemCount: normalizedItems.length,
+      items: normalizedItems,
+      itemRemarksByCode: snapshot.itemRemarksByCode ?? {},
+      voidMetadata: snapshot.voidMetadata ?? {},
+      pendingAdditions: snapshot.pendingAdditions ?? {},
+      billingHasChanges: Boolean(snapshot.billingHasChanges),
+    };
+
+    try {
+      const heldOrders = readHeldOrdersMap();
+      heldOrders[normalizedTableNo] = heldOrder;
+      writeHeldOrdersMap(heldOrders);
+    } catch (error) {
+      console.log('[CartStore] saveCurrentOrderToHold persist failed', error);
+      return null;
+    }
+
+    set({ cartItems: [], isDirty: false });
+    useOrderStore.getState().clearLastConfirmedOrder();
+    return heldOrder;
+  },
+
+  clearHeldOrder: () => {
+    const current = readHeldOrdersMap();
+    const firstKey = Object.keys(current)[0];
+    if (!firstKey) return;
+    delete current[firstKey];
+    writeHeldOrdersMap(current);
+  },
+
+  getHeldTables: () => Object.keys(readHeldOrdersMap()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })),
+
+  loadHeldOrderForTable: (tableNumber) => {
+    const normalizedTableNo = normalizeTableNumber(tableNumber);
+    if (!normalizedTableNo) return null;
+
+    const heldOrders = readHeldOrdersMap();
+    const heldOrder = heldOrders[normalizedTableNo];
+    if (!heldOrder) return null;
+
+    set({ cartItems: normalizeCartItems(heldOrder.items || []), isDirty: false });
+    useOrderStore.getState().clearLastConfirmedOrder();
+    return heldOrder;
+  },
+
+  clearHeldOrderForTable: (tableNumber) => {
+    const normalizedTableNo = normalizeTableNumber(tableNumber);
+    if (!normalizedTableNo) return;
+
+    const heldOrders = readHeldOrdersMap();
+    if (!heldOrders[normalizedTableNo]) return;
+    delete heldOrders[normalizedTableNo];
+    writeHeldOrdersMap(heldOrders);
+  },
+
+  clearAllHeldOrders: () => {
+    try {
+      storage.set(HELD_ORDERS_MAP_KEY, '{}');
+    } catch (error) {
+      console.log('[CartStore] clearAllHeldOrders failed', error);
+    }
+  },
+
+  getHeldOrder: (tableNumber) => {
+    const heldOrders = readHeldOrdersMap();
+    if (tableNumber) {
+      const normalizedTableNo = normalizeTableNumber(tableNumber);
+      return heldOrders[normalizedTableNo] ?? null;
+    }
+
+    const firstKey = Object.keys(heldOrders)[0];
+    return firstKey ? heldOrders[firstKey] : null;
+  },
 }));

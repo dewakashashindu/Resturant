@@ -2,25 +2,30 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    BackHandler,
-    Image,
-    Modal,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    useWindowDimensions,
-    View
+  ActivityIndicator,
+  Alert,
+  BackHandler,
+  Image,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  useWindowDimensions,
+  View
 } from 'react-native';
 import { apiClient } from '../../services/api';
 import { CartItem, useCartStore } from '../../services/cartStore';
 import { useOrderStore } from '../../services/orderStore';
+
+type VoidPresetItem = {
+  VoidRmkId?: string | number;
+  VoidDescription?: string;
+};
 
 export default function BillingScreen() {
   const router = useRouter();
@@ -37,6 +42,8 @@ export default function BillingScreen() {
   const cartItems = useCartStore((state) => state.cartItems);
   const updateQuantityInCart = useCartStore((state) => state.updateQuantity);
   const setCartItemsInStore = useCartStore((state) => state.setCartItems);
+  const saveCurrentOrderToHold = useCartStore((state) => state.saveCurrentOrderToHold);
+  const clearHeldOrderForTable = useCartStore((state) => state.clearHeldOrderForTable);
 
   // If we have a lastConfirmedOrder (set by Cart on confirm), prefer that snapshot
   const lastConfirmedOrder = useOrderStore((s) => s.lastConfirmedOrder);
@@ -56,13 +63,20 @@ export default function BillingScreen() {
   const [voidQuantity, setVoidQuantity] = useState(1);
   const [voidRemark, setVoidRemark] = useState('');
   const [managerName, setManagerName] = useState('');
-  const [voidRemarkDropdownVisible, setVoidRemarkDropdownVisible] = useState(false);
+  const [managerPassword, setManagerPassword] = useState('');
+  const [isManagerAuthView, setIsManagerAuthView] = useState(false);
+  const [managerIdError, setManagerIdError] = useState('');
+  const [managerPasswordError, setManagerPasswordError] = useState('');
+  const [isPresetListView, setIsPresetListView] = useState(false);
+  const [voidPresetItems, setVoidPresetItems] = useState<VoidPresetItem[]>([]);
   const [billingHasChanges, setBillingHasChanges] = useState(false);
   const [isHydratingBill, setIsHydratingBill] = useState(false);
   const [pendingAdditions, setPendingAdditions] = useState<Record<string, number>>({});
   const [voidMetadata, setVoidMetadata] = useState<Record<string, { remark: string; manager: string }>>({});
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const originalQuantitiesRef = useRef<Record<string, number>>({});
   const originalTableNoRef = useRef('');
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const upsertVoidMetadata = useCallback((menuItemCode: string, remark: string, manager: string) => {
     setVoidMetadata((current) => ({
@@ -73,6 +87,29 @@ export default function BillingScreen() {
       },
     }));
   }, []);
+
+  useEffect(() => {
+    if (!isPresetListView) return;
+
+    let isMounted = true;
+    void (async () => {
+      try {
+        const response = await apiClient.getVoidPresets();
+        if (!isMounted) return;
+        if (response.ok && Array.isArray(response.data)) {
+          setVoidPresetItems(response.data);
+        } else {
+          setVoidPresetItems([]);
+        }
+      } catch (error) {
+        if (isMounted) setVoidPresetItems([]);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isPresetListView]);
 
   const deleteVoidMetadata = useCallback((menuItemCode: string) => {
     setVoidMetadata((current) => {
@@ -90,13 +127,106 @@ export default function BillingScreen() {
     setVoidQuantity(1);
     setVoidRemark('');
     setManagerName('');
-    setVoidRemarkDropdownVisible(false);
+    setManagerPassword('');
+    setIsManagerAuthView(false);
+    setIsPresetListView(false);
+    setManagerIdError('');
+    setManagerPasswordError('');
+  }, []);
+
+  const showToast = useCallback((message: string) => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+
+    setToastMessage(message);
+    toastTimerRef.current = setTimeout(() => {
+      setToastMessage(null);
+      toastTimerRef.current = null;
+    }, 1800);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
   }, []);
 
   const clearPendingChanges = () => {
     setPendingAdditions({});
     setBillingHasChanges(false);
   };
+
+  const buildHeldOrderSnapshot = useCallback(() => {
+    const tableNo = String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim();
+    const tableGrpId = String(lastConfirmedOrder?.tableGrpId ?? '').trim();
+    const userId = String(lastConfirmedOrder?.userId ?? 'SYSTEM').trim();
+    const lPax = Number(lastConfirmedOrder?.lPax ?? Number(localPax ?? 0)) || 0;
+    const fPax = Number(lastConfirmedOrder?.fPax ?? Number(foreignPax ?? 0)) || 0;
+    const computedGrossTotal = displayedItems.reduce((sum: number, item: any) => {
+      const price = Number(item.salesPrice ?? 0) || 0;
+      const qty = Number(item.quantity ?? 0) || 0;
+      return sum + price * qty;
+    }, 0);
+
+    return {
+      tableNo,
+      tableGrpId,
+      userId,
+      lPax,
+      fPax,
+      grossTotal: computedGrossTotal,
+      items: displayedItems.map((item: any) => ({
+        menuItemCode: String(item.menuItemCode ?? '').trim(),
+        menuItmDes: String(item.menuItmDes ?? '').trim(),
+        salesPrice: Number(item.salesPrice ?? 0) || 0,
+        quantity: Number(item.quantity ?? 0) || 0,
+        itemRemarks: String(item.itemRemarks ?? '').trim(),
+      })),
+      itemRemarksByCode: displayedItems.reduce<Record<string, string>>((acc, item: any) => {
+        acc[String(item.menuItemCode ?? '').trim()] = String(item.itemRemarks ?? '').trim();
+        return acc;
+      }, {}),
+      voidMetadata,
+      pendingAdditions,
+      billingHasChanges,
+    };
+  }, [billingHasChanges, displayedItems, foreignPax, lastConfirmedOrder?.fPax, lastConfirmedOrder?.lPax, lastConfirmedOrder?.tableGrpId, lastConfirmedOrder?.tableNo, lastConfirmedOrder?.userId, localPax, pendingAdditions, tableName, voidMetadata]);
+
+  const handleNewOrder = useCallback(() => {
+    if (!displayedItems.length) {
+      showToast('No active order to save');
+      return;
+    }
+
+    const tableNumber = String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim();
+    if (!tableNumber) {
+      Alert.alert('Table required', 'Please select or enter a table number before saving the order.');
+      return;
+    }
+
+    const saved = saveCurrentOrderToHold(tableNumber, {
+      ...buildHeldOrderSnapshot(),
+      savedAt: new Date().toISOString(),
+    });
+
+    if (!saved) {
+      Alert.alert('Save failed', 'Unable to save the current order right now.');
+      return;
+    }
+
+    clearPendingChanges();
+    setVoidMetadata({});
+    resetVoidState();
+    originalQuantitiesRef.current = {};
+    originalTableNoRef.current = '';
+    setBillingHasChanges(false);
+    showToast('Order saved successfully');
+    router.replace('/Screens/operation');
+  }, [buildHeldOrderSnapshot, clearPendingChanges, displayedItems.length, resetVoidState, saveCurrentOrderToHold, showToast]);
 
   const activeTableNo = String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim();
 
@@ -287,7 +417,8 @@ export default function BillingScreen() {
       setVoidRemark(prefilledRemark);
     }
     setManagerName(prefilledManager);
-    setVoidRemarkDropdownVisible(false);
+    setManagerPassword('');
+    setIsManagerAuthView(false);
     setIsVoidModalVisible(true);
   };
 
@@ -309,12 +440,28 @@ export default function BillingScreen() {
     setVoidQuantity(1);
     setVoidRemark('');
     setManagerName('');
-    setVoidRemarkDropdownVisible(false);
+    setManagerIdError('');
+    setManagerPasswordError('');
   };
 
   // 4. Triggered when the manager inputs details and clicks Confirm inside Void Modal
   const handleVoidConfirm = () => {
     if (!activeVoidItem) return;
+
+    if (isManagerAuthView) {
+      const trimmedManagerUsername = String(managerName || '').trim();
+      const trimmedManagerPassword = String(managerPassword || '').trim();
+
+      const nextManagerIdError = trimmedManagerUsername ? '' : 'Manager username is required!';
+      const nextManagerPasswordError = trimmedManagerPassword ? '' : 'Password is required!';
+
+      setManagerIdError(nextManagerIdError);
+      setManagerPasswordError(nextManagerPasswordError);
+
+      if (nextManagerIdError || nextManagerPasswordError) {
+        return;
+      }
+    }
 
     const itemCode = activeVoidItem.menuItemCode;
     const baselineQty = getBaselineQuantity(itemCode);
@@ -325,7 +472,7 @@ export default function BillingScreen() {
     const trimmedManager = String(managerName || '').trim();
 
     if (isTrueVoidReduction && (!trimmedRemark || !trimmedManager)) {
-      Alert.alert('Validation Error', 'Void Remark and Manager Approval are required');
+      Alert.alert('Validation Error', 'Void Remark and Manager Username are required');
       return;
     }
 
@@ -405,7 +552,6 @@ export default function BillingScreen() {
         setActiveVoidItem(null);
         setVoidQuantity(1);
         setVoidRemark('');
-        setVoidRemarkDropdownVisible(false);
       }
     } else {
       // live-cart: update store and show remark action when decrementing
@@ -423,7 +569,6 @@ export default function BillingScreen() {
         setActiveVoidItem(null);
         setVoidQuantity(1);
         setVoidRemark('');
-        setVoidRemarkDropdownVisible(false);
       }
     }
   };
@@ -580,6 +725,7 @@ export default function BillingScreen() {
           throw new Error(serverMsg || 'Failed to finalize/print bill');
         }
 
+        clearHeldOrderForTable(String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim());
         // On successful finalize/payment, clear the global cart so the next customer starts fresh.
         useCartStore.getState().clearCart();
         useOrderStore.getState().clearLastConfirmedOrder();
@@ -619,9 +765,22 @@ export default function BillingScreen() {
 
           <Text style={[styles.headerTitle, { fontSize: titleFs }]}>Billing</Text>
 
-          <View style={{ width: backBtnSize }} />
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={handleNewOrder}
+            style={styles.newOrderButton}
+          >
+            <Ionicons name="add" size={14} color="#002748" />
+            <Text style={styles.newOrderButtonText}>New Order</Text>
+          </TouchableOpacity>
         </View>
       </View>
+
+      {toastMessage && (
+        <View style={[styles.toastBanner, { top: headerH - 10 }]} pointerEvents="none">
+          <Text style={styles.toastBannerText}>{toastMessage}</Text>
+        </View>
+      )}
 
       {/* TABLE INFO CONTAINER */}
       <View style={[styles.fixedInfo, { paddingHorizontal: hPad }]}>
@@ -644,7 +803,7 @@ export default function BillingScreen() {
             <View style={styles.itemRow}>
               <Text style={[styles.itemName, { fontSize: itemFs }]} numberOfLines={1}>{item.menuItmDes}</Text>
 
-              <Text style={[styles.itemPrice, { fontSize: itemFs }]}>Lkr {item.salesPrice.toFixed(2)}</Text>
+              <Text style={[styles.itemPrice, { fontSize: itemFs }]}>Lkr {(Number(item.salesPrice ?? 0) * Number(item.quantity ?? 0)).toFixed(2)}</Text>
 
               <View style={styles.qtyPill}>
                 <TouchableOpacity
@@ -711,124 +870,190 @@ export default function BillingScreen() {
           <View style={styles.voidModalOverlay}>
             <TouchableWithoutFeedback>
               <View style={styles.voidCard}>
-                <View style={styles.voidCardHeader}>
-                  <Text style={styles.voidCardHeaderTitle}>Void Item</Text>
-                  <TouchableOpacity onPress={handleVoidCancel} activeOpacity={0.8}>
-                    <Ionicons name="close" size={22} color="#0F172A" />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.voidCardBody}>
-                  <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.voidCardContent} style={styles.voidCardScroll}>
-                    <View style={styles.metaSpecificationsStack}>
-                      <View style={styles.metaRowInline}>
-                        <Text style={styles.metaLabelStyle}>Void Item:</Text>
-                        <Text style={styles.metaValueStyle}>{activeVoidItem?.menuItmDes || 'N/A'}</Text>
-                      </View>
-
-                      <View style={[styles.metaRowInline, { alignItems: 'center' }]}> 
-                        <Text style={styles.metaLabelStyle}>Remove Quantity:</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8 }}>
-                          <TouchableOpacity
-                            onPress={() => setVoidQuantity((q) => Math.max(1, (q || 1) - 1))}
-                            style={[styles.qtyBtn, { width: 34, height: 34, marginRight: 8 }]}
-                            activeOpacity={0.8}
-                          >
-                            <Ionicons name="remove" size={16} color="#000" />
-                          </TouchableOpacity>
-
-                          <Text style={[styles.metaValueStyle, { minWidth: 32, textAlign: 'center' }]}>{String(voidQuantity || 1).padStart(2, '0')}</Text>
-
-                          <TouchableOpacity
-                            onPress={() => {
-                              const maxQ = activeVoidItem?.quantity ?? 9999;
-                              setVoidQuantity((q) => Math.min(maxQ, (q || 1) + 1));
-                            }}
-                            style={[styles.qtyBtn, { width: 34, height: 34, marginLeft: 8 }]}
-                            activeOpacity={0.8}
-                          >
-                            <Ionicons name="add" size={16} color="#000" />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
+                {isManagerAuthView ? (
+                  <View style={styles.managerAuthCardBody}>
+                    <View style={styles.managerAuthHeaderRow}>
+                      <Text style={styles.managerAuthTitle}>Manager Authentication</Text>
+                      <TouchableOpacity onPress={() => setIsManagerAuthView(false)} activeOpacity={0.8}>
+                        <Ionicons name="close" size={22} color="#0F172A" />
+                      </TouchableOpacity>
                     </View>
-                    <Text style={styles.inputFieldLabelOutside}>Void Remarks:</Text>
-                    <View style={styles.textareaWrapperContainer}>
-                      <View style={styles.textAreaInputBox}>
-                        <TextInput
-                          style={styles.textAreaTextInput}
-                          placeholder="Add Void Remark..."
+
+                    <View style={styles.managerAuthFieldGroup}>
+                      <Text style={styles.managerAuthLabel}>Manager Username:</Text>
+                      <View style={[styles.managerAuthInputBox, managerIdError ? styles.managerAuthInputBoxError : null]}>
+                          <TextInput
+                          style={styles.managerAuthInput}
+                              placeholder="Enter Manager Username"
                           placeholderTextColor="rgba(0, 0, 0, 0.25)"
-                          multiline
-                          numberOfLines={4}
-                          value={voidRemark}
-                          onChangeText={setVoidRemark}
+                          value={managerName}
+                          onChangeText={(text) => {
+                            setManagerName(text);
+                            if (managerIdError) setManagerIdError('');
+                          }}
+                          onFocus={() => setIsManagerAuthView(true)}
                         />
                       </View>
-                      <View style={styles.presetRemarkDropdownWrap}>
-                        <TouchableOpacity
-                          activeOpacity={0.8}
-                          style={styles.presetRemarkDropdownButton}
-                          onPress={() => setVoidRemarkDropdownVisible((visible) => !visible)}
-                        >
-                          <Text style={styles.presetRemarkDropdownButtonText}>Preset</Text>
-                          <Ionicons name={voidRemarkDropdownVisible ? 'chevron-up' : 'chevron-down'} size={14} color="#fff" />
-                        </TouchableOpacity>
+                      {!!managerIdError && <Text style={styles.managerAuthErrorText}>{managerIdError}</Text>}
+                    </View>
 
-                        {voidRemarkDropdownVisible && (
-                          <View style={styles.presetRemarkDropdownMenu}>
-                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.presetRemarkDropdownMenuContent}>
-                              {voidRemarkPresets.map((preset) => (
-                                <TouchableOpacity
-                                  key={preset}
-                                  activeOpacity={0.75}
-                                  style={styles.presetRemarkDropdownItem}
-                                  onPress={() => {
-                                    setVoidRemark((current) => {
-                                      const trimmed = current.trim();
-                                      if (!trimmed) return preset;
-                                      if (trimmed.includes(preset)) return trimmed;
-                                      return `${trimmed}, ${preset}`;
-                                    });
-                                    setVoidRemarkDropdownVisible(false);
-                                  }}
-                                >
-                                  <Text style={styles.presetRemarkDropdownItemText}>{preset}</Text>
-                                </TouchableOpacity>
-                              ))}
-                            </ScrollView>
-                          </View>
-                        )}
+                    <View style={styles.managerAuthFieldGroup}>
+                      <Text style={styles.managerAuthLabel}>Manager Password:</Text>
+                      <View style={[styles.managerAuthInputBox, managerPasswordError ? styles.managerAuthInputBoxError : null]}>
+                          <TextInput
+                          style={styles.managerAuthInput}
+                          placeholder="Enter Password"
+                          placeholderTextColor="rgba(0, 0, 0, 0.25)"
+                          value={managerPassword}
+                          onChangeText={(text) => {
+                            setManagerPassword(text);
+                            if (managerPasswordError) setManagerPasswordError('');
+                          }}
+                          secureTextEntry
+                        />
                       </View>
+                      {!!managerPasswordError && <Text style={styles.managerAuthErrorText}>{managerPasswordError}</Text>}
                     </View>
 
-                    <Text style={styles.inputFieldLabelOutside}>Manager Name:</Text>
-                    <View style={styles.singleLineInputBoxWrapper}>
-                      <TextInput
-                        style={styles.singleLineInputField}
-                        placeholder="Enter Manager Authorized Name"
-                        placeholderTextColor="rgba(0, 0, 0, 0.25)"
-                        value={managerName}
-                        onChangeText={setManagerName}
-                      />
-                    </View>
-                  </ScrollView>
-
-                  <View style={styles.voidCardFooter}>
-                    <View style={styles.ctaButtonControlRowGroup}>
+                    <View style={styles.managerAuthFooter}>
                       <TouchableOpacity style={styles.confirmActionButtonPrimary} onPress={handleVoidConfirm} activeOpacity={0.85}>
                         <View style={styles.confirmIconWrap}>
                           <Ionicons name="checkmark" size={18} color="#FFF" />
                         </View>
                         <Text style={styles.confirmButtonLabelInlineText}>Confirm</Text>
                       </TouchableOpacity>
-
-                      <TouchableOpacity style={styles.cancelActionButtonOutlineSecondary} onPress={handleVoidCancel} activeOpacity={0.85}>
-                        <Text style={styles.cancelButtonLabelInlineText}>Cancel</Text>
-                      </TouchableOpacity>
                     </View>
                   </View>
-                </View>
+                ) : isPresetListView ? (
+                  <View style={styles.presetListCardBody}>
+                    <View style={styles.presetListHeaderRow}>
+                      <TouchableOpacity
+                        style={styles.presetBackButton}
+                        activeOpacity={0.8}
+                        onPress={() => setIsPresetListView(false)}
+                      >
+                        <Ionicons name="arrow-back" size={18} color="#0F172A" />
+                      </TouchableOpacity>
+                      <Text style={styles.presetListTitle}>Select Preset Remark</Text>
+                      <View style={styles.presetBackButtonSpacer} />
+                    </View>
+
+                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.presetListContent}>
+                      {voidPresetItems.length > 0 ? (
+                        voidPresetItems.map((item, index) => (
+                          <TouchableOpacity
+                            key={String(item.VoidRmkId ?? index)}
+                            activeOpacity={0.82}
+                            style={styles.presetListRow}
+                            onPress={() => {
+                              const selectedText = String(item.VoidDescription ?? '').trim();
+                              setVoidRemark(selectedText);
+                              setIsPresetListView(false);
+                            }}
+                          >
+                            <Text style={styles.presetListRowText}>{String(item.VoidDescription ?? '').trim()}</Text>
+                            <Ionicons name="chevron-forward" size={18} color="#002748" />
+                          </TouchableOpacity>
+                        ))
+                      ) : (
+                        <View style={styles.presetListEmptyWrap}>
+                          <Text style={styles.presetListEmptyText}>No preset remarks available.</Text>
+                        </View>
+                      )}
+                    </ScrollView>
+                  </View>
+                ) : (
+                  <View style={styles.voidCardBody}>
+                    <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.voidCardContent} style={styles.voidCardScroll}>
+                      <View style={styles.metaSpecificationsStack}>
+                        <View style={styles.metaRowInline}>
+                          <Text style={styles.metaLabelStyle}>Void Item:</Text>
+                          <Text style={styles.metaValueStyle}>{activeVoidItem?.menuItmDes || 'N/A'}</Text>
+                        </View>
+
+                        <View style={[styles.metaRowInline, { alignItems: 'center' }]}> 
+                          <Text style={styles.metaLabelStyle}>Remove Quantity:</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8 }}>
+                            <TouchableOpacity
+                              onPress={() => setVoidQuantity((q) => Math.max(1, (q || 1) - 1))}
+                              style={[styles.qtyBtn, { width: 34, height: 34, marginRight: 8 }]}
+                              activeOpacity={0.8}
+                            >
+                              <Ionicons name="remove" size={16} color="#000" />
+                            </TouchableOpacity>
+
+                            <Text style={[styles.metaValueStyle, { minWidth: 32, textAlign: 'center' }]}>{String(voidQuantity || 1).padStart(2, '0')}</Text>
+
+                            <TouchableOpacity
+                              onPress={() => {
+                                const maxQ = activeVoidItem?.quantity ?? 9999;
+                                setVoidQuantity((q) => Math.min(maxQ, (q || 1) + 1));
+                              }}
+                              style={[styles.qtyBtn, { width: 34, height: 34, marginLeft: 8 }]}
+                              activeOpacity={0.8}
+                            >
+                              <Ionicons name="add" size={16} color="#000" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      </View>
+                      <Text style={styles.inputFieldLabelOutside}>Void Remarks:</Text>
+                      <View style={styles.textareaWrapperContainer}>
+                        <View style={styles.textAreaInputBox}>
+                          <TextInput
+                            style={styles.textAreaTextInput}
+                            placeholder="Add Void Remark..."
+                            placeholderTextColor="rgba(0, 0, 0, 0.25)"
+                            multiline
+                            numberOfLines={4}
+                            value={voidRemark}
+                            onChangeText={setVoidRemark}
+                          />
+                        </View>
+                        <TouchableOpacity
+                          activeOpacity={0.82}
+                          style={styles.presetToggleButton}
+                          onPress={() => setIsPresetListView(true)}
+                        >
+                          <Text style={styles.presetToggleButtonText}>Preset</Text>
+                          <Ionicons name="albums" size={14} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+
+                      <Text style={styles.inputFieldLabelOutside}>Manager Name:</Text>
+                      <TouchableOpacity activeOpacity={0.9} onPress={() => setIsManagerAuthView(true)}>
+                        <View style={styles.singleLineInputBoxWrapper}>
+                          <TextInput
+                            style={styles.singleLineInputField}
+                            placeholder="Enter Manager Username"
+                            placeholderTextColor="rgba(0, 0, 0, 0.25)"
+                            value={managerName}
+                            onChangeText={(text) => {
+                              setManagerName(text);
+                              if (managerIdError) setManagerIdError('');
+                            }}
+                            onFocus={() => setIsManagerAuthView(true)}
+                          />
+                        </View>
+                      </TouchableOpacity>
+                    </ScrollView>
+
+                    <View style={styles.voidCardFooter}>
+                      <View style={styles.ctaButtonControlRowGroup}>
+                        <TouchableOpacity style={styles.confirmActionButtonPrimary} onPress={handleVoidConfirm} activeOpacity={0.85}>
+                          <View style={styles.confirmIconWrap}>
+                            <Ionicons name="checkmark" size={18} color="#FFF" />
+                          </View>
+                          <Text style={styles.confirmButtonLabelInlineText}>Confirm</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.cancelActionButtonOutlineSecondary} onPress={handleVoidCancel} activeOpacity={0.85}>
+                          <Text style={styles.cancelButtonLabelInlineText}>Cancel</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                )}
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -870,6 +1095,28 @@ const styles = StyleSheet.create({
   backButton: {
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  newOrderButton: {
+    minWidth: 96,
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.14,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  newOrderButtonText: {
+    color: '#002748',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   headerTitle: {
     fontWeight: '500',
@@ -962,6 +1209,28 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 14,
     fontWeight: '600',
+  },
+  toastBanner: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 30,
+    alignItems: 'center',
+  },
+  toastBannerText: {
+    backgroundColor: 'rgba(0, 39, 72, 0.96)',
+    color: '#FFF',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    overflow: 'hidden',
+    fontSize: 13,
+    fontWeight: '600',
+    shadowColor: '#000',
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
   totalRow: {
     flexDirection: 'row',
@@ -1062,6 +1331,131 @@ const styles = StyleSheet.create({
   voidCardBody: {
     flex: 1,
   },
+  managerAuthCardBody: {
+    flex: 1,
+    paddingTop: 4,
+  },
+  managerAuthHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 18,
+  },
+  managerAuthTitle: {
+    flex: 1,
+    color: '#000',
+    fontSize: 24,
+    fontFamily: 'Roboto',
+    fontWeight: '600',
+  },
+  managerAuthFieldGroup: {
+    marginBottom: 14,
+  },
+  managerAuthLabel: {
+    opacity: 0.75,
+    color: 'rgba(0, 0, 0, 0.80)',
+    fontSize: 14,
+    fontFamily: 'Inter',
+    fontWeight: '500',
+    marginBottom: 6,
+  },
+  managerAuthInputBox: {
+    width: '100%',
+    height: 45,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#0062AA',
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  managerAuthInputBoxError: {
+    borderColor: '#FF4D4D',
+  },
+  managerAuthInput: {
+    flex: 1,
+    color: 'black',
+    fontSize: 14,
+    fontFamily: 'Roboto',
+    fontWeight: '500',
+    padding: 0,
+    margin: 0,
+  },
+  managerAuthErrorText: {
+    marginTop: 6,
+    color: '#FF4D4D',
+    fontSize: 12,
+    fontFamily: 'Inter',
+    fontWeight: '500',
+  },
+  managerAuthFooter: {
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  presetListCardBody: {
+    flex: 1,
+    paddingTop: 4,
+  },
+  presetListHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  presetBackButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 39, 72, 0.08)',
+  },
+  presetBackButtonSpacer: {
+    width: 34,
+    height: 34,
+  },
+  presetListTitle: {
+    flex: 1,
+    color: '#000',
+    fontSize: 22,
+    fontFamily: 'Roboto',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  presetListContent: {
+    paddingBottom: 6,
+  },
+  presetListRow: {
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#F4F7FB',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 98, 170, 0.12)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  presetListRowText: {
+    flex: 1,
+    color: '#002748',
+    fontSize: 14,
+    fontFamily: 'Roboto',
+    fontWeight: '500',
+  },
+  presetListEmptyWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 22,
+  },
+  presetListEmptyText: {
+    color: 'rgba(0, 39, 72, 0.7)',
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
   voidCardScroll: {
     flex: 1,
   },
@@ -1161,11 +1555,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Roboto',
     top: -4,
   },
-  presetRemarkDropdownWrap: {
-    width: 112,
-    position: 'relative',
-  },
-  presetRemarkDropdownButton: {
+  presetToggleButton: {
+    alignSelf: 'flex-start',
+    minWidth: 112,
     height: 36,
     borderRadius: 8,
     backgroundColor: '#8D9ED4',
@@ -1174,33 +1566,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  presetRemarkDropdownButtonText: {
+  presetToggleButtonText: {
     color: '#FFF',
     fontSize: 12,
     fontFamily: 'Roboto',
     fontWeight: '600',
-  },
-  presetRemarkDropdownMenu: {
-    marginTop: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 98, 170, 0.35)',
-    backgroundColor: '#F9FBFF',
-    maxHeight: 140,
-    overflow: 'hidden',
-  },
-  presetRemarkDropdownMenuContent: {
-    paddingVertical: 4,
-  },
-  presetRemarkDropdownItem: {
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-  },
-  presetRemarkDropdownItemText: {
-    color: '#002748',
-    fontSize: 11,
-    fontFamily: 'Roboto',
-    fontWeight: '500',
   },
   singleLineInputBoxWrapper: {
     width: '100%',

@@ -1,7 +1,8 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Image,
     SafeAreaView,
     ScrollView,
@@ -12,6 +13,7 @@ import {
     useWindowDimensions,
     View
 } from 'react-native';
+import useItemStore from '../../services/itemStore';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -22,8 +24,13 @@ export default function SettingsScreen() {
   const [selectedFloors, setSelectedFloors] = useState<string[]>(['Ground Floor']);
   
   // Core System Sync States
-  const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  const [lastSyncTime, setLastSyncTime] = useState<string>('2026-05-17 10:15 AM');
+  // Core System Sync States (connected to itemStore)
+  const isSyncing = useItemStore((s) => s.isSyncing);
+  const lastSyncTime = useItemStore((s) => s.lastSyncTime) ?? 'Never';
+  const syncError = useItemStore((s) => s.syncError);
+  const syncMenuData = useItemStore((s) => s.syncMenuData);
+  const hydrateItems = useItemStore((s) => s.hydrateItems);
+  const isHydrated = useItemStore((s) => s.isHydrated);
 
   const isTablet = width  >= 600;
   const isSmall  = height < 700;
@@ -43,22 +50,32 @@ export default function SettingsScreen() {
   const manageBtnH   = isTablet ? 46  : isSmall ? 34  : 40;
   const manageFs     = isTablet ? 16  : isSmall ? 13  : 14;
 
-  // Mock handler simulating data sync engine refresh execution
-  const handleCoreSync = () => {
-    setIsSyncing(true);
-    setTimeout(() => {
-      const now = new Date();
-      const formattedDate = now.toISOString().split('T')[0];
-      let hours = now.getHours();
-      const minutes = now.getMinutes().toString().padStart(2, '0');
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      hours = hours % 12;
-      hours = hours ? hours : 12; // the hour '0' should be '12'
-      
-      setLastSyncTime(`${formattedDate} ${hours}:${minutes} ${ampm}`);
-      setIsSyncing(false);
-    }, 1500);
+  // Connect to itemStore sync engine
+  const [localSyncing, setLocalSyncing] = useState(false);
+  const handleCoreSync = async () => {
+    try {
+      setLocalSyncing(true);
+      await hydrateItems();
+      const synced = await syncMenuData();
+
+      if (synced) {
+        Alert.alert('Sync Complete', 'Menu data was refreshed successfully.');
+      } else {
+        Alert.alert('Sync Failed', syncError || 'Unable to refresh menu data right now.');
+      }
+    } catch (err) {
+      console.log('Sync failed:', err);
+    } finally {
+      setLocalSyncing(false);
+    }
   };
+
+  useEffect(() => {
+    // Ensure store is hydrated when visiting Settings
+    if (!isHydrated) {
+      hydrateItems().catch(() => {});
+    }
+  }, [hydrateItems, isHydrated]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -185,14 +202,14 @@ export default function SettingsScreen() {
             <TouchableOpacity
               style={[styles.manageBtn, { height: manageBtnH }]}
               onPress={handleCoreSync}
-              disabled={isSyncing}
+              disabled={isSyncing || localSyncing}
               activeOpacity={0.85}
             >
-              {isSyncing ? (
+              {isSyncing || localSyncing ? (
                 <ActivityIndicator size="small" color="#FFF" />
               ) : (
                 <Text style={[styles.manageBtnText, { fontSize: manageFs }]}>
-                  🔄  Sync with Core System
+                  🔄  Sync Menu Data
                 </Text>
               )}
             </TouchableOpacity>

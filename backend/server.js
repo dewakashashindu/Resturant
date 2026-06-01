@@ -6,8 +6,22 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const app = express();
 
-app.use(cors());
+const corsOptions = {
+  origin: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
+
+app.get('/test', (_req, res) => {
+  res.json({
+    ok: true,
+    message: 'Backend is reachable from the network.',
+    timestamp: new Date().toISOString(),
+  });
+});
 
 const dbConfig = {
   user: process.env.DB_USER,
@@ -292,6 +306,21 @@ app.get('/api/tables/counts', async (req, res) => {
   }
 });
 
+app.get('/api/void-remarks', async (_req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT VoidRmkId, VoidDescription
+      FROM dbo.Tbl_VoidRemarks
+      WHERE Enable = 'True'
+    `);
+
+    return res.json(Array.isArray(result.recordset) ? result.recordset : []);
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 // ─── Menu/Category routes ─────────────────────────────────────────────────────
 app.get('/api/menu/categories', async (req, res) => {
   try {
@@ -558,9 +587,47 @@ app.get('/api/menu/level', async (req, res) => {
 
 
 // ─── Start server ─────────────────────────────────────────────────────────────
+app.get('/api/menu/items', async (req, res) => {
+  try {
+    const since = req.query.since;
+    console.log('[Backend] GET /api/menu/items since=', since);
+
+    const pool = await poolPromise;
+    let result;
+    if (since) {
+      // Note: replace LastUpdated with your real timestamp column if different.
+      result = await pool.request()
+        .input('since', sql.VarChar, String(since))
+        .query(`
+          SELECT *
+          FROM Vw_MenuAssignment
+          WHERE DisplayInFront = '1'
+            AND MenuAssiEnable = '1'
+            AND MenuItemEnable = '1'
+            AND LastUpdated > @since
+        `);
+    } else {
+      result = await pool.request().query(`
+        SELECT *
+        FROM Vw_MenuAssignment
+        WHERE DisplayInFront = '1'
+          AND MenuAssiEnable = '1'
+          AND MenuItemEnable = '1'
+      `);
+    }
+
+    const rows = result && result.recordset ? result.recordset : [];
+    console.log('[Backend] /api/menu/items sql returned rows=', rows.length);
+    return res.json({ items: rows, lastSyncTime: new Date().toISOString(), ok: true });
+  } catch (error) {
+    console.log('[Backend] /api/menu/items error', error && error.message ? error.message : error);
+    return res.status(500).json({ ok: false, error: error && error.message ? error.message : String(error) });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on 0.0.0.0:${PORT}`);
 });
 
 // ─── Graceful shutdown ────────────────────────────────────────────────────────
@@ -704,85 +771,96 @@ const confirmCartHandler = async (req, res) => {
       await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
       for (const item of normalizedItems) {
-        const lookupReq = new sql.Request(transaction);
-        lookupReq.input('TabelNo', sql.NVarChar(50), tableNo);
-        lookupReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+        try {
+          const itemId = String(item.ItemCode ?? item.ItemId ?? 'UNKNOWN').trim() || 'UNKNOWN';
+          const itemName = String(item.ItemName ?? item.MenuItmDes ?? item.ItemRemarks ?? 'UNKNOWN').trim() || 'UNKNOWN';
 
-        const existing = await lookupReq.query(`
-          SELECT QTY
-          FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
-          WHERE TabelNo = @TabelNo
-            AND ItemCode = @ItemCode
-        `);
+          const lookupReq = new sql.Request(transaction);
+          lookupReq.input('TabelNo', sql.NVarChar(50), tableNo);
+          lookupReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
 
-        const existingQty = Number(existing.recordset?.[0]?.QTY ?? 0);
-        const rowExists = (existing.recordset?.length ?? 0) > 0;
-
-        if (rowExists) {
-          const updateReq = new sql.Request(transaction);
-          updateReq.input('TabelNo', sql.NVarChar(50), tableNo);
-          updateReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
-          updateReq.input('QTY', sql.Float, item.QTY);
-          updateReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
-          updateReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
-          updateReq.input('UserID', sql.NVarChar(50), userId);
-          updateReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId);
-          updateReq.input('LPax', sql.Float, lPax);
-          updateReq.input('FPax', sql.Float, fPax);
-
-          await updateReq.query(`
-            UPDATE dbo.Tbl_HoldUpsCloud
-            SET QTY = @QTY,
-                SalesPrice = @SalesPrice,
-                ItemRemarks = @ItemRemarks,
-                UserID = @UserID,
-                TabelGrpID = @TabelGrpID,
-                LPax = @LPax,
-                FPax = @FPax,
-                TxnDateTime = ${SQL_SRI_LANKA_NOW}
+          const existing = await lookupReq.query(`
+            SELECT QTY
+            FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
             WHERE TabelNo = @TabelNo
               AND ItemCode = @ItemCode
           `);
-        } else {
-          const insertReq = new sql.Request(transaction);
-          insertReq.input('TabelNo', sql.NVarChar(50), tableNo);
-          insertReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
-          insertReq.input('QTY', sql.Float, item.QTY);
-          insertReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
-          insertReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
-          insertReq.input('UserID', sql.NVarChar(50), userId);
-          insertReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId);
-          insertReq.input('LPax', sql.Float, lPax);
-          insertReq.input('FPax', sql.Float, fPax);
 
-          await insertReq.query(`
-            INSERT INTO dbo.Tbl_HoldUpsCloud
-              (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, TxnDateTime)
-            VALUES
-              (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, ${SQL_SRI_LANKA_NOW})
-          `);
-        }
+          const existingQty = Number(existing.recordset?.[0]?.QTY ?? 0);
+          const rowExists = (existing.recordset?.length ?? 0) > 0;
 
-        // Only audit meaningful cart confirmation changes.
-        const deltaQty = rowExists ? (item.QTY - existingQty) : item.QTY;
-        if (deltaQty !== 0) {
-          const tempReq = new sql.Request(transaction);
-          tempReq.input('TabelNo', sql.NVarChar(50), tableNo);
-          tempReq.input('UserID', sql.NVarChar(50), userId);
-          tempReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
-          tempReq.input('QTY', sql.Float, deltaQty);
-          tempReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
-          tempReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId || null);
-          tempReq.input('LPax', sql.Float, lPax);
-          tempReq.input('FPax', sql.Float, fPax);
-          tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
+          if (rowExists) {
+            const updateReq = new sql.Request(transaction);
+            updateReq.input('TabelNo', sql.NVarChar(50), tableNo);
+            updateReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+            updateReq.input('QTY', sql.Float, item.QTY);
+            updateReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
+            updateReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
+            updateReq.input('UserID', sql.NVarChar(50), userId);
+            updateReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId);
+            updateReq.input('LPax', sql.Float, lPax);
+            updateReq.input('FPax', sql.Float, fPax);
 
-          await tempReq.query(`
-            INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-              (TabelNo, UserID, ItemCode, QTY, ItemRemarks, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, AoR, MgrID)
-            VALUES
-              (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, 'A', '0')
-          `);
+            await updateReq.query(`
+              UPDATE dbo.Tbl_HoldUpsCloud
+              SET QTY = @QTY,
+                  SalesPrice = @SalesPrice,
+                  ItemRemarks = @ItemRemarks,
+                  UserID = @UserID,
+                  TabelGrpID = @TabelGrpID,
+                  LPax = @LPax,
+                  FPax = @FPax,
+                  TxnDateTime = ${SQL_SRI_LANKA_NOW}
+              WHERE TabelNo = @TabelNo
+                AND ItemCode = @ItemCode
+            `);
+          } else {
+            const insertReq = new sql.Request(transaction);
+            insertReq.input('TabelNo', sql.NVarChar(50), tableNo);
+            insertReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+            insertReq.input('QTY', sql.Float, item.QTY);
+            insertReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
+            insertReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
+            insertReq.input('UserID', sql.NVarChar(50), userId);
+            insertReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId);
+            insertReq.input('LPax', sql.Float, lPax);
+            insertReq.input('FPax', sql.Float, fPax);
+
+            await insertReq.query(`
+              INSERT INTO dbo.Tbl_HoldUpsCloud
+                (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, TxnDateTime)
+              VALUES
+                (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, ${SQL_SRI_LANKA_NOW})
+            `);
+          }
+
+          // Only audit meaningful cart confirmation changes.
+          const deltaQty = rowExists ? (item.QTY - existingQty) : item.QTY;
+          if (deltaQty !== 0) {
+            const tempReq = new sql.Request(transaction);
+            tempReq.input('TabelNo', sql.NVarChar(50), tableNo);
+            tempReq.input('UserID', sql.NVarChar(50), userId);
+            tempReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+            tempReq.input('QTY', sql.Float, deltaQty);
+            tempReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
+            tempReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId || null);
+            tempReq.input('LPax', sql.Float, lPax);
+            tempReq.input('FPax', sql.Float, fPax);
+            tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
+
+            await tempReq.query(`
+              INSERT INTO dbo.Tbl_HoldUpsCloudTemp
+                (TabelNo, UserID, ItemCode, QTY, ItemRemarks, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, AoR, MgrID)
+              VALUES
+                (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, 'A', '0')
+            `);
+          }
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          const itemId = String(item.ItemCode ?? item.ItemId ?? 'UNKNOWN').trim() || 'UNKNOWN';
+          const itemName = String(item.ItemName ?? item.MenuItmDes ?? item.ItemRemarks ?? 'UNKNOWN').trim() || 'UNKNOWN';
+          console.error(`[DB ERROR] Failed to save item: ${itemId} (${itemName}) -> Error: ${errorMessage}`);
+          continue;
         }
       }
 
@@ -835,83 +913,94 @@ const billingAddItemHandler = async (req, res) => {
     try {
       await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
       for (const item of normalizedItems) {
-        const tempReq = new sql.Request(transaction);
-        tempReq.input('TabelNo', sql.NVarChar(50), tableNo);
-        tempReq.input('UserID', sql.NVarChar(50), userId);
-        tempReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
-        tempReq.input('QTY', sql.Float, item.QTY);
-        tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
-        tempReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
-        tempReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId || null);
-        tempReq.input('LPax', sql.Float, lPax);
-        tempReq.input('FPax', sql.Float, fPax);
-        tempReq.input('MgrID', sql.NVarChar(50), mgrId || '0');
+        try {
+          const itemId = String(item.ItemCode ?? item.ItemId ?? 'UNKNOWN').trim() || 'UNKNOWN';
+          const itemName = String(item.ItemName ?? item.MenuItmDes ?? item.ItemRemarks ?? 'UNKNOWN').trim() || 'UNKNOWN';
 
-        await tempReq.query(`
-          INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-            (TabelNo, UserID, ItemCode, QTY, SalesPrice, ItemRemarks, TabelGrpID, LPax, FPax, AoR, TxnDateTime, MgrID)
-          VALUES
-            (@TabelNo, @UserID, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @TabelGrpID, @LPax, @FPax, 'A', ${SQL_SRI_LANKA_NOW}, @MgrID)
-        `);
+          const tempReq = new sql.Request(transaction);
+          tempReq.input('TabelNo', sql.NVarChar(50), tableNo);
+          tempReq.input('UserID', sql.NVarChar(50), userId);
+          tempReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+          tempReq.input('QTY', sql.Float, item.QTY);
+          tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
+          tempReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
+          tempReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId || null);
+          tempReq.input('LPax', sql.Float, lPax);
+          tempReq.input('FPax', sql.Float, fPax);
+          tempReq.input('MgrID', sql.NVarChar(50), mgrId || '0');
 
-        const lookupReq = new sql.Request(transaction);
-        lookupReq.input('TabelNo', sql.NVarChar(50), tableNo);
-        lookupReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+          await tempReq.query(`
+            INSERT INTO dbo.Tbl_HoldUpsCloudTemp
+              (TabelNo, UserID, ItemCode, QTY, SalesPrice, ItemRemarks, TabelGrpID, LPax, FPax, AoR, TxnDateTime, MgrID)
+            VALUES
+              (@TabelNo, @UserID, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @TabelGrpID, @LPax, @FPax, 'A', ${SQL_SRI_LANKA_NOW}, @MgrID)
+          `);
 
-        const existing = await lookupReq.query(`
-          SELECT QTY
-          FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
-          WHERE TabelNo = @TabelNo
-            AND ItemCode = @ItemCode
-        `);
+          const lookupReq = new sql.Request(transaction);
+          lookupReq.input('TabelNo', sql.NVarChar(50), tableNo);
+          lookupReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
 
-        if (existing.recordset && existing.recordset.length > 0) {
-          const updateReq = new sql.Request(transaction);
-          updateReq.input('TabelNo', sql.NVarChar(50), tableNo);
-          updateReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
-          updateReq.input('QTY', sql.Float, item.QTY);
-          updateReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
-          updateReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
-          updateReq.input('UserID', sql.NVarChar(50), userId);
-          updateReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId);
-          updateReq.input('LPax', sql.Float, lPax);
-          updateReq.input('FPax', sql.Float, fPax);
-
-          await updateReq.query(`
-            UPDATE dbo.Tbl_HoldUpsCloud
-            SET QTY = QTY + @QTY,
-                SalesPrice = COALESCE(@SalesPrice, SalesPrice),
-                ItemRemarks = CASE
-                  WHEN NULLIF(LTRIM(RTRIM(@ItemRemarks)), '') IS NULL THEN ItemRemarks
-                  WHEN NULLIF(LTRIM(RTRIM(ISNULL(ItemRemarks, ''))), '') IS NULL THEN @ItemRemarks
-                  ELSE ISNULL(ItemRemarks, '') + '; ' + ISNULL(@ItemRemarks, '')
-                END,
-                UserID = @UserID,
-                TabelGrpID = @TabelGrpID,
-                LPax = @LPax,
-                FPax = @FPax,
-                TxnDateTime = ${SQL_SRI_LANKA_NOW}
+          const existing = await lookupReq.query(`
+            SELECT QTY
+            FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
             WHERE TabelNo = @TabelNo
               AND ItemCode = @ItemCode
           `);
-        } else {
-          const insertReq = new sql.Request(transaction);
-          insertReq.input('TabelNo', sql.NVarChar(50), tableNo);
-          insertReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
-          insertReq.input('QTY', sql.Float, item.QTY);
-          insertReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
-          insertReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
-          insertReq.input('UserID', sql.NVarChar(50), userId);
-          insertReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId);
-          insertReq.input('LPax', sql.Float, lPax);
-          insertReq.input('FPax', sql.Float, fPax);
 
-          await insertReq.query(`
-            INSERT INTO dbo.Tbl_HoldUpsCloud
-              (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, TxnDateTime)
-            VALUES
-              (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, ${SQL_SRI_LANKA_NOW})
-          `);
+          if (existing.recordset && existing.recordset.length > 0) {
+            const updateReq = new sql.Request(transaction);
+            updateReq.input('TabelNo', sql.NVarChar(50), tableNo);
+            updateReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+            updateReq.input('QTY', sql.Float, item.QTY);
+            updateReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
+            updateReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
+            updateReq.input('UserID', sql.NVarChar(50), userId);
+            updateReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId);
+            updateReq.input('LPax', sql.Float, lPax);
+            updateReq.input('FPax', sql.Float, fPax);
+
+            await updateReq.query(`
+              UPDATE dbo.Tbl_HoldUpsCloud
+              SET QTY = QTY + @QTY,
+                  SalesPrice = COALESCE(@SalesPrice, SalesPrice),
+                  ItemRemarks = CASE
+                    WHEN NULLIF(LTRIM(RTRIM(@ItemRemarks)), '') IS NULL THEN ItemRemarks
+                    WHEN NULLIF(LTRIM(RTRIM(ISNULL(ItemRemarks, ''))), '') IS NULL THEN @ItemRemarks
+                    ELSE ISNULL(ItemRemarks, '') + '; ' + ISNULL(@ItemRemarks, '')
+                  END,
+                  UserID = @UserID,
+                  TabelGrpID = @TabelGrpID,
+                  LPax = @LPax,
+                  FPax = @FPax,
+                  TxnDateTime = ${SQL_SRI_LANKA_NOW}
+              WHERE TabelNo = @TabelNo
+                AND ItemCode = @ItemCode
+            `);
+          } else {
+            const insertReq = new sql.Request(transaction);
+            insertReq.input('TabelNo', sql.NVarChar(50), tableNo);
+            insertReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+            insertReq.input('QTY', sql.Float, item.QTY);
+            insertReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
+            insertReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
+            insertReq.input('UserID', sql.NVarChar(50), userId);
+            insertReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId);
+            insertReq.input('LPax', sql.Float, lPax);
+            insertReq.input('FPax', sql.Float, fPax);
+
+            await insertReq.query(`
+              INSERT INTO dbo.Tbl_HoldUpsCloud
+                (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, TxnDateTime)
+              VALUES
+                (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, ${SQL_SRI_LANKA_NOW})
+            `);
+          }
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          const itemId = String(item.ItemCode ?? item.ItemId ?? 'UNKNOWN').trim() || 'UNKNOWN';
+          const itemName = String(item.ItemName ?? item.MenuItmDes ?? item.ItemRemarks ?? 'UNKNOWN').trim() || 'UNKNOWN';
+          console.error(`[DB ERROR] Failed to save item: ${itemId} (${itemName}) -> Error: ${errorMessage}`);
+          continue;
         }
       }
 

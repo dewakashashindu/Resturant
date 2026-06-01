@@ -3,15 +3,23 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Tabs, useRouter } from 'expo-router';
 import React from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { useAuthStore } from '../../services/authStore';
 
 function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
   const router = useRouter();
+  const clearSession = useAuthStore((state) => state.clearSession);
   const { height } = useWindowDimensions();
 const { width } = useWindowDimensions();
 const isTablet = width >= 600;
 const iconSize = isTablet ? 32 : 22;
 const textSize = isTablet ? 16 : 12;
 const navHeight = isTablet ? 100 : 80;
+
+  const handleLogout = async () => {
+    await clearSession();
+    router.replace('/auth/login');
+  };
+
   return (
     <View style={styles.bottomNav}>
       <TouchableOpacity
@@ -30,7 +38,9 @@ const navHeight = isTablet ? 100 : 80;
             {
               text: 'Logout',
               style: 'destructive',
-              onPress: () => router.replace('/auth/login'),
+              onPress: () => {
+                void handleLogout();
+              },
             },
           ]);
         }}

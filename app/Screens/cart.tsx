@@ -18,7 +18,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { apiClient } from '../../services/api';
+import { apiClient, getCachedOrderDescriptions } from '../../services/api';
 import { CartItem, useCartStore } from '../../services/cartStore';
 import { useOrderStore } from '../../services/orderStore';
 
@@ -74,7 +74,7 @@ export default function CartScreen() {
   const [remarksByCode, setRemarksByCode] = useState<Record<string, string>>({});
   const [modalTags, setModalTags] = useState<string[]>([]);
   const [isViewingRemarkPresets, setIsViewingRemarkPresets] = useState(false);
-  const [remarkOptions, setRemarkOptions] = useState<string[]>(predefinedRemarks);
+  const [remarkOptions, setRemarkOptions] = useState<string[]>(() => getCachedOrderDescriptions());
   const [loadingRemarkOptions, setLoadingRemarkOptions] = useState(false);
   const [editingTagIndex, setEditingTagIndex] = useState<number | null>(null);
 
@@ -96,7 +96,8 @@ export default function CartScreen() {
   const totalItemsCount = cartItems.length;
 
   useEffect(() => {
-    void loadRemarkOptions();
+    // Instantly load the same globally synced preset list into the Cart view modal.
+    setRemarkOptions(getCachedOrderDescriptions());
   }, []);
 
   const openRemarkModal = (item: CartItem) => {
