@@ -13,13 +13,18 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
-    "mssql": "^12.5.2"
+    "mssql": "^12.5.2",
+    "expo": "~54.0.34",
+    "react": "19.1.0",
+    "react-native": "0.81.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
   },
   "scripts": {
-  "dev": "nodemon server.js",
-  "start": "node server.js"
-}
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
+  }
 }

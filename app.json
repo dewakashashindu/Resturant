@@ -14,7 +14,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/CAPTURE 1.png"
       },
-      "package": "com.dewaka_shashindu.Restarurant"
+      "package": "com.dewaka_shashindu.Restarurant",
+      
     },
     "plugins": [
       "expo-router",

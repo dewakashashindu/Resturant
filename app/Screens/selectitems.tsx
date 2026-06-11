@@ -2,19 +2,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Image,
-    ImageSourcePropType,
-    Modal,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    useWindowDimensions,
-    View,
+  ActivityIndicator,
+  Image,
+  ImageSourcePropType,
+  Modal,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  useWindowDimensions,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { apiClient, getCachedOrderDescriptions } from '../../services/api';
@@ -460,6 +460,10 @@ export default function ItemSelection() {
   const addToCart = useCartStore((state) => state.addToCart);
   const upsertCartItem = useCartStore((state) => state.upsertCartItem);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
+
+  const customerInfo = useCartStore((state) => state.customerInfo); 
+  const orderType = useCartStore((state) => state.orderType);
+
   const clearCart = useCartStore((state) => state.clearCart);
 
   const isTablet = width >= 600;

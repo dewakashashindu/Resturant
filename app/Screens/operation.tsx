@@ -56,7 +56,7 @@ export default function ModeSelectionScreen() {
       label: 'Take Away',
       color: '#8D9ED4',
       image: require('../../assets/images/takeaway.png'),
-      route: null,
+      route: '/Screens/TakeAway',
     },
     {
       label: 'Delivery',
@@ -269,7 +269,7 @@ const styles = StyleSheet.create({
 
   backButtonAbsolute: {
     position: 'absolute',
-    top: Platform.OS === 'android' ? 12 : 8,
+    top: Platform.OS === 'android' ? 44 : 8,
     left: 12,
     zIndex: 10,
     padding: 8,

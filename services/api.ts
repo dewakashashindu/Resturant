@@ -68,7 +68,6 @@ export const getCachedOrderDescriptions = (): string[] => {
 // 2. Background sync function to fetch fresh records from SQL and save to MMKV
 export const syncGlobalOrderDescriptions = async (): Promise<void> => {
   try {
-    // Replace with your exact Node.js backend server URL/IP address
     const response = await fetch(`${API_BASE_URL}/api/remarks/order-descriptions`);
     const data = await response.json();
 
@@ -103,12 +102,18 @@ export interface ConfirmCartItemPayload {
 }
 
 export interface ConfirmCartPayload {
+  orderType?: string; // 🌟 Added orderType ('TA' or 'DINING')
   TabelNo: string;
   UserID: number;
   TabelGrpID: string | null;
   LPax: number;
   FPax: number;
   items: ConfirmCartItemPayload[];
+  customerDetails?: { // 🌟 Added customer details properties
+    regTel: string;
+    cusName: string;
+    rmks: string;
+  } | null;
 }
 
 export interface AddBillingItemPayload {
@@ -141,6 +146,7 @@ export interface ApiResponse<T = any> {
 }
 
 type ConfirmCartPayloadInput = ConfirmCartPayload | {
+  orderType?: string; // 🌟 Handle raw input type for orderType
   tableNo?: string;
   TableNo?: string;
   userId?: number | string;
@@ -161,6 +167,12 @@ type ConfirmCartPayloadInput = ConfirmCartPayload | {
     salesPrice?: number;
     SalesPrice?: number;
   }>;
+  customerDetails?: { // 🌟 Handle raw input type for customer details
+    regTel?: string;
+    regTelNo?: string;
+    cusName?: string;
+    rmks?: string;
+  } | null;
 };
 
 type AddBillingItemPayloadInput = AddBillingItemPayload | {
@@ -240,7 +252,6 @@ const parseResponseBody = async (response: Response) => {
     if (contentType.includes('application/json')) {
       return await response.json();
     }
-
     return await response.text();
   } catch (error) {
     try {
@@ -300,23 +311,7 @@ const toString = (value: unknown, fallback = '') => {
   return String(value);
 };
 
-const normalizeConfirmCartPayload = (payload: ConfirmCartPayload | {
-  tableNo?: string;
-  userId?: number | string;
-  tableGrpId?: string | null;
-  lPax?: number;
-  fPax?: number;
-  items: Array<CartItem | {
-    menuItemCode?: string;
-    ItemCode?: string;
-    quantity?: number;
-    QTY?: number;
-    salesPrice?: number;
-    SalesPrice?: number;
-    itemRemarks?: string;
-    ItemRemarks?: string;
-  }>;
-}) : ConfirmCartPayload => {
+const normalizeConfirmCartPayload = (payload: ConfirmCartPayloadInput): ConfirmCartPayload => {
   const items = Array.isArray(payload.items)
     ? payload.items.map((item) => ({
         ItemCode: toString((item as any).ItemCode ?? (item as any).menuItemCode, '').trim(),
@@ -326,13 +321,25 @@ const normalizeConfirmCartPayload = (payload: ConfirmCartPayload | {
       })).filter((item) => item.ItemCode && item.QTY > 0)
     : [];
 
+  // Extract raw nested values carefully for customer metrics
+  const rawCustomer = (payload as any).customerDetails;
+  const normalizedCustomer = rawCustomer
+    ? {
+        regTel: toString(rawCustomer.regTel ?? rawCustomer.regTelNo, '').trim(),
+        cusName: toString(rawCustomer.cusName, '').trim(),
+        rmks: toString(rawCustomer.rmks, '').trim(),
+      }
+    : null;
+
   return {
+    orderType: toString((payload as any).orderType, 'DINING').trim(), // 🌟 Normalized order type defaults to 'DINING'
     TabelNo: toString((payload as any).TabelNo ?? (payload as any).tableNo, '').trim(),
     UserID: toNumber((payload as any).UserID ?? (payload as any).userId, 0),
     TabelGrpID: (payload as any).TabelGrpID ?? (payload as any).tableGrpId ?? null,
     LPax: toNumber((payload as any).LPax ?? (payload as any).lPax, 0),
     FPax: toNumber((payload as any).FPax ?? (payload as any).fPax, 0),
     items,
+    customerDetails: normalizedCustomer, // 🌟 Append structural customer properties
   };
 };
 
@@ -418,7 +425,7 @@ export const apiClient = {
     return { ok: response.ok, data };
   },
 
-  resetPassword: async (username: string, newPassword: string) => {
+  resettPassword: async (username: string, newPassword: string) => {
     const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -446,11 +453,9 @@ export const apiClient = {
       if (contentType.includes('application/json')) {
         data = await response.json();
       } else {
-        // non-json response (HTML error page, etc.) — return text for debugging
         data = await response.text();
       }
     } catch (err) {
-      // parsing failed — include raw text for debugging
       try {
         data = await response.text();
       } catch (_) {
@@ -487,7 +492,6 @@ export const apiClient = {
         data = null;
       }
     }
-
     return { ok: response.ok, data };
   },
 
@@ -634,7 +638,6 @@ export const apiClient = {
   getOrderDescriptions: async (): Promise<string[]> => {
     const cached = getCachedOrderDescriptions();
 
-    // Kick off a background refresh without blocking UI consumers.
     syncGlobalOrderDescriptions().catch((error) => {
       console.log('⚠️ [MMKV Global Sync] Background refresh failed:', error);
     });
@@ -654,7 +657,7 @@ export const apiClient = {
     return freshDescriptions;
   },
 
-  getTableGroup: async (tableNo: string) => {
+  getTemplateGroup: async (tableNo: string) => {
     try {
       const url = `${API_BASE_URL}/api/tables/group?tableNo=${encodeURIComponent(tableNo)}`;
       const response = await fetch(url);
@@ -693,7 +696,7 @@ export const apiClient = {
   },
   
   confirmCart: async (payload: ConfirmCartPayloadInput) => {
-    const normalized = normalizeConfirmCartPayload(payload as any);
+    const normalized = normalizeConfirmCartPayload(payload);
     const response = await requestJson(`${API_BASE_URL}/api/confirm-cart`, {
       method: 'POST',
       headers: await buildAuthHeaders(),
@@ -725,8 +728,21 @@ export const apiClient = {
     return response;
   },
   
+  getCustomerByPhone: async (phone: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/customer/${phone}`);
+      const data = await response.json();
+      return { ok: response.ok, data };
+    } catch (err) {
+      return { ok: false, data: null };
+    }
+  },
 
-
-
-
+  saveCustomer: async (payload: { RegTel: string; CusName: string; Rmks: string; CusBehaviour?: number }) => {
+    return requestJson(`${API_BASE_URL}/api/customer/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
 };

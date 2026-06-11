@@ -86,7 +86,7 @@ export default function HomeScreen() {
       icon: require('../../assets/icons/menu.png'),
     },
     {
-      title: 'NPS Collector',
+      title: 'Feedback Collector',
       subtitle: 'Guest Feedback',
       color: 'rgba(129,113,183,0.5)',
       iconBg: 'rgba(129,113,183,0.6)',

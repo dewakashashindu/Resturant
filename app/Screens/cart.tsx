@@ -32,6 +32,8 @@ export default function CartScreen() {
     floor?: string;
     status?: string;
   }>();
+  const orderType = useCartStore((state) => state.orderType);
+  const customerInfo = useCartStore((state) => state.customerInfo);
   const { width, height } = useWindowDimensions();
 
   const isTablet = width >= 600;
@@ -83,7 +85,7 @@ export default function CartScreen() {
   const displayTable = tableName ?? tableId ?? 'GF 1';
   const displayLocalPax = localPax ?? '0';
   const displayForeignPax = foreignPax ?? '0';
-
+const lastConfirmedOrder = useOrderStore((s) => s.lastConfirmedOrder);
   const tableInfo = [
     { label: 'Table', value: displayTable },
     { label: 'Floor', value: floor ?? '—' },
@@ -222,9 +224,14 @@ export default function CartScreen() {
       Alert.alert('Cart is empty', 'Please add items before confirming.');
       return;
     }
+    let finalTableNo = lastConfirmedOrder?.tableNo 
+    ? lastConfirmedOrder.tableNo 
+    : (orderType === 'TA' ? 'TA-PENDING' : (tableName ?? displayTable));
 
+   
     const payload = {
-      tableNo: tableName ?? displayTable,
+      orderType: orderType || 'DI', 
+      tableNo: finalTableNo,            
       userId: 'SYSTEM',
       tableGrpId: tableId ?? '',
       lPax: Number(localPax ?? 0),
@@ -235,51 +242,81 @@ export default function CartScreen() {
         salesPrice: i.salesPrice,
         itemRemarks: i.itemRemarks || remarksByCode[i.menuItemCode] || '',
       })),
+      
+      
+      customerDetails: orderType === 'TA' ? {
+        regTel: customerInfo?.contactNumber || '',
+        cusName: customerInfo?.customerName || '',
+        rmks: customerInfo?.remark || ''
+      } : null
     };
 
-    try {
+try {
       setConfirming(true);
-      const res = await apiClient.confirmCart(payload);
-      console.log('confirmCart response', res);
-      if (res.ok || (res.data && res.data.ok)) {
-          // persist confirmed order details so Billing screen can show them
-          useOrderStore.getState().setLastConfirmedOrder({
-            ...payload,
-            items: payload.items.map((it) => ({
-              ...it,
-              salesPrice: cartItems.find(c => c.menuItemCode === it.menuItemCode)?.salesPrice ?? 0,
-              menuItmDes: cartItems.find(c => c.menuItemCode === it.menuItemCode)?.menuItmDes ?? '',
-            })),
-            createdAt: new Date().toISOString(),
-          });
 
-          // Keep cart intact so Billing -> Cart navigation shows live items instantly.
-          // clearCartInStore();
-          // setRemarksByCode({});
-        // Navigate to Billing screen with params
-        router.push({
-          pathname: '/Screens/BillingScreen',
-          params: {
-            tableName: tableName ?? displayTable,
-            localPax: displayLocalPax,
-            foreignPax: displayForeignPax,
-            floor: floor ?? '',
-            status: status ?? '',
-          },
-        });
+      // 1. Check if we already have a REAL generated number (not 'TA-PENDING')
+      let generatedTableNo = lastConfirmedOrder?.tableNo;
+      
+      // If the stored number is just the placeholder 'TA-PENDING', we treat it as "not generated yet"
+      const isPending = !generatedTableNo || generatedTableNo === 'TA-PENDING';
+
+      // 2. Only call the API if we don't have a final TA number yet
+      if (isPending) {
+        const res = await apiClient.confirmCart(payload);
+        console.log('confirmCart response', res);
+
+        if (res.ok || (res.data && res.data.ok)) {
+          //  GET THE ACTUAL NUMBER FROM THE SERVER
+          generatedTableNo = res.data?.data?.tableNo; 
+        } else {
+          console.error('confirmCart error', res.data);
+          const serverMsg = res.data && (res.data.message || JSON.stringify(res.data));
+          Alert.alert('Error', serverMsg || 'Failed to save order');
+          setConfirming(false);
+          return;
+        }
       } else {
-        console.error('confirmCart error', res.data);
-        const serverMsg = res.data && (res.data.message || JSON.stringify(res.data));
-        Alert.alert('Error', serverMsg || 'Failed to save order');
+        console.log('Reusing already generated tableNo:', generatedTableNo);
       }
-    } catch {
-      const message = 'Failed to save order';
-      console.error('confirmCart exception', message);
-      Alert.alert('Error', message || 'Failed to save order');
+
+      // 3. Update the Store with the ACTUAL number from the server
+      useOrderStore.getState().setLastConfirmedOrder({
+        ...payload,
+        tableNo: generatedTableNo ?? '', // Now this will be "TA-1266" instead of "TA-PENDING"
+        items: payload.items.map((it) => ({
+          ...it,
+          salesPrice: cartItems.find(c => c.menuItemCode === it.menuItemCode)?.salesPrice ?? 0,
+          menuItmDes: cartItems.find(c => c.menuItemCode === it.menuItemCode)?.menuItmDes ?? '',
+        })),
+        createdAt: lastConfirmedOrder?.createdAt ?? new Date().toISOString(),
+      });
+
+      // 4. Navigate to Billing
+      router.push({
+        pathname: '/Screens/BillingScreen',
+        params: {
+          tableName: tableName ?? displayTable,
+          tableNo: generatedTableNo, 
+          // ... rest of your params
+          localPax: displayLocalPax,
+          foreignPax: displayForeignPax,
+          floor: floor ?? '',
+          status: status ?? '',
+          orderType: orderType || 'DINING', 
+          contactNumber: customerInfo?.contactNumber || '',
+          customerName: customerInfo?.customerName || '',
+          remark: customerInfo?.remark || '',
+        },
+      });
+
+    } catch (error) {
+      console.error('confirmCart exception', error);
+      Alert.alert('Error', 'Failed to save order');
     } finally {
       setConfirming(false);
     }
   };
+
 
   const decrementItem = (item: CartItem) => {
     if (item.quantity <= 1) {

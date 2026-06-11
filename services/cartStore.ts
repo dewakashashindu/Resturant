@@ -10,6 +10,12 @@ export type CartItem = {
   quantity: number;
 };
 
+export type CustomerInfo = {
+  contactNumber: string;
+  customerName: string;
+  remark: string;
+};
+
 export type HeldOrderSnapshot = {
   source: 'billing';
   savedAt: string;
@@ -86,6 +92,10 @@ export const normalizeCartItems = (items: CartItemInput[]) => {
 type CartStore = {
   cartItems: CartItem[];
   isDirty: boolean;
+  customerInfo: CustomerInfo | null; 
+  orderType: 'TA' | 'DINING' | null;   
+  setCustomerInfo: (info: CustomerInfo) => void; 
+  setOrderType: (type: 'TA' | 'DINING') => void; 
   addToCart: (item: Omit<CartItem, 'quantity'>) => void;
   upsertCartItem: (item: CartItemUpsertInput) => void;
   updateQuantity: (menuItemCode: string, delta: number) => void;
@@ -97,6 +107,7 @@ type CartStore = {
   clearHeldOrderForTable: (tableNumber: string) => void;
   clearAllHeldOrders: () => void;
   getHeldOrder: (tableNumber?: string) => HeldOrderSnapshot | null;
+  clearHeldOrder: () => void;
 };
 
 const HELD_ORDERS_MAP_KEY = 'held_orders_map_v1';
@@ -138,6 +149,11 @@ const writeHeldOrdersMap = (map: HeldOrdersMap) => {
 export const useCartStore = create<CartStore>((set, get) => ({
   cartItems: [],
   isDirty: false,
+  customerInfo: null,
+  orderType: null,
+
+  setCustomerInfo: (info) => set({ customerInfo: info }),
+  setOrderType: (type) => set({ orderType: type }),
 
   addToCart: (item) => {
     const normalizedItem = normalizeCartItem({ ...item, quantity: 1 });
@@ -215,7 +231,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
 
   setCartItems: (items) => set({ cartItems: normalizeCartItems(items), isDirty: false }),
 
-  clearCart: () => set({ cartItems: [], isDirty: false }),
+  clearCart: () => set({ cartItems: [], isDirty: false, customerInfo: null, orderType: null }),
 
   saveCurrentOrderToHold: (tableNumber, snapshot) => {
     const normalizedItems = normalizeCartItems(snapshot.items || []);
@@ -251,7 +267,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
       return null;
     }
 
-    set({ cartItems: [], isDirty: false });
+    set({ cartItems: [], isDirty: false, customerInfo: null, orderType: null });
     useOrderStore.getState().clearLastConfirmedOrder();
     return heldOrder;
   },

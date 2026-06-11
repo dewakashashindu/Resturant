@@ -63,7 +63,7 @@ const poolPromise = new sql.ConnectionPool(dbConfig)
     };
     return dummyPool;
   });
-// ─── Validators ───────────────────────────────────────────────────────────────
+// Validators
 const usernamePattern = /^[A-Za-z0-9]{4,8}$/;
 const passwordPattern = /^[A-Za-z0-9!@#]{4,8}$/;
 
@@ -81,7 +81,7 @@ const validatePassword = (password) => {
   return null;
 };
 
-// ─── Auth: Login ─────────────────────────────────────────────────────────────
+// Auth: Login 
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -238,7 +238,7 @@ app.post('/api/auth/change-password', async (req, res) => {
   }
 });
 
-// ─── Table routes ─────────────────────────────────────────────────────────────
+// Table routes 
 app.get('/api/floors', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -321,7 +321,7 @@ app.get('/api/void-remarks', async (_req, res) => {
   }
 });
 
-// ─── Menu/Category routes ─────────────────────────────────────────────────────
+// Menu/Category routes 
 app.get('/api/menu/categories', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -435,10 +435,10 @@ app.get('/api/remarks/order-descriptions', async (_req, res) => {
   let remarkPool;
   try {
     const remarksDbConfig = {
-      user: process.env.DB_USER,
-      password: process.env.DB_PASS,
-      server: 'DEWAKA\\SQL2008',
-      database: 'MMRESTAURANT',
+      user: process.env.REMARKS_DB_USER,
+      password: process.env.REMARKS_DB_PASS,
+      server: process.env.REMARKS_DB_SERVER,
+      database: process.env.REMARKS_DB_NAME,
       options: {
         encrypt: false,
         trustServerCertificate: true,
@@ -586,16 +586,23 @@ app.get('/api/menu/level', async (req, res) => {
 
 
 
-// ─── Start server ─────────────────────────────────────────────────────────────
+
+// Start server 
 app.get('/api/menu/items', async (req, res) => {
   try {
-    const since = req.query.since;
+    let since = req.query.since;
     console.log('[Backend] GET /api/menu/items since=', since);
+
+    
+    if (!since || since === 'undefined' || since === 'null' || since === '') {
+      since = null; 
+    }
 
     const pool = await poolPromise;
     let result;
+    
+    
     if (since) {
-      // Note: replace LastUpdated with your real timestamp column if different.
       result = await pool.request()
         .input('since', sql.VarChar, String(since))
         .query(`
@@ -607,6 +614,7 @@ app.get('/api/menu/items', async (req, res) => {
             AND LastUpdated > @since
         `);
     } else {
+      
       result = await pool.request().query(`
         SELECT *
         FROM Vw_MenuAssignment
@@ -630,7 +638,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on 0.0.0.0:${PORT}`);
 });
 
-// ─── Graceful shutdown ────────────────────────────────────────────────────────
+// Graceful shutdown 
 process.on('SIGINT', async () => {
   try {
     await sql.close();
@@ -654,7 +662,7 @@ process.on('SIGTERM', async () => {
 });
 
 
-// ─── Restaurant POS lifecycle helpers and API controllers ────────────────────
+// Restaurant POS lifecycle helpers and API controllers
 const pickString = (value, maxLength = 50) => {
   if (value === null || value === undefined) return '';
   return String(value).trim().substring(0, maxLength);
@@ -723,12 +731,38 @@ const confirmCartHandler = async (req, res) => {
       return res.status(400).json({ ok: false, message: 'No items to confirm' });
     }
 
-    const tableNo = pickString(body.tableNo ?? body.TableNo ?? body.TabelNo ?? body.tableName ?? body.TableName, 50);
+    
+    const orderTypeVal = pickString(body.orderType ?? body.OrderType ?? '', 10) || 'DI';
+    
+    
+    let tableNo = pickString(body.tableNo ?? body.TableNo ?? body.TabelNo ?? body.tableName ?? body.TableName, 50);
     const tableGrpId = pickString(body.tableGrpId ?? body.TableGrpId ?? body.TableGrpID ?? body.TabelGrpID ?? body.tableGroupId, 50);
     const userId = getBearerUserId(req, body.userId ?? body.UserID ?? 'SYSTEM');
     const lPax = pickNumber(body.lPax ?? body.LPax ?? 0, 0);
     const fPax = pickNumber(body.fPax ?? body.FPax ?? 0, 0);
 
+    const pool = await poolPromise;
+
+    
+    if (orderTypeVal === 'TA') {
+      const serialResult = await pool.request()
+        .query("SELECT SeriNo FROM Tbl_Serials WHERE SeriCode = 'TA'");
+      
+      if (serialResult.recordset.length > 0) {
+        const currentSerial = parseInt(serialResult.recordset[0].SeriNo);
+        
+       
+        tableNo = `TA-${currentSerial}`; 
+        
+        
+        await pool.request()
+          .query(`UPDATE Tbl_Serials SET SeriNo = ${currentSerial + 1} WHERE SeriCode = 'TA'`);
+          
+        console.log(`[TA-SERIAL] Generated serial: ${tableNo}`);
+      }
+    }
+
+    
     if (!tableNo) {
       return res.status(400).json({ ok: false, message: 'TableNo is required' });
     }
@@ -764,11 +798,26 @@ const confirmCartHandler = async (req, res) => {
     }
 
     const normalizedItems = [...normalizedItemsMap.values()];
-    const pool = await poolPromise;
     const transaction = new sql.Transaction(pool);
 
     try {
       await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
+      // Req 2: Dynamically fetch TableGroup from dbo.Tbl_Tables for this TableNo.
+      // Falls back to the tableGrpId passed from the request if not found.
+      let resolvedTableGrpId = tableGrpId;
+      try {
+        const tblGrpReq = new sql.Request(transaction);
+        tblGrpReq.input('TableNo', sql.NVarChar(50), tableNo);
+        const tblGrpResult = await tblGrpReq.query(
+          'SELECT TableGroup FROM dbo.Tbl_Tables WHERE TableNo = @TableNo'
+        );
+        if (tblGrpResult.recordset.length > 0 && tblGrpResult.recordset[0].TableGroup != null) {
+          resolvedTableGrpId = pickString(tblGrpResult.recordset[0].TableGroup, 50);
+        }
+      } catch (tblGrpErr) {
+        console.warn('[TableGroup Lookup] Failed, falling back to request value:', tblGrpErr?.message);
+      }
 
       for (const item of normalizedItems) {
         try {
@@ -776,7 +825,7 @@ const confirmCartHandler = async (req, res) => {
           const itemName = String(item.ItemName ?? item.MenuItmDes ?? item.ItemRemarks ?? 'UNKNOWN').trim() || 'UNKNOWN';
 
           const lookupReq = new sql.Request(transaction);
-          lookupReq.input('TabelNo', sql.NVarChar(50), tableNo);
+          lookupReq.input('TabelNo', sql.NVarChar(50), tableNo); // 🌟 මෙතනට යන්නේ අලුතින් හැදුණු TA සීරියල් එකයි
           lookupReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
 
           const existing = await lookupReq.query(`
@@ -797,9 +846,10 @@ const confirmCartHandler = async (req, res) => {
             updateReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
             updateReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
             updateReq.input('UserID', sql.NVarChar(50), userId);
-            updateReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId);
+            updateReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId);
             updateReq.input('LPax', sql.Float, lPax);
             updateReq.input('FPax', sql.Float, fPax);
+            updateReq.input('Order_type', sql.VarChar(10), orderTypeVal);
 
             await updateReq.query(`
               UPDATE dbo.Tbl_HoldUpsCloud
@@ -810,6 +860,7 @@ const confirmCartHandler = async (req, res) => {
                   TabelGrpID = @TabelGrpID,
                   LPax = @LPax,
                   FPax = @FPax,
+                  Order_type = @Order_type,
                   TxnDateTime = ${SQL_SRI_LANKA_NOW}
               WHERE TabelNo = @TabelNo
                 AND ItemCode = @ItemCode
@@ -822,19 +873,19 @@ const confirmCartHandler = async (req, res) => {
             insertReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
             insertReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
             insertReq.input('UserID', sql.NVarChar(50), userId);
-            insertReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId);
+            insertReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId);
             insertReq.input('LPax', sql.Float, lPax);
             insertReq.input('FPax', sql.Float, fPax);
+            insertReq.input('Order_type', sql.VarChar(10), orderTypeVal);
 
             await insertReq.query(`
               INSERT INTO dbo.Tbl_HoldUpsCloud
-                (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, TxnDateTime)
+                (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, Order_type, TxnDateTime)
               VALUES
-                (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, ${SQL_SRI_LANKA_NOW})
+                (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, @Order_type, ${SQL_SRI_LANKA_NOW})
             `);
           }
 
-          // Only audit meaningful cart confirmation changes.
           const deltaQty = rowExists ? (item.QTY - existingQty) : item.QTY;
           if (deltaQty !== 0) {
             const tempReq = new sql.Request(transaction);
@@ -843,16 +894,18 @@ const confirmCartHandler = async (req, res) => {
             tempReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
             tempReq.input('QTY', sql.Float, deltaQty);
             tempReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
-            tempReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId || null);
+            tempReq.input('VoidRemark', sql.NVarChar(500), '');
+            tempReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId || null);
             tempReq.input('LPax', sql.Float, lPax);
             tempReq.input('FPax', sql.Float, fPax);
             tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
+            tempReq.input('Order_type', sql.VarChar(10), orderTypeVal);
 
             await tempReq.query(`
               INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-                (TabelNo, UserID, ItemCode, QTY, ItemRemarks, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, AoR, MgrID)
+                (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, MgrID, Order_type, AoR)
               VALUES
-                (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, 'A', '0')
+                (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, '0', @Order_type, 'A')
             `);
           }
         } catch (err) {
@@ -866,11 +919,12 @@ const confirmCartHandler = async (req, res) => {
 
       await transaction.commit();
 
+      
       return res.status(200).json({
         ok: true,
         message: 'Cart confirmed successfully',
         data: {
-          tableNo,
+          tableNo, 
           itemCount: normalizedItems.length,
         },
       });
@@ -1202,6 +1256,133 @@ const getActiveBillItemsHandler = async (req, res) => {
   }
 };
 
+// check if customer exists based on phone number
+app.get('/api/customer/:phone', async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('phone', sql.VarChar, req.params.phone)
+      .query('SELECT CusName FROM Tbl_CustomerMaster WHERE RegTel = @phone');
+      
+    if (result.recordset.length > 0) {
+      res.json({ exists: true, customerName: result.recordset[0].CusName });
+    } else {
+      res.json({ exists: false });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// to save new customer details or update existing ones (upsert by phone)
+app.post('/api/customer/save', async (req, res) => {
+  
+  const { RegTel, CusName, Rmks, CusBehaviour } = req.body;
+  const cusBehaviourVal = (CusBehaviour !== undefined) ? parseInt(CusBehaviour) : 4;
+
+  const regTelVal  = String(RegTel || '').trim().substring(0, 15);
+  const cusNameVal = String(CusName || 'Guest').trim().substring(0, 200);
+  const rmksVal    = String(Rmks || '').trim().substring(0, 400);
+  
+
+  const locCodeVal = '01'; 
+  const txnTypeVal = 'CUS'; 
+
+  try {
+    const pool = await poolPromise;
+    
+
+    
+    const checkResult = await pool.request()
+      .input('RegTel', sql.Char(15), regTelVal)
+      .query(`SELECT CusCode FROM Tbl_CustomerMaster WHERE LTRIM(RTRIM(RegTel)) = LTRIM(RTRIM(@RegTel))`);
+
+    let finalCusCode = '';
+
+    if (checkResult.recordset.length > 0) {
+     
+      finalCusCode = String(checkResult.recordset[0].CusCode).trim();
+      
+
+      await pool.request()
+        .input('CusCode', sql.Char(10), finalCusCode)
+        .input('CusName', sql.VarChar(200), cusNameVal)
+        .input('Rmks',    sql.VarChar(400), rmksVal)
+        .query(`UPDATE Tbl_CustomerMaster SET CusName = @CusName, Rmks = @Rmks WHERE CusCode = @CusCode`);
+      
+      
+
+    } else {
+      
+      
+      
+    
+      const txnResult = await pool.request()
+        .input('LocCode', sql.VarChar(10), locCodeVal)
+        .input('TxnType', sql.VarChar(10), txnTypeVal)
+        .query(`SELECT Prefix, TxnNo FROM Tbl_TxnNumbers WHERE LocCode = @LocCode AND TxnType = @TxnType AND Enable = '1'`);
+
+      if (txnResult.recordset.length > 0) {
+        const row = txnResult.recordset[0];
+        const prefix = String(row.Prefix || '').trim(); 
+        const nextNo = Number(row.TxnNo);
+        
+        
+        finalCusCode = (prefix + String(nextNo).padStart(6, '0')).substring(0, 10);
+        
+
+
+        await pool.request()
+          .input('LocCode', sql.VarChar(10), locCodeVal)
+          .input('TxnType', sql.VarChar(10), txnTypeVal)
+          .input('NextNo', sql.Float, nextNo + 1)
+          .query(`UPDATE Tbl_TxnNumbers SET TxnNo = @NextNo WHERE LocCode = @LocCode AND TxnType = @TxnType`);
+        
+      
+      } else {
+        
+        finalCusCode = ('A' + Date.now().toString().slice(-9)).substring(0, 10);
+        
+      }
+
+      
+      await pool.request()
+        .input('LocCode',  sql.Char(10),     locCodeVal)
+        .input('CusCode',  sql.Char(10),     finalCusCode)
+        .input('CusName',  sql.VarChar(200), cusNameVal)
+        .input('RegTel',   sql.Char(15),     regTelVal)
+        .input('Rmks',     sql.VarChar(400), rmksVal)
+        .input('CusBehaviour', sql.Int,          cusBehaviourVal)
+        .query(`
+          INSERT INTO Tbl_CustomerMaster (
+            LocCode, CusCode, CusName, CusAdd1, CusAdd2, CusAdd3, CusAdd4,
+            RegTel, DelRefNo, CusEmail, CusWeb, Enable, CreditCustomer,
+            CreditLimit, UsedCredit, Rmks, LoyalCus, CreatedBy, CreateDateTime,
+            DeleveryCustomer, DisPre, AllowComplimentry, voiceprompt, notice,
+            CusBehaviour, BlackList, BlackListRemarks
+          )
+          VALUES (
+            @LocCode, @CusCode, @CusName, '', '', '', '', 
+            @RegTel, @RegTel, '', '', 1, 0, 
+            0, 0, @Rmks, 0, 'System', GETDATE(),
+            0, 0, 0, '', '', 
+            @CusBehaviour, 0, ''
+          )`);
+      
+      
+    }
+
+    
+    res.json({ success: true, message: "Customer saved successfully.", cusCode: finalCusCode });
+
+  } catch (err) {
+  
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+
 app.post('/api/orders/confirm-cart', confirmCartHandler);
 app.post('/api/cart/confirm', confirmCartHandler);
 app.post('/api/confirm-cart', confirmCartHandler);
@@ -1210,5 +1391,3 @@ app.post('/api/add-billing-item', billingAddItemHandler);
 app.post('/api/billing/remove-item', billingRemoveItemHandler);
 app.post('/api/remove-billing-item', billingRemoveItemHandler);
 app.get('/api/billing/active-items', getActiveBillItemsHandler);
-
-

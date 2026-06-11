@@ -29,12 +29,13 @@ type VoidPresetItem = {
 
 export default function BillingScreen() {
   const router = useRouter();
-  const { tableName, localPax, foreignPax, floor } = useLocalSearchParams<{
-    tableName?: string;
-    localPax?: string;
-    foreignPax?: string;
-    floor?: string;
-  }>();
+const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams<{
+  tableName?: string;
+  tableNo?: string; 
+  localPax?: string;
+  foreignPax?: string;
+  floor?: string;
+}>();
   
   const { width, height } = useWindowDimensions();
 
@@ -727,7 +728,7 @@ export default function BillingScreen() {
 
         clearHeldOrderForTable(String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim());
         // On successful finalize/payment, clear the global cart so the next customer starts fresh.
-        useCartStore.getState().clearCart();
+        useOrderStore.getState().clearLastConfirmedOrder();
         useOrderStore.getState().clearLastConfirmedOrder();
 
         Alert.alert('Done', 'Payment completed and cart cleared.');
@@ -792,7 +793,9 @@ export default function BillingScreen() {
           />
         </View>
 
-        <Text style={[styles.tableNumber, { fontSize: tableFs }]}>Table Number - {tableName ?? 'GF 05'}</Text>
+        <Text style={[styles.tableNumber, { fontSize: tableFs }]}>
+  Table Number - {tableName || tableNo || 'GF 05'}
+</Text>
         <Text style={[styles.dateText, { fontSize: dateFs }]}>{timeStr}{'  '}{dateStr}</Text>
       </View>
 
