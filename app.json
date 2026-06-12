@@ -4,7 +4,7 @@
     "slug": "Restarurant",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/CAPTURE 1.png",
+    "icon": "./assets/images/appicon.png",
     "scheme": "resturant",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -12,22 +12,36 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/CAPTURE 1.png"
+        "foregroundImage": "./assets/images/appicon.png"
       },
-      "package": "com.dewaka_shashindu.Restarurant",
-      
+      "package": "com.dewaka_shashindu.Restarurant"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/CAPTURE 1.png",
+          "image": "./assets/images/appicon.png",
           "imageWidth": 500,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "e0a7a081-4c8f-4c60-b7fc-11bd26478287"
+      }
+    },
+    "owner": "dewaka_shashindu"
   }
 }

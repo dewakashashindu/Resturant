@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -106,6 +106,7 @@ interface ItemCardProps {
   onIncrement?: () => void;
   onDecrement?: () => void;
   onPressDetails?: () => void;
+  path?: string[];
 }
 
 type SelectedItem = {
@@ -343,7 +344,7 @@ const normalizeRemarkTags = (values: string[]) =>
     .map((part) => String(part ?? '').trim())
     .filter(Boolean);
 
-const ItemCard = ({ label, price, icon, onAdd, quantity, remarks, onIncrement, onDecrement, onPressDetails }: ItemCardProps) => {
+const ItemCard = ({ label, price, icon, onAdd, quantity, remarks, onIncrement, onDecrement, onPressDetails, path }: ItemCardProps) => {
   const { width, height } = useWindowDimensions();
   const isTablet = width >= 600;
   const isSmall = height < 700;
@@ -369,6 +370,13 @@ const ItemCard = ({ label, price, icon, onAdd, quantity, remarks, onIncrement, o
       </TouchableOpacity>
 
       {price !== undefined && <Text style={[styles.itemPrice, { fontSize: priceFs }]}>Rs. {price}</Text>}
+
+
+      {path?.length ? (
+        <Text style={{ fontSize: 10, color: '#64748B', marginTop: 2, textAlign: 'center', paddingHorizontal: 8 }} numberOfLines={2}>
+          {path.join(' > ')}
+        </Text>
+      ) : null}
 
       {remarkTags.length > 0 && (
         <View style={styles.cardRemarksWrap}>
@@ -581,7 +589,7 @@ export default function ItemSelection() {
 
   const openMenuRow = async (row: MenuRow) => { if (row.Type !== 'C') return; const nextCodes = [...menuCodes, row.Level]; const nextLabels = [...menuLabels, row.LDes]; const nextLevel = menuLevel + 1; setMenuCodes(nextCodes); setMenuLabels(nextLabels); setMenuLevel(nextLevel); await fetchMenuRows(nextLevel, nextCodes); };
 
-  const goBackOneMenuLevel = async () => { if (menuLevel <= 1) { setViewMode('categories'); setActiveCategory(null); setMenuRows([]); setMenuCodes([]); setMenuLabels([]); setMenuLevel(1); return; } const nextCodes = menuCodes.slice(0, -1); const nextLabels = menuLabels.slice(0, -1); const nextLevel = menuLevel - 1; setMenuCodes(nextCodes); setMenuLabels(nextLabels); setMenuLevel(nextLevel); await fetchMenuRows(nextLevel, nextCodes); };
+  const goBackOneMenuLevel = async () => { if (menuLevel <= 1) { setSearchQuery(''); setViewMode('categories'); setActiveCategory(null); setMenuRows([]); setMenuCodes([]); setMenuLabels([]); setMenuLevel(1); return; } const nextCodes = menuCodes.slice(0, -1); const nextLabels = menuLabels.slice(0, -1); const nextLevel = menuLevel - 1; setMenuCodes(nextCodes); setMenuLabels(nextLabels); setMenuLevel(nextLevel); await fetchMenuRows(nextLevel, nextCodes); };
 
   const headerH = isTablet ? 250 : isSmall ? 65 : 200;
   const titleSize = isTablet ? 32 : isSmall ? 16 : 24;
@@ -596,7 +604,7 @@ export default function ItemSelection() {
   const headerTitle = viewMode === 'categories' ? 'Item Selection' : menuLabels[menuLabels.length - 1] ?? activeCategory?.label ?? 'Menu';
   const sectionLabel = viewMode === 'categories' ? `CATEGORIES — ${categoriesList.length}` : `${menuLabels[menuLabels.length - 1]?.toUpperCase() ?? activeCategory?.label.toUpperCase() ?? 'MENU'} — ${menuRows.length} ITEMS`;
 
-  const handleBack = () => { if (viewMode === 'categories') router.back(); else if (menuLevel > 1) goBackOneMenuLevel(); else { setViewMode('categories'); setActiveCategory(null); setMenuRows([]); setMenuCodes([]); setMenuLabels([]); setMenuLevel(1); } };
+  const handleBack = () => { setSearchQuery(''); if (viewMode === 'categories') router.back(); else if (menuLevel > 1) goBackOneMenuLevel(); else { setViewMode('categories'); setActiveCategory(null); setMenuRows([]); setMenuCodes([]); setMenuLabels([]); setMenuLevel(1); } };
 
   const getCartQuantity = (menuItemCode: string) => {
     const normalizedCode = normalizeMenuItemCode(menuItemCode);
@@ -608,6 +616,56 @@ export default function ItemSelection() {
   };
   const selectedItemCount: number = cartItems.reduce((sum: number, item) => sum + item.quantity, 0);
   const normalizedSearch = searchQuery.trim().toLowerCase();
+
+  const globalSearchResults = useMemo(() => {
+    if (!normalizedSearch) return [];
+
+    return cachedItems
+      .filter((item) => {
+        const fields = [
+          item.MenuItemCode,
+          item.MenuItmDes,
+          item.ItemCode,
+          item.L1Des,
+          item.L2Des,
+          item.L3Des,
+          item.L4Des,
+          item.L5Des,
+          item.L6Des,
+          item.L7Des,
+          item.Level1,
+          item.Level2,
+          item.Level3,
+          item.Level4,
+          item.Level5,
+          item.Level6,
+          item.Level7,
+        ];
+
+        return fields.some((field) =>
+          String(field ?? '').toLowerCase().includes(normalizedSearch)
+        );
+      })
+      .map((item) => ({
+        code: getMenuItemCode(item),
+        label: getMenuItemLabel(item),
+        price: getMenuItemPrice(item),
+        icon: getMenuItemImageSource(item),
+        path: [
+          item.L1Des,
+          item.L2Des,
+          item.L3Des,
+          item.L4Des,
+          item.L5Des,
+          item.L6Des,
+        ].filter(Boolean),
+      }))
+      .filter(
+        (item, index, self) =>
+          index === self.findIndex((x) => x.code === item.code)
+      );
+  }, [normalizedSearch, cachedItems]);
+
   const matchesSearch = (value?: string) => !normalizedSearch || (value ?? '').toLowerCase().includes(normalizedSearch);
 
   const filteredCategories = categoriesList.filter((cat) => matchesSearch(cat.label) || matchesSearch(cat.id));
