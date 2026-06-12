@@ -12,7 +12,6 @@
     "preview": {
       "distribution": "internal",
       "node": "20.18.0",
-      "vcsControlledFilesOnly": true,
       "android": {
         "buildType": "apk"
       },
