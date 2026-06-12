@@ -6,16 +6,25 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "node": "18.20.0"
     },
     "preview": {
       "distribution": "internal",
+      "node": "18.20.0",
       "android": {
-        "buildType": "apk" 
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "http://192.168.1.153:3000"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "node": "18.20.0",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "http://192.168.1.153:3000"
+      }
     }
   },
   "submit": {
