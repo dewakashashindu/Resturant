@@ -42,12 +42,6 @@
         "projectId": "e0a7a081-4c8f-4c60-b7fc-11bd26478287"
       }
     },
-    "owner": "dewaka_shashindu",
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/e0a7a081-4c8f-4c60-b7fc-11bd26478287"
-    }
+    "owner": "dewaka_shashindu"
   }
 }
