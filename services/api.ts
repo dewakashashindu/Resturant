@@ -21,7 +21,7 @@ const isDirectReachableDevHost = (host: string) => {
 };
 
 const resolveApiBaseUrl = () => {
-  const envBaseUrl = String((globalThis as any)?.process?.env?.EXPO_PUBLIC_API_BASE_URL ?? '').trim();
+  const envBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL ?? '').trim();
   if (envBaseUrl) return envBaseUrl;
 
   const constants = Constants as ExpoConstantsLike;
