@@ -20,6 +20,7 @@ const isDirectReachableDevHost = (host: string) => {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
 };
 
+
 const resolveApiBaseUrl = () => {
   const envBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL ?? '').trim();
   if (envBaseUrl) return envBaseUrl;
@@ -41,7 +42,15 @@ const resolveApiBaseUrl = () => {
   return Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 };
 
-const API_BASE_URL = resolveApiBaseUrl();
+
+const getDynamicApiBaseUrl = () => {
+  
+  if ((global as any).backendIP) {
+    return `http://${(global as any).backendIP}:3000`;
+  }
+  
+  return resolveApiBaseUrl();
+};
 
 const GLOBAL_PRESET_REMARKS_KEY = 'global_preset_remarks';
 
@@ -68,7 +77,8 @@ export const getCachedOrderDescriptions = (): string[] => {
 // 2. Background sync function to fetch fresh records from SQL and save to MMKV
 export const syncGlobalOrderDescriptions = async (): Promise<void> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/remarks/order-descriptions`);
+    
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/remarks/order-descriptions`);
     const data = await response.json();
 
     if (data.ok && Array.isArray(data.descriptions)) {
@@ -102,14 +112,14 @@ export interface ConfirmCartItemPayload {
 }
 
 export interface ConfirmCartPayload {
-  orderType?: string; // 🌟 Added orderType ('TA' or 'DINING')
+  orderType?: string; 
   TabelNo: string;
   UserID: number;
   TabelGrpID: string | null;
   LPax: number;
   FPax: number;
   items: ConfirmCartItemPayload[];
-  customerDetails?: { // 🌟 Added customer details properties
+  customerDetails?: { 
     regTel: string;
     cusName: string;
     rmks: string;
@@ -146,7 +156,7 @@ export interface ApiResponse<T = any> {
 }
 
 type ConfirmCartPayloadInput = ConfirmCartPayload | {
-  orderType?: string; // 🌟 Handle raw input type for orderType
+  orderType?: string; 
   tableNo?: string;
   TableNo?: string;
   userId?: number | string;
@@ -167,7 +177,7 @@ type ConfirmCartPayloadInput = ConfirmCartPayload | {
     salesPrice?: number;
     SalesPrice?: number;
   }>;
-  customerDetails?: { // 🌟 Handle raw input type for customer details
+  customerDetails?: { 
     regTel?: string;
     regTelNo?: string;
     cusName?: string;
@@ -321,7 +331,6 @@ const normalizeConfirmCartPayload = (payload: ConfirmCartPayloadInput): ConfirmC
       })).filter((item) => item.ItemCode && item.QTY > 0)
     : [];
 
-  // Extract raw nested values carefully for customer metrics
   const rawCustomer = (payload as any).customerDetails;
   const normalizedCustomer = rawCustomer
     ? {
@@ -332,14 +341,14 @@ const normalizeConfirmCartPayload = (payload: ConfirmCartPayloadInput): ConfirmC
     : null;
 
   return {
-    orderType: toString((payload as any).orderType, 'DINING').trim(), // 🌟 Normalized order type defaults to 'DINING'
+    orderType: toString((payload as any).orderType, 'DINING').trim(), 
     TabelNo: toString((payload as any).TabelNo ?? (payload as any).tableNo, '').trim(),
     UserID: toNumber((payload as any).UserID ?? (payload as any).userId, 0),
     TabelGrpID: (payload as any).TabelGrpID ?? (payload as any).tableGrpId ?? null,
     LPax: toNumber((payload as any).LPax ?? (payload as any).lPax, 0),
     FPax: toNumber((payload as any).FPax ?? (payload as any).fPax, 0),
     items,
-    customerDetails: normalizedCustomer, // 🌟 Append structural customer properties
+    customerDetails: normalizedCustomer, 
   };
 };
 
@@ -398,7 +407,7 @@ const normalizeRemoveBillingPayload = (payload: RemoveBillingItemPayload | {
 
 export const apiClient = {
   login: async (username: string, password: string) => {
-    return requestJson(`${API_BASE_URL}/api/auth/login`, {
+    return requestJson(`${getDynamicApiBaseUrl()}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -406,7 +415,7 @@ export const apiClient = {
   },
 
   signup: async (username: string, password: string, phoneNumber: string) => {
-    const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/auth/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password, phoneNumber }),
@@ -416,7 +425,7 @@ export const apiClient = {
   },
 
   forgotPassword: async (username: string) => {
-    const response = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/auth/forgot-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username }),
@@ -426,7 +435,7 @@ export const apiClient = {
   },
 
   resettPassword: async (username: string, newPassword: string) => {
-    const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/auth/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, newPassword }),
@@ -436,7 +445,7 @@ export const apiClient = {
   },
 
   changePassword: async (username: string, currentPassword: string, newPassword: string) => {
-    const response = await fetch(`${API_BASE_URL}/api/auth/change-password`, {
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/auth/change-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, currentPassword, newPassword }),
@@ -446,7 +455,7 @@ export const apiClient = {
   },
 
   getFloors: async () => {
-    const response = await fetch(`${API_BASE_URL}/api/floors`);
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/floors`);
     const contentType = response.headers.get('content-type') || '';
     let data: any = null;
     try {
@@ -466,15 +475,15 @@ export const apiClient = {
   },
 
   getTables: async (floor: string) => {
-    const response = await fetch(`${API_BASE_URL}/api/tables?floor=${encodeURIComponent(floor)}`);
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/tables?floor=${encodeURIComponent(floor)}`);
     const data = await response.json();
     return { ok: response.ok, data };
   },
 
   getTableCounts: async (floor?: string) => {
     const url = floor
-      ? `${API_BASE_URL}/api/tables/counts?floor=${encodeURIComponent(floor)}`
-      : `${API_BASE_URL}/api/tables/counts`;
+      ? `${getDynamicApiBaseUrl()}/api/tables/counts?floor=${encodeURIComponent(floor)}`
+      : `${getDynamicApiBaseUrl()}/api/tables/counts`;
 
     const response = await fetch(url);
     const contentType = response.headers.get('content-type') || '';
@@ -496,7 +505,7 @@ export const apiClient = {
   },
 
   getCategories: async () => {
-    const response = await fetch(`${API_BASE_URL}/api/menu/categories`);
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/menu/categories`);
     const contentType = response.headers.get('content-type') || '';
     let data: any = null;
     try {
@@ -512,7 +521,7 @@ export const apiClient = {
   },
 
   getMainTabs: async () => {
-    const response = await fetch(`${API_BASE_URL}/api/menu/main-categories`);
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/menu/main-categories`);
     const contentType = response.headers.get('content-type') || '';
     let data: any = null;
     try {
@@ -528,7 +537,7 @@ export const apiClient = {
   },
 
   getSubCategories: async (category: string) => {
-    const response = await fetch(`${API_BASE_URL}/api/menu/sub-categories?category=${encodeURIComponent(category)}`);
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/menu/sub-categories?category=${encodeURIComponent(category)}`);
     const contentType = response.headers.get('content-type') || '';
     let data: any = null;
     try {
@@ -563,7 +572,7 @@ export const apiClient = {
       }
     });
 
-    const response = await fetch(`${API_BASE_URL}/api/menu/level?${query.toString()}`);
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/menu/level?${query.toString()}`);
     const contentType = response.headers.get('content-type') || '';
     let data: any = null;
     try {
@@ -580,7 +589,7 @@ export const apiClient = {
 
   getMenuItems: async (since?: string) => {
     try {
-      const url = since ? `${API_BASE_URL}/api/menu/items?since=${encodeURIComponent(since)}` : `${API_BASE_URL}/api/menu/items`;
+      const url = since ? `${getDynamicApiBaseUrl()}/api/menu/items?since=${encodeURIComponent(since)}` : `${getDynamicApiBaseUrl()}/api/menu/items`;
       console.log('[api] getMenuItems URL=', url);
       const response = await fetch(url);
       const contentType = response.headers.get('content-type') || '';
@@ -610,7 +619,7 @@ export const apiClient = {
 
   getVoidPresets: async () => {
     try {
-      const url = `${API_BASE_URL}/api/void-remarks`;
+      const url = `${getDynamicApiBaseUrl()}/api/void-remarks`;
       const response = await fetch(url);
       const contentType = response.headers.get('content-type') || '';
       let data: any = null;
@@ -642,7 +651,7 @@ export const apiClient = {
       console.log('⚠️ [MMKV Global Sync] Background refresh failed:', error);
     });
 
-    const response = await requestJson<{ ok?: boolean; descriptions?: string[] }>(`${API_BASE_URL}/api/remarks/order-descriptions`);
+    const response = await requestJson<{ ok?: boolean; descriptions?: string[] }>(`${getDynamicApiBaseUrl()}/api/remarks/order-descriptions`);
 
     if (!response.ok || !Array.isArray(response.data?.descriptions)) {
       return cached;
@@ -659,7 +668,7 @@ export const apiClient = {
 
   getTemplateGroup: async (tableNo: string) => {
     try {
-      const url = `${API_BASE_URL}/api/tables/group?tableNo=${encodeURIComponent(tableNo)}`;
+      const url = `${getDynamicApiBaseUrl()}/api/tables/group?tableNo=${encodeURIComponent(tableNo)}`;
       const response = await fetch(url);
       const contentType = response.headers.get('content-type') || '';
       let data: any = null;
@@ -678,7 +687,7 @@ export const apiClient = {
 
   getActiveBillItems: async (tableNo: string) => {
     try {
-      const url = `${API_BASE_URL}/api/billing/active-items?tableNo=${encodeURIComponent(tableNo)}`;
+      const url = `${getDynamicApiBaseUrl()}/api/billing/active-items?tableNo=${encodeURIComponent(tableNo)}`;
       const response = await fetch(url);
       const contentType = response.headers.get('content-type') || '';
       let data: any = null;
@@ -697,7 +706,7 @@ export const apiClient = {
   
   confirmCart: async (payload: ConfirmCartPayloadInput) => {
     const normalized = normalizeConfirmCartPayload(payload);
-    const response = await requestJson(`${API_BASE_URL}/api/confirm-cart`, {
+    const response = await requestJson(`${getDynamicApiBaseUrl()}/api/confirm-cart`, {
       method: 'POST',
       headers: await buildAuthHeaders(),
       body: JSON.stringify(normalized),
@@ -708,7 +717,7 @@ export const apiClient = {
 
   addBillingItem: async (payload: AddBillingItemPayloadInput) => {
     const normalized = normalizeAddBillingPayload(payload as any);
-    const response = await requestJson(`${API_BASE_URL}/api/add-billing-item`, {
+    const response = await requestJson(`${getDynamicApiBaseUrl()}/api/add-billing-item`, {
       method: 'POST',
       headers: await buildAuthHeaders(),
       body: JSON.stringify(normalized),
@@ -719,7 +728,7 @@ export const apiClient = {
 
   removeBillingItem: async (payload: RemoveBillingItemPayloadInput) => {
     const normalized = normalizeRemoveBillingPayload(payload as any);
-    const response = await requestJson(`${API_BASE_URL}/api/remove-billing-item`, {
+    const response = await requestJson(`${getDynamicApiBaseUrl()}/api/remove-billing-item`, {
       method: 'POST',
       headers: await buildAuthHeaders(),
       body: JSON.stringify(normalized),
@@ -730,7 +739,7 @@ export const apiClient = {
   
   getCustomerByPhone: async (phone: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/customer/${phone}`);
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/customer/${phone}`);
       const data = await response.json();
       return { ok: response.ok, data };
     } catch (err) {
@@ -739,7 +748,7 @@ export const apiClient = {
   },
 
   saveCustomer: async (payload: { RegTel: string; CusName: string; Rmks: string; CusBehaviour?: number }) => {
-    return requestJson(`${API_BASE_URL}/api/customer/save`, {
+    return requestJson(`${getDynamicApiBaseUrl()}/api/customer/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

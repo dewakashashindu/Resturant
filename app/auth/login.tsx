@@ -2,15 +2,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    Image,
-    SafeAreaView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    useWindowDimensions,
-    View,
+  Alert,
+  Image,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
 } from 'react-native';
 
 import { apiClient } from '../../services/api';
@@ -24,6 +25,9 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword]   = useState(false);
   const [usernameError, setUsernameError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+
+ 
+ const [devIP, setDevIP] = useState((global as any).backendIP || '192.168.8.100');
 
   const router = useRouter();
   const { width, height } = useWindowDimensions();
@@ -101,6 +105,11 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
+    if (!(global as any).backendIP) {
+      const fallbackIP = devIP.trim() || '192.168.8.100';
+      (global as any).backendIP = fallbackIP;
+      console.log('[Login] Auto-configured backendIP on login:', fallbackIP);
+    }
     console.log('[Login] submit pressed', {
       username,
       passwordLength: password.length,
@@ -184,6 +193,17 @@ export default function LoginScreen() {
       console.log('[Login] caught error during login flow', e);
       setPasswordError('Cannot connect to server. Check backend URL and server status.');
     }
+  };
+
+  
+  const handleConfirmIP = () => {
+    const formattedIP = devIP.trim();
+    if (!formattedIP) {
+      Alert.alert('IP Error', 'Please enter a valid IP address.');
+      return;
+    }
+    (global as any).backendIP = formattedIP;
+    Alert.alert('IP Configured', `Backend IP set to: ${formattedIP}`);
   };
 
   const EyeIcon = ({ visible }: { visible: boolean }) => (
@@ -328,6 +348,39 @@ export default function LoginScreen() {
           <Text style={[styles.signupLink, { fontSize: signupFs }]}>{' '}Sign Up</Text>
         </TouchableOpacity>
       </View>
+
+      {/*  DEV CONFIG: IP TEXT BOX & CONFIRM BUTTON */}
+      <View style={[styles.devContainer, { marginTop: signupMT }]}>
+        <TextInput
+          placeholder="Dev IP (e.g. 192.168.1.50)"
+          placeholderTextColor="rgba(0,0,0,0.3)"
+          style={[
+            styles.devInput,
+            {
+              height:       Math.max(42, inputH * 0.8), // Responsive height
+              borderRadius: inputRadius,
+            },
+          ]}
+          value={devIP}
+          onChangeText={setDevIP}
+          keyboardType="numeric"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <TouchableOpacity
+          style={[
+            styles.devConfirmBtn,
+            {
+              height:       Math.max(42, inputH * 0.8),
+              borderRadius: inputRadius,
+            },
+          ]}
+          onPress={handleConfirmIP}
+        >
+          <Text style={styles.devBtnText}>Confirm</Text>
+        </TouchableOpacity>
+      </View>
+
     </SafeAreaView>
   );
 }
@@ -431,5 +484,36 @@ const styles = StyleSheet.create({
   signupLink: {
     color:      '#075EA7',
     fontWeight: '600',
+  },
+
+  /*  Developer Styles */
+  devContainer: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 10,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    paddingTop: 15,
+  },
+  devInput: {
+    flex: 2.2,
+    borderWidth: 1.5,
+    borderColor: '#B0BEC5',
+    paddingHorizontal: 14,
+    color: '#000',
+    backgroundColor: '#F8FAFC',
+    fontSize: 14,
+  },
+  devConfirmBtn: {
+    flex: 1,
+    backgroundColor: '#334155', // Slate Grey clean color
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  devBtnText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

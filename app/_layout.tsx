@@ -11,6 +11,9 @@ import { syncGlobalOrderDescriptions } from '../services/api';
 import { useAuthStore } from '../services/authStore';
 import useItemStore from '../services/itemStore';
 
+
+import { AppProvider } from '../AppContext';
+
 // Keep the splash screen visible while we fetch resources
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -137,10 +140,13 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AuthGate />
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    
+    <AppProvider>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <AuthGate />
+        <StatusBar style="auto" />
+      </ThemeProvider>
+    </AppProvider>
   );
 }
 
