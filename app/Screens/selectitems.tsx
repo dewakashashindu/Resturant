@@ -16,7 +16,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient, getCachedOrderDescriptions } from '../../services/api';
 import { useCartStore } from '../../services/cartStore';
 import useItemStore from '../../services/itemStore';
@@ -171,8 +171,10 @@ const isVisibleCachedItem = (item: Record<string, any>) => {
 const getLevelValue = (item: Record<string, any>, level: number) => getText(item[LEVEL_KEYS[level - 1]]);
 
 const getLevelDescription = (item: Record<string, any>, level: number) => {
-  const key = `L${level}Des`;
-  return getText(item[key] ?? item[`${key.toLowerCase()}`]);
+  const upperKey = `L${level}DES`; // matches actual DB column casing, e.g. 'L2DES'
+  const mixedKey = `L${level}Des`;
+  const lowerKey = mixedKey.toLowerCase();
+  return getText(item[upperKey] ?? item[mixedKey] ?? item[lowerKey] ?? item.LDES ?? item.LDes);
 };
 
 const getMenuItemCode = (item: Record<string, any>) =>
@@ -433,6 +435,7 @@ export default function ItemSelection() {
   const router = useRouter();
   const { tableName, localPax, foreignPax, status, floor } = useLocalSearchParams<{ tableName: string; localPax: string; foreignPax: string; status?: string; floor?: string; }>();
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const storeItems = useItemStore((state) => state.items);
   const storeHydrated = useItemStore((state) => state.isHydrated);
   const hydrateItems = useItemStore((state) => state.hydrateItems);
@@ -620,12 +623,20 @@ export default function ItemSelection() {
   const globalSearchResults = useMemo(() => {
     if (!normalizedSearch) return [];
 
+    const seen = new Set<string>();
+
     return cachedItems
       .filter((item) => {
-        const fields = [
+        // Only actual menu items, not category rows
+        if (!isVisibleCachedItem(item)) return false;
+        const itemCode = getMenuItemCode(item);
+        if (!itemCode) return false;
+
+        // Search: item code, item name, AND all category level names
+        const searchableFields = [
           item.MenuItemCode,
-          item.MenuItmDes,
           item.ItemCode,
+          item.MenuItmDes,
           item.L1Des,
           item.L2Des,
           item.L3Des,
@@ -642,7 +653,7 @@ export default function ItemSelection() {
           item.Level7,
         ];
 
-        return fields.some((field) =>
+        return searchableFields.some((field) =>
           String(field ?? '').toLowerCase().includes(normalizedSearch)
         );
       })
@@ -651,6 +662,7 @@ export default function ItemSelection() {
         label: getMenuItemLabel(item),
         price: getMenuItemPrice(item),
         icon: getMenuItemImageSource(item),
+        // Breadcrumb path from category level names
         path: [
           item.L1Des,
           item.L2Des,
@@ -658,12 +670,14 @@ export default function ItemSelection() {
           item.L4Des,
           item.L5Des,
           item.L6Des,
-        ].filter(Boolean),
+        ].map((v) => String(v ?? '').trim()).filter(Boolean),
       }))
-      .filter(
-        (item, index, self) =>
-          index === self.findIndex((x) => x.code === item.code)
-      );
+      // Deduplicate by item code
+      .filter((item) => {
+        if (seen.has(item.code)) return false;
+        seen.add(item.code);
+        return true;
+      });
   }, [normalizedSearch, cachedItems]);
 
   const matchesSearch = (value?: string) => !normalizedSearch || (value ?? '').toLowerCase().includes(normalizedSearch);
@@ -822,20 +836,45 @@ export default function ItemSelection() {
 
   const isInitialLoading = !isCacheHydrated;
 
-  if (isInitialLoading) return (<SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}><ActivityIndicator size="large" color="#002748" /></SafeAreaView>);
+  if (isInitialLoading) return (<View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom, justifyContent: 'center', alignItems: 'center' }]}><ActivityIndicator size="large" color="#002748" /></View>);
 
   return (
-    <SafeAreaView style={styles.container}>
+    
+    <View style={styles.container}>
       <StatusBar backgroundColor="#002748" barStyle="light-content" />
-      <View style={[styles.header, { height: headerH, paddingHorizontal: hPad }]}> 
+
+      {/* Guarantees the notch/status-bar strip is navy with zero seam, independent of header rounding */}
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top, backgroundColor: '#002748', zIndex: 0 }} />
+
+   
+      <View 
+        style={[
+          styles.header, 
+          { 
+            height: headerH + insets.top, 
+            paddingTop: insets.top, 
+            paddingHorizontal: hPad 
+          }
+        ]}
+      > 
+        {/* Top Controls Row (Back button, Title, Table Badge) */}
         <View style={styles.headerTopRow}>
           <TouchableOpacity style={[styles.backButton, { width: 40, height: 40, borderRadius: 20 }]} onPress={handleBack}>
             <Image source={require('../../assets/icons/back.png')} style={{ width: 40, height: 40, tintColor: '#FFF' }} resizeMode="contain" />
           </TouchableOpacity>
+          
           <Text style={[styles.headerTitle, { fontSize: titleSize }]} numberOfLines={1}>{headerTitle}</Text>
-          <TouchableOpacity style={[styles.tableBadge, { paddingHorizontal: badgePadH, paddingVertical: badgePadV }]} onPress={() => setDropdownVisible(true)} activeOpacity={0.8}><Text style={[styles.tableBadgeText, { fontSize: badgeFs }]}>{tableName ?? 'Table'}</Text><View style={styles.dropdownArrow} /></TouchableOpacity>
+          
+          <TouchableOpacity style={[styles.tableBadge, { paddingHorizontal: badgePadH, paddingVertical: badgePadV }]} onPress={() => setDropdownVisible(true)} activeOpacity={0.8}>
+            <Text style={[styles.tableBadgeText, { fontSize: badgeFs }]}>{tableName ?? 'Table'}</Text>
+            <View style={styles.dropdownArrow} />
+          </TouchableOpacity>
         </View>
-        <View style={styles.searchWrap}><TextInput value={searchQuery} onChangeText={setSearchQuery} placeholder={viewMode === 'menu' ? 'Search menu row or item code' : 'Search'} placeholderTextColor="rgba(255,255,255,0.75)" style={[styles.searchInput, { fontSize: isTablet ? 16 : 14 }]} /></View>
+        
+        {/* Search Bar Row */}
+        <View style={styles.searchWrap}>
+          <TextInput value={searchQuery} onChangeText={setSearchQuery} placeholder="Search by item name or code..." placeholderTextColor="rgba(255,255,255,0.75)" style={[styles.searchInput, { fontSize: isTablet ? 16 : 14 }]} />
+        </View>
       </View>
 
       <Modal visible={dropdownVisible} transparent animationType="fade" onRequestClose={() => setDropdownVisible(false)}>
@@ -852,7 +891,7 @@ export default function ItemSelection() {
                   <View key={i} style={styles.dropdownRow}><Text style={[styles.dropdownLabel, { fontSize: isTablet ? 14 : 13 }]}>{item.label}</Text><Text style={[styles.dropdownValue, { fontSize: isTablet ? 14 : 13 }]}>{item.value}</Text></View>
                 ))}
                 <View style={styles.divider} />
-                <TouchableOpacity style={[styles.changeTableBtn, { paddingVertical: isTablet ? 12 : 10 }]} onPress={() => { setDropdownVisible(false); router.push('/Screens/tableselection'); }}><Text style={[styles.changeTableText, { fontSize: isTablet ? 14 : 13 }]}>Change Table</Text></TouchableOpacity>
+                <TouchableOpacity style={[styles.changeTableBtn, { paddingVertical: isTablet ? 12 : 10 }]} onPress={() => { setDropdownVisible(false); if (orderType === 'TA') { router.push('/Screens/operation'); } else { router.push('/Screens/tableselection'); } }}><Text style={[styles.changeTableText, { fontSize: isTablet ? 14 : 13 }]}>{orderType === 'TA' ? 'Change Order' : 'Change Table'}</Text></TouchableOpacity>
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -862,11 +901,11 @@ export default function ItemSelection() {
       {viewMode === 'categories' && (
         <View style={styles.fixedTabsArea}>
           <View style={styles.scrollContainer}><View style={styles.horizontalTabsRow}>{tabsList.map((tab) => { const isActive = selectedTabCode === tab.code; return (<TouchableOpacity key={tab.code} activeOpacity={0.8} onPress={() => setSelectedTabCode(tab.code)} style={[styles.scrollTab, isActive && styles.scrollTabActive]}><Text style={[styles.scrollTabLabel, isActive && styles.scrollTabLabelActive]}>{tab.label}</Text></TouchableOpacity>); })}</View></View>
-          <Text style={[styles.sectionTitle, { fontSize: sectionFont, marginTop: 10, marginBottom: 0 }]}>{normalizedSearch ? `SEARCH RESULTS — ${filteredCategories.length}` : sectionLabel}</Text>
+          <Text style={[styles.sectionTitle, { fontSize: sectionFont, marginTop: 10, marginBottom: 0 }]}>{normalizedSearch ? `SEARCH RESULTS — ${globalSearchResults.length} ITEMS` : sectionLabel}</Text>
         </View>
       )}
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingHorizontal: hPad, paddingBottom: isTablet ? 180 : 140 }]}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingHorizontal: hPad, paddingBottom: (isTablet ? 180 : 140) + insets.bottom }]}>
         {viewMode === 'menu' && (
           <View style={styles.breadcrumbRow}>
             <TouchableOpacity onPress={() => { setViewMode('categories'); setActiveCategory(null); setMenuRows([]); setMenuCodes([]); setMenuLabels([]); setMenuLevel(1); }}><Text style={[styles.breadLink, { fontSize: breadFs }]}>All Categories</Text></TouchableOpacity>
@@ -876,12 +915,31 @@ export default function ItemSelection() {
 
         {normalizedSearch ? (
           <>
-            <Text style={styles.searchScopeText}>Searching the current menu level</Text>
+            <Text style={styles.searchScopeText}>
+              {globalSearchResults.length} result{globalSearchResults.length !== 1 ? 's' : ''} across all categories
+            </Text>
             <View style={[styles.grid, { gap: gridGap }]}>
-              {viewMode === 'categories' ? filteredCategories.map((cat, i) => (<ColorCard key={cat.id || i} label={cat.label} color={cat.color} icon={cat.icon} onPress={() => { openCategory(cat); }} />)) : (<>
-                {categoriesRows.map((row, i) => (<ColorCard key={`${row.Level}-cat-${i}`} label={row.LDes} color="#E3F2FD" onPress={() => openMenuRow(row)} />))}
-                {itemsRows.map((row, i) => (<ItemCard key={`${row.Level}-item-${i}`} label={row.LDes} price={Number(row.SalesPrice) || 0} quantity={getCartQuantity(row.Level)} remarks={getCartRemarks(row.Level)} onPressDetails={() => openItemDetails({ key: row.Level, label: row.LDes, price: Number(row.SalesPrice) || 0 })} onAdd={() => addToCart({ menuItemCode: row.Level, menuItmDes: row.LDes, salesPrice: Number(row.SalesPrice) || 0, itemRemarks: '' })} onIncrement={() => updateQuantity(row.Level, 1)} onDecrement={() => updateQuantity(row.Level, -1)} />))}
-              </>) }
+              {globalSearchResults.length === 0 ? (
+                <View style={{ width: '100%', alignItems: 'center', paddingVertical: 32 }}>
+                  <Text style={{ color: '#9CA3AF', fontSize: 14 }}>No items found for "{searchQuery}"</Text>
+                </View>
+              ) : (
+                globalSearchResults.map((item, i) => (
+                  <ItemCard
+                    key={`search-${item.code}-${i}`}
+                    label={item.label}
+                    price={item.price}
+                    icon={item.icon}
+                    path={item.path}
+                    quantity={getCartQuantity(item.code)}
+                    remarks={getCartRemarks(item.code)}
+                    onPressDetails={() => openItemDetails({ key: item.code, label: item.label, price: item.price, icon: item.icon })}
+                    onAdd={() => addToCart({ menuItemCode: item.code, menuItmDes: item.label, salesPrice: item.price, itemRemarks: '' })}
+                    onIncrement={() => updateQuantity(item.code, 1)}
+                    onDecrement={() => updateQuantity(item.code, -1)}
+                  />
+                ))
+              )}
             </View>
           </>
         ) : (
@@ -893,7 +951,7 @@ export default function ItemSelection() {
         )}
       </ScrollView>
 
-      <View style={styles.goToCartPanel}><View style={styles.goToCartSpace} /><View style={styles.goToCartRow}><TouchableOpacity style={styles.goToCartBtn} activeOpacity={0.9} onPress={() => { router.push({ pathname: '/Screens/cart', params: { tableName: tableName || '', localPax: localPax || '0', foreignPax: foreignPax || '0', floor: floor || '', status: status || '' } }); }}><Text style={styles.goToCartText}>Go to Cart</Text><View style={styles.goToCartBadge}><Text style={styles.goToCartBadgeText}>{selectedItemCount}</Text></View></TouchableOpacity></View></View>
+      <View style={[styles.goToCartPanel, { paddingBottom: 24 + insets.bottom }]}><View style={styles.goToCartSpace} /><View style={styles.goToCartRow}><TouchableOpacity style={styles.goToCartBtn} activeOpacity={0.9} onPress={() => { router.push({ pathname: '/Screens/cart', params: { tableName: tableName || '', localPax: localPax || '0', foreignPax: foreignPax || '0', floor: floor || '', status: status || '' } }); }}><Text style={styles.goToCartText}>Go to Cart</Text><View style={styles.goToCartBadge}><Text style={styles.goToCartBadgeText}>{selectedItemCount}</Text></View></TouchableOpacity></View></View>
 
       <Modal visible={itemDetailsVisible} transparent animationType="fade" onRequestClose={closeItemDetails}>
         <TouchableWithoutFeedback onPress={closeItemDetails}>
@@ -1008,7 +1066,7 @@ export default function ItemSelection() {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 

@@ -1,30 +1,30 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    useWindowDimensions,
-    View
+  ActivityIndicator,
+  Alert,
+  Image,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuthStore } from '../../services/authStore';
 import useItemStore from '../../services/itemStore';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   // Selected tab state: 'personal' or 'system'
   const [activeTab, setActiveTab] = useState<'personal' | 'system'>('personal');
-  const [selectedFloors, setSelectedFloors] = useState<string[]>(['Ground Floor']);
+  const [selectedFloors, setSelectedFloors] = useState<string[]>([]);
   
-  // Core System Sync States
-  // Core System Sync States (connected to itemStore)
   const isSyncing = useItemStore((s) => s.isSyncing);
   const lastSyncTime = useItemStore((s) => s.lastSyncTime) ?? 'Never';
   const syncError = useItemStore((s) => s.syncError);
@@ -49,13 +49,20 @@ export default function SettingsScreen() {
   const changePwH    = isTablet ? 50  : isSmall ? 38  : 44;
   const manageBtnH   = isTablet ? 46  : isSmall ? 34  : 40;
   const manageFs     = isTablet ? 16  : isSmall ? 13  : 14;
+const user = useAuthStore((state) => state.user);
+console.log("Current User Group ID is:", user?.groupId);
+
+useEffect(() => {
+    if (user && user.assignedFloors) {
+      setSelectedFloors(user.assignedFloors);
+    }
+  }, [user]);
 
   // Connect to itemStore sync engine
-  const [localSyncing, setLocalSyncing] = useState(false);
+  // NOTE: handleCoreSync calls syncMenuData() only — no need to call hydrateItems()
+  // first because syncMenuData already merges into the live store and persists to MMKV.
   const handleCoreSync = async () => {
     try {
-      setLocalSyncing(true);
-      await hydrateItems();
       const synced = await syncMenuData();
 
       if (synced) {
@@ -65,8 +72,6 @@ export default function SettingsScreen() {
       }
     } catch (err) {
       console.log('Sync failed:', err);
-    } finally {
-      setLocalSyncing(false);
     }
   };
 
@@ -77,15 +82,25 @@ export default function SettingsScreen() {
     }
   }, [hydrateItems, isHydrated]);
 
-  return (
-    <SafeAreaView style={styles.container}>
+ return (
+    
+    <View style={styles.container}>
       <StatusBar backgroundColor="#002748" barStyle="light-content" />
 
-      {/* ── CUSTOM BANNER HEADER WITH SUB-TAB SELECTION ── */}
-      <View style={[styles.header, { height: headerH, paddingHorizontal: hPad }]}>
+      
+      <View 
+        style={[
+          styles.header, 
+          { 
+            height: headerH + insets.top, 
+            paddingTop: insets.top, 
+            paddingHorizontal: hPad 
+          }
+        ]}
+      >
         
-        {/* Top Control Row */}
-        <View style={styles.headerTopRow}>
+        
+        <View style={[styles.headerTopRow, { flex: 1, alignItems: 'center' }]}>
           <TouchableOpacity
             style={[styles.backButton, { width: backBtnSize, height: backBtnSize }]}
             onPress={() => router.back()}
@@ -105,6 +120,8 @@ export default function SettingsScreen() {
           {/* Spacer to achieve perfect geometric centering */}
           <View style={{ width: backBtnSize }} />
         </View>
+
+
 
         {/* Tab Selection Row Bar */}
         <View style={styles.tabBarContainer}>
@@ -133,7 +150,7 @@ export default function SettingsScreen() {
       {/* ── SCREEN MAIN CONTENT CONTROLLER ── */}
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.content, { paddingHorizontal: hPad, paddingBottom: 120 }]}
+        contentContainerStyle={[styles.content, { paddingHorizontal: hPad, paddingBottom: 120 + insets.bottom }]}
       >
         {activeTab === 'personal' ? (
           <>
@@ -141,7 +158,11 @@ export default function SettingsScreen() {
             <View style={[styles.profileCard, { padding: isTablet ? 28 : 20 }]}>
               <View style={[styles.avatar, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]} />
               <Text style={[styles.nameLabel, { fontSize: isTablet ? 13 : 11 }]}>Name</Text>
-              <Text style={[styles.nameText, { fontSize: nameFs }]}>Supun Perera</Text>
+             
+              <Text style={[styles.nameText, { fontSize: nameFs }]}>
+                {user?.userName || 'Unknown User'}
+              </Text>
+
               <View style={styles.nameDivider} />
               
               <TouchableOpacity
@@ -155,20 +176,26 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Manage Access Section */}
-            <Text style={[styles.sectionTitle, { fontSize: sectionFs, marginTop: isTablet ? 28 : 20 }]}>
-              Manage Floors
-            </Text>
-            <TouchableOpacity
-              style={[styles.manageBtn, { height: manageBtnH }]}
-              onPress={() => router.push('/Screens/manageaccess' as any)}
-              activeOpacity={0.85}
-            >
-              <Text style={[styles.manageBtnText, { fontSize: manageFs }]}>
-                ⚙  Manage Floor Access
-              </Text>
-            </TouchableOpacity>
 
+            
+          {/* ── Manage Access Section ── */}
+{(user?.groupId == 3 || String(user?.groupId) === '3') && (
+  <View style={{ width: '100%', marginVertical: 10 }}>
+    <Text style={[styles.sectionTitle, { fontSize: sectionFs, marginTop: isTablet ? 28 : 20 }]}>
+      Manage Floors
+    </Text>
+    
+    <TouchableOpacity
+      style={[styles.manageBtn, { height: manageBtnH, backgroundColor: '#002748' }]} 
+      onPress={() => router.push('/Screens/manageaccess')} 
+      activeOpacity={0.85}
+    >
+      <Text style={[styles.manageBtnText, { fontSize: manageFs, color: '#FFF' }]}>
+        ⚙  Manage Floor Access
+      </Text>
+    </TouchableOpacity>
+  </View>
+)}
             {/* Selected Active View Only Grid List */}
             <Text style={[styles.sectionTitle, { fontSize: sectionFs, marginTop: isTablet ? 24 : 18 }]}>
               Floor Selection
@@ -191,7 +218,7 @@ export default function SettingsScreen() {
                 ))}
               </View>
             )}
-          </>
+          </> 
         ) : (
           <>
             {/* ── SYSTEM SETTINGS CONTENT TAB ── */}
@@ -202,10 +229,10 @@ export default function SettingsScreen() {
             <TouchableOpacity
               style={[styles.manageBtn, { height: manageBtnH }]}
               onPress={handleCoreSync}
-              disabled={isSyncing || localSyncing}
+              disabled={isSyncing}
               activeOpacity={0.85}
             >
-              {isSyncing || localSyncing ? (
+              {isSyncing ? (
                 <ActivityIndicator size="small" color="#FFF" />
               ) : (
                 <Text style={[styles.manageBtnText, { fontSize: manageFs }]}>
@@ -226,7 +253,7 @@ export default function SettingsScreen() {
           </>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -234,7 +261,7 @@ const styles = StyleSheet.create({
   container:        { flex: 1, backgroundColor: '#F3F3F3' },
   
   // Header styles updated to layout content exactly as sketched 
-  header:           { backgroundColor: '#002748', justifyContent: 'space-between', paddingTop: 20 },
+  header:           { backgroundColor: '#002748', justifyContent: 'space-between' },
   headerTopRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flex: 1, marginTop: 10 },
   backButton:       { justifyContent: 'center', alignItems: 'flex-start' },
   headerTitle:      { fontWeight: '500', color: '#FFF', textAlign: 'center', flex: 1, fontFamily: 'Roboto' },

@@ -8,4 +8,5 @@ export const AUTH_SESSION_KEYS = {
 	isLoggedIn: 'isLoggedIn',
 	username: 'auth-username',
 	userId: 'auth-user-id',
+	groupId: 'auth-group-id',
 } as const;

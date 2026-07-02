@@ -7,7 +7,6 @@ import {
   BackHandler,
   Image,
   Modal,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -18,6 +17,7 @@ import {
   useWindowDimensions,
   View
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
 import { CartItem, useCartStore } from '../../services/cartStore';
 import { useOrderStore } from '../../services/orderStore';
@@ -38,6 +38,7 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
 }>();
   
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   // 2. Read live data and actions straight from Zustand store
   const cartItems = useCartStore((state) => state.cartItems);
@@ -75,6 +76,10 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
   const [pendingAdditions, setPendingAdditions] = useState<Record<string, number>>({});
   const [voidMetadata, setVoidMetadata] = useState<Record<string, { remark: string; manager: string }>>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [dbInvoiceNo, setDbInvoiceNo] = useState<string | null>(null);
+  const [dbLPax, setDbLPax] = useState<number | null>(null);
+  const [dbFPax, setDbFPax] = useState<number | null>(null);
+  const [isLoadingBillFromDb, setIsLoadingBillFromDb] = useState(false);
   const originalQuantitiesRef = useRef<Record<string, number>>({});
   const originalTableNoRef = useRef('');
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -156,6 +161,43 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     };
   }, []);
 
+  // When this screen is opened from the "Bill" (unpaid bills) list with only a
+  // table number — i.e. not immediately after confirming a cart — there is no
+  // in-memory cart/confirmed-order snapshot to show. In that case, pull the
+  // table's still-open (unpaid) bill straight from the database instead of
+  // relying on the old MMKV-held-order snapshot.
+  useEffect(() => {
+    const targetTableNo = String(tableName ?? tableNo ?? '').trim();
+    if (!targetTableNo) return;
+    if (lastConfirmedOrder || cartItems.length > 0) return;
+
+    let isMounted = true;
+    setIsLoadingBillFromDb(true);
+    void (async () => {
+      try {
+        const response = await apiClient.getActiveBillItems(targetTableNo);
+        if (!isMounted) return;
+        if (!response.ok || !response.data?.data) {
+          return;
+        }
+        const data = response.data.data;
+        setCartItemsInStore(Array.isArray(data.items) ? data.items : []);
+        setDbInvoiceNo(data.invoiceNo ?? null);
+        setDbLPax(typeof data.lPax === 'number' ? data.lPax : null);
+        setDbFPax(typeof data.fPax === 'number' ? data.fPax : null);
+      } catch (error) {
+        // Non-fatal: leave the screen empty and let the existing UI show "no items".
+      } finally {
+        if (isMounted) setIsLoadingBillFromDb(false);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableName, tableNo]);
+
   const clearPendingChanges = () => {
     setPendingAdditions({});
     setBillingHasChanges(false);
@@ -165,8 +207,8 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     const tableNo = String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim();
     const tableGrpId = String(lastConfirmedOrder?.tableGrpId ?? '').trim();
     const userId = String(lastConfirmedOrder?.userId ?? 'SYSTEM').trim();
-    const lPax = Number(lastConfirmedOrder?.lPax ?? Number(localPax ?? 0)) || 0;
-    const fPax = Number(lastConfirmedOrder?.fPax ?? Number(foreignPax ?? 0)) || 0;
+    const lPax = Number(lastConfirmedOrder?.lPax ?? Number(localPax ?? dbLPax ?? 0)) || 0;
+    const fPax = Number(lastConfirmedOrder?.fPax ?? Number(foreignPax ?? dbFPax ?? 0)) || 0;
     const computedGrossTotal = displayedItems.reduce((sum: number, item: any) => {
       const price = Number(item.salesPrice ?? 0) || 0;
       const qty = Number(item.quantity ?? 0) || 0;
@@ -195,7 +237,7 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
       pendingAdditions,
       billingHasChanges,
     };
-  }, [billingHasChanges, displayedItems, foreignPax, lastConfirmedOrder?.fPax, lastConfirmedOrder?.lPax, lastConfirmedOrder?.tableGrpId, lastConfirmedOrder?.tableNo, lastConfirmedOrder?.userId, localPax, pendingAdditions, tableName, voidMetadata]);
+  }, [billingHasChanges, displayedItems, foreignPax, dbFPax, dbLPax, lastConfirmedOrder?.fPax, lastConfirmedOrder?.lPax, lastConfirmedOrder?.tableGrpId, lastConfirmedOrder?.tableNo, lastConfirmedOrder?.userId, localPax, pendingAdditions, tableName, voidMetadata]);
 
   const handleNewOrder = useCallback(() => {
     if (!displayedItems.length) {
@@ -621,8 +663,8 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
 
           const tableNo = lastConfirmedOrder?.tableNo ?? String(tableName ?? '').trim();
           const tableGrpId = lastConfirmedOrder?.tableGrpId ?? '';
-          const lPax = Number(lastConfirmedOrder?.lPax ?? Number(localPax ?? 0));
-          const fPax = Number(lastConfirmedOrder?.fPax ?? Number(foreignPax ?? 0));
+          const lPax = Number(lastConfirmedOrder?.lPax ?? Number(localPax ?? dbLPax ?? 0));
+          const fPax = Number(lastConfirmedOrder?.fPax ?? Number(foreignPax ?? dbFPax ?? 0));
           const userId = lastConfirmedOrder?.userId ?? 'SYSTEM';
           const addBillingItem = apiClient.addBillingItem;
 
@@ -726,7 +768,17 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
           throw new Error(serverMsg || 'Failed to finalize/print bill');
         }
 
-        clearHeldOrderForTable(String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim());
+        // Mark the bill as paid in the database (DB-driven billing) instead of
+        // just clearing a local MMKV "held order" snapshot.
+        if (dbInvoiceNo) {
+          const payResult = await apiClient.payBill(dbInvoiceNo);
+          if (!payResult.ok) {
+            console.log('[BillingScreen] payBill failed', payResult.error);
+          }
+        } else {
+          // Fallback for the legacy local-cache flow if no DB invoice is known yet.
+          clearHeldOrderForTable(String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim());
+        }
         // On successful finalize/payment, clear the global cart so the next customer starts fresh.
         useOrderStore.getState().clearLastConfirmedOrder();
         useOrderStore.getState().clearLastConfirmedOrder();
@@ -745,13 +797,24 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', day: '2-digit', year: 'numeric' });
 
-  return (
-    <SafeAreaView style={styles.container}>
+return (
+    
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#002748" />
 
-      {/* HEADER */}
-      <View style={[styles.header, { height: headerH, paddingHorizontal: hPad }]}>
-        <View style={styles.headerTopRow}>
+     
+      <View 
+        style={[
+          styles.header, 
+          { 
+            height: headerH + insets.top, 
+            paddingTop: insets.top, 
+            paddingHorizontal: hPad 
+          }
+        ]}
+      >
+       
+        <View style={[styles.headerTopRow, { flex: 1, alignItems: 'center' }]}>
           <TouchableOpacity
             style={[styles.backButton, { width: backBtnSize, height: backBtnSize, borderRadius: backBtnSize / 2 }]}
             onPress={goBack}
@@ -777,8 +840,15 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
         </View>
       </View>
 
+      
       {toastMessage && (
-        <View style={[styles.toastBanner, { top: headerH - 10 }]} pointerEvents="none">
+        <View 
+          style={[
+            styles.toastBanner, 
+            { top: insets.top + headerH - 10 } 
+          ]} 
+          pointerEvents="none"
+        >
           <Text style={styles.toastBannerText}>{toastMessage}</Text>
         </View>
       )}
@@ -800,7 +870,7 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
       </View>
 
       {/* SCROLLABLE ITEMS LIST */}
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingHorizontal: hPad }]}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingHorizontal: hPad, paddingBottom: insets.bottom }]}>
         {displayedItems.map((item: any, index: number) => (
           <View key={item.menuItemCode} style={styles.billItemBlock}>
             <View style={styles.itemRow}>
@@ -851,7 +921,7 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
       </ScrollView>
 
       {/* FOOTER CONTROLS */}
-      <View style={[styles.footer, { paddingHorizontal: hPad, paddingBottom: isSmall ? 12 : 20 }]}>
+      <View style={[styles.footer, { paddingHorizontal: hPad, paddingBottom: (isSmall ? 12 : 20) + insets.bottom }]}>
         <View style={styles.topDivider} />
         <View style={styles.totalRow}>
           <Text style={[styles.totalLabel, { fontSize: totalFs }]}>Gross Total (Lkr)</Text>
@@ -1071,7 +1141,7 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
           </View>
         </View>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -1086,8 +1156,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#002748',
-    paddingTop: 10,
-    paddingBottom: 14,
+   
   },
   headerTopRow: {
     flexDirection: 'row',

@@ -5,7 +5,6 @@ import {
   Image,
   Modal,
   Platform,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
@@ -14,13 +13,13 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useCartStore } from '../../services/cartStore';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { apiClient } from '../../services/api';
 
 export default function ModeSelectionScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
-  const getHeldTables = useCartStore((state) => state.getHeldTables);
-  const loadHeldOrderForTable = useCartStore((state) => state.loadHeldOrderForTable);
+  const insets = useSafeAreaInsets();
 
   const [billOverlayVisible, setBillOverlayVisible] = useState(false);
   const [heldTables, setHeldTables] = useState<string[]>([]);
@@ -72,15 +71,26 @@ export default function ModeSelectionScreen() {
     },
   ];
 
-  const refreshHeldTables = () => {
-    setHeldTables(getHeldTables());
+  const refreshHeldTables = async () => {
+    try {
+      const response = await apiClient.fetchUnpaidBills();
+      if (!response.ok) {
+        setHeldTables([]);
+        return;
+      }
+      const bills = Array.isArray(response.data?.data) ? response.data.data : [];
+      const uniqueTables = [...new Set(bills.map((bill: any) => String(bill.tableNo ?? '').trim()).filter(Boolean))] as string[];
+      setHeldTables(uniqueTables.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })));
+    } catch (err) {
+      setHeldTables([]);
+    }
   };
 
   useEffect(() => {
     if (billOverlayVisible) {
       refreshHeldTables();
     }
-  }, [billOverlayVisible, getHeldTables]);
+  }, [billOverlayVisible]);
 
   const handleBillPress = () => {
     refreshHeldTables();
@@ -88,15 +98,12 @@ export default function ModeSelectionScreen() {
   };
 
   const handleHeldTableSelect = (tableNumber: string) => {
-    const heldOrder = loadHeldOrderForTable(tableNumber);
     setBillOverlayVisible(false);
 
     router.replace({
       pathname: '/Screens/BillingScreen',
       params: {
         tableName: tableNumber,
-        localPax: String(heldOrder?.lPax ?? 0),
-        foreignPax: String(heldOrder?.fPax ?? 0),
       },
     });
   };
@@ -235,7 +242,7 @@ export default function ModeSelectionScreen() {
                   <FlatList
                     data={heldTables}
                     keyExtractor={(item) => item}
-                    contentContainerStyle={styles.heldTableList}
+                    contentContainerStyle={[styles.heldTableList, { paddingBottom: 2 + insets.bottom }]}
                     renderItem={({ item }) => (
                       <TouchableOpacity style={styles.heldTableRow} activeOpacity={0.82} onPress={() => handleHeldTableSelect(item)}>
                         <View>

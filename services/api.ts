@@ -43,13 +43,36 @@ const resolveApiBaseUrl = () => {
 };
 
 
-const getDynamicApiBaseUrl = () => {
-  
-  if ((global as any).backendIP) {
-    return `http://${(global as any).backendIP}:3000`;
+const BACKEND_IP_KEY = 'backend-ip';
+
+export const setBackendIP = (ip: string) => {
+  (global as any).backendIP = ip;
+  try {
+    storage.set(BACKEND_IP_KEY, ip);
+  } catch (e) {
+    console.log('[api] Failed to persist backendIP', e);
   }
-  
-  return resolveApiBaseUrl();
+};
+
+const getDynamicApiBaseUrl = () => {
+
+  let ip = (global as any).backendIP;
+
+  if (!ip) {
+    try {
+      const stored = storage.getString(BACKEND_IP_KEY);
+      if (stored) {
+        ip = stored;
+        (global as any).backendIP = stored; // warm the in-memory cache for this session
+      }
+    } catch (e) {
+      console.log('[api] Failed to read persisted backendIP', e);
+    }
+  }
+
+  ip = ip || '192.168.8.100';
+
+  return `http://${ip}:3000`;
 };
 
 const GLOBAL_PRESET_REMARKS_KEY = 'global_preset_remarks';
@@ -321,14 +344,15 @@ const toString = (value: unknown, fallback = '') => {
   return String(value);
 };
 
-const normalizeConfirmCartPayload = (payload: ConfirmCartPayloadInput): ConfirmCartPayload => {
+const normalizeConfirmCartPayload = (payload: ConfirmCartPayloadInput): any => {
+  
   const items = Array.isArray(payload.items)
     ? payload.items.map((item) => ({
-        ItemCode: toString((item as any).ItemCode ?? (item as any).menuItemCode, '').trim(),
-        QTY: toNumber((item as any).QTY ?? (item as any).quantity, 0),
-        ItemRemarks: toString((item as any).ItemRemarks ?? (item as any).itemRemarks, ''),
-        SalesPrice: toNumber((item as any).SalesPrice ?? (item as any).salesPrice, 0),
-      })).filter((item) => item.ItemCode && item.QTY > 0)
+        itemCode: toString((item as any).ItemCode ?? (item as any).menuItemCode ?? (item as any).itemCode, '').trim(),
+        quantity: toNumber((item as any).QTY ?? (item as any).quantity ?? 0, 0),
+        itemRemarks: toString((item as any).ItemRemarks ?? (item as any).itemRemarks, ''),
+        salesPrice: toNumber((item as any).SalesPrice ?? (item as any).salesPrice ?? (item as any).price ?? 0, 0),
+      })).filter((item) => item.itemCode && item.quantity > 0)
     : [];
 
   const rawCustomer = (payload as any).customerDetails;
@@ -340,14 +364,23 @@ const normalizeConfirmCartPayload = (payload: ConfirmCartPayloadInput): ConfirmC
       }
     : null;
 
+  
+  let rawOrderType = toString((payload as any).orderType, 'DI').trim();
+  if (rawOrderType === 'DINING' || rawOrderType === 'Dine In' || rawOrderType === 'DI') {
+    rawOrderType = 'DI';
+  } else if (rawOrderType === 'TA' || rawOrderType === 'Take Away' || rawOrderType === 'TAKEAWAY') {
+    rawOrderType = 'TA';
+  }
+
+  
   return {
-    orderType: toString((payload as any).orderType, 'DINING').trim(), 
-    TabelNo: toString((payload as any).TabelNo ?? (payload as any).tableNo, '').trim(),
-    UserID: toNumber((payload as any).UserID ?? (payload as any).userId, 0),
-    TabelGrpID: (payload as any).TabelGrpID ?? (payload as any).tableGrpId ?? null,
-    LPax: toNumber((payload as any).LPax ?? (payload as any).lPax, 0),
-    FPax: toNumber((payload as any).FPax ?? (payload as any).fPax, 0),
     items,
+    tableNo: toString((payload as any).TabelNo ?? (payload as any).tableNo ?? '', '').trim(),
+    orderType: rawOrderType, 
+    tableGrpId: (payload as any).TabelGrpID ?? (payload as any).tableGrpId ?? null,
+    lPax: toNumber((payload as any).LPax ?? (payload as any).lPax, 0),
+    fPax: toNumber((payload as any).FPax ?? (payload as any).fPax, 0),
+    userId: toString((payload as any).UserID ?? (payload as any).userId ?? 'SYSTEM', ''),
     customerDetails: normalizedCustomer, 
   };
 };
@@ -434,7 +467,7 @@ export const apiClient = {
     return { ok: response.ok, data };
   },
 
-  resettPassword: async (username: string, newPassword: string) => {
+  resetPassword: async (username: string, newPassword: string) => {
     const response = await fetch(`${getDynamicApiBaseUrl()}/api/auth/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -608,7 +641,12 @@ export const apiClient = {
         }
       }
 
-      console.log('[api] getMenuItems parsed data=', data);
+      console.log('[api] getMenuItems data status:', {
+        dataType: typeof data,
+        isList: Array.isArray(data),
+       objectKeys: data && typeof data === 'object' ? Object.keys(data) : [],
+        totalItemsCount: Array.isArray(data) ? data.length : (Array.isArray(data?.items) ? data.items.length : 0), 
+      });
       return { ok: response.ok, data };
     } catch (err) {
       console.log('[api] getMenuItems fetch error', (err as any)?.message ?? String(err));
@@ -704,16 +742,61 @@ export const apiClient = {
     }
   },
   
-  confirmCart: async (payload: ConfirmCartPayloadInput) => {
-    const normalized = normalizeConfirmCartPayload(payload);
-    const response = await requestJson(`${getDynamicApiBaseUrl()}/api/confirm-cart`, {
+  // ── DB-driven billing (unpaid bills list / detail / payment) ─────────────
+
+  fetchUnpaidBills: async () => {
+    try {
+      const url = `${getDynamicApiBaseUrl()}/api/unpaid-bills`;
+      const response = await fetch(url);
+      const data = await parseResponseBody(response);
+      return { ok: response.ok, data };
+    } catch (err) {
+      const msg = (err as any)?.message ?? String(err);
+      return { ok: false, data: { message: msg } };
+    }
+  },
+
+  fetchBillItems: async (params: { invoiceNo?: string; tableNo?: string }) => {
+    try {
+      const query = new URLSearchParams();
+      if (params.invoiceNo) query.set('invoiceNo', params.invoiceNo);
+      if (params.tableNo) query.set('tableNo', params.tableNo);
+
+      const url = `${getDynamicApiBaseUrl()}/api/bill-items?${query.toString()}`;
+      const response = await fetch(url);
+      const data = await parseResponseBody(response);
+      return { ok: response.ok, data };
+    } catch (err) {
+      const msg = (err as any)?.message ?? String(err);
+      return { ok: false, data: { message: msg } };
+    }
+  },
+
+  payBill: async (invoiceNo: string) => {
+    const response = await requestJson(`${getDynamicApiBaseUrl()}/api/pay-bill`, {
       method: 'POST',
       headers: await buildAuthHeaders(),
-      body: JSON.stringify(normalized),
+      body: JSON.stringify({ invoiceNo }),
     });
 
     return response;
   },
+
+confirmCart: async (payload: ConfirmCartPayloadInput) => {
+ 
+  const normalized = normalizeConfirmCartPayload(payload);
+  
+  console.log("[FRONTEND API] Sending structured payload to backend:", JSON.stringify(normalized, null, 2));
+
+  
+  const response = await requestJson(`${getDynamicApiBaseUrl()}/api/orders/confirm-cart`, {
+    method: 'POST',
+    headers: await buildAuthHeaders(),
+    body: JSON.stringify(normalized), 
+  });
+
+  return response;
+},
 
   addBillingItem: async (payload: AddBillingItemPayloadInput) => {
     const normalized = normalizeAddBillingPayload(payload as any);
@@ -754,4 +837,86 @@ export const apiClient = {
       body: JSON.stringify(payload),
     });
   },
-};
+
+// ── NEW DYNAMIC USER GROUPS SERVICE ──
+  getUserGroups: async () => {
+    try {
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/user-groups`);
+      const data = await response.json();
+      return { ok: response.ok, data: data.data || [] };
+    } catch (err) {
+      return { ok: false, data: [] };
+    }
+  },
+
+  
+getWorkers: async () => {
+  return requestJson(`${getDynamicApiBaseUrl()}/api/auth/workers`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+},
+
+// ── NEW: TABLE GROUPS (Floor Access options, from Tbl_TableGroup.GroupName) ──
+  getTableGroups: async () => {
+    try {
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/table-groups`);
+      const data = await response.json();
+      return { ok: response.ok, data: data.data || [] };
+    } catch (err) {
+      return { ok: false, data: [] };
+    }
+  },
+
+
+  saveUserFloorAccess: async (payload: { UserId: number | string; Floors: string[]; AssignedBy: number | string }) => {
+    return requestJson(`${getDynamicApiBaseUrl()}/api/user-floor-access/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
+
+
+  checkDeviceStatus: async (deviceId: string): Promise<{ ok: boolean;
+     data?: { allowed: boolean; 
+      status: string;
+      deviceId?: string;
+    message?: string;
+    }; error?: string }> => {
+    try {
+     
+      let baseIP = (global as any).backendIP;
+      if (!baseIP) {
+        try {
+          baseIP = storage.getString(BACKEND_IP_KEY) || undefined;
+        } catch (e) {}
+      }
+      baseIP = baseIP || '192.168.8.100';
+
+      
+      const response = await fetch(`http://${baseIP}:3000/api/devices/check-in`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ deviceId }),
+      });
+
+      const data = await response.json();
+
+      return {
+        ok: response.ok,
+        data: data
+      };
+    } catch (error: any) {
+      console.error('[API Client] Device check-in failed:', error);
+      return {
+        ok: false,
+        error: error.message || 'Network request failed'
+      };
+    }
+  },
+
+
+}

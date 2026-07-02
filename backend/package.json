@@ -11,10 +11,12 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
+    "edge-js": "^26.0.0",
+    "expo": "~54.0.34",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mssql": "^12.5.2",
-    "expo": "~54.0.34",
+    "node-windows": "^1.0.0-beta.8",
     "react": "19.1.0",
     "react-native": "0.81.5"
   },

@@ -4,7 +4,6 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -13,23 +12,42 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
+import { useAuthStore } from '../../services/authStore';
 import { useCartStore } from '../../services/cartStore';
+import { storage } from '../../services/storage';
 
 type TableStatus = 'occupied' | 'reserved' | 'available';
 type TableItem   = { id: string; status: TableStatus };
 
 const getApiBaseUrl = () => {
   const envBaseUrl = String((globalThis as any)?.process?.env?.EXPO_PUBLIC_API_BASE_URL ?? '').trim();
-  return envBaseUrl || 'http://192.168.1.153:3000';
+  if (envBaseUrl) return envBaseUrl;
+
+  let ip = (global as any).backendIP;
+  if (!ip) {
+    try {
+      ip = storage.getString('backend-ip');
+    } catch (e) {}
+  }
+  ip = ip || '192.168.8.100';
+
+  return `http://${ip}:3000`;
 };
 
-const API_BASE_URL = getApiBaseUrl().replace(/\/$/, '');
+const getApiBase = () => getApiBaseUrl().replace(/\/$/, '');
 
 export default function TableSelectionScreen() {
   const router = useRouter();
   const clearCart = useCartStore((state) => state.clearCart);
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+
+ 
+  const { user } = useAuthStore();
+  const assignedFloors = user?.assignedFloors || [];
+  const userGroupId = user?.groupId;
 
   const [selectedFloor,  setSelectedFloor]  = useState('');
   const [floors,         setFloors]         = useState<string[]>([]);
@@ -61,11 +79,11 @@ export default function TableSelectionScreen() {
   const cardGap       = isTablet ? 14 : 10;
   const cardWidth     = (width - hPad * 2 - cardGap * 3) / 4;
 
-  // ── Fetch floors ─────────────────────────────────────────────────────────
+ // ── Fetch floors & Role Filter ───────────────────────────────────────────
   useEffect(() => {
     const loadFloors = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/floors`);
+        const response = await fetch(`${getApiBase()}/api/floors`);
         const data = await response.json();
 
         if (response.ok) {
@@ -75,10 +93,28 @@ export default function TableSelectionScreen() {
             ? data.floors
             : [];
 
-          const names = records.map(
+          const allNames = records.map(
             (f: any) => f.GroupName || f.groupName || String(f)
           );
-          setFloors(names);
+
+          console.log('assignedFloors (from authStore):', JSON.stringify(assignedFloors));
+          console.log('allNames (from /api/floors):', JSON.stringify(allNames));
+          console.log('userGroupId:', userGroupId);
+
+          //  Role Based Visibility Filter
+          const isAdmin = String(userGroupId) === '1';
+          const filteredFloors = isAdmin
+            ? allNames
+            : allNames.filter(floorName => assignedFloors.includes(floorName));
+
+          setFloors(filteredFloors);
+
+          //  Default Floor Setup & Table Load
+          if (filteredFloors.length > 0 && !selectedFloor) {
+            const defaultFloor = filteredFloors[0];
+            setSelectedFloor(defaultFloor);
+            fetchTables(defaultFloor);
+          }
         } else {
           console.error('Failed to load floors:', data);
         }
@@ -88,17 +124,17 @@ export default function TableSelectionScreen() {
     };
 
     loadFloors();
-  }, []);
+  }, [userGroupId, assignedFloors]);
 
-  // ── Fetch counts for the currently selected floor and on focus ───────────
+  // ── Fetch counts for the currently selected floor and on focus 
   const isFocused = useIsFocused();
 
   const loadCounts = async (floor?: string) => {
     setLoadingCounts(true);
     try {
       const countsUrl = floor
-        ? `${API_BASE_URL}/api/tables/counts?floor=${encodeURIComponent(floor)}`
-        : `${API_BASE_URL}/api/tables/counts`;
+        ? `${getApiBase()}/api/tables/counts?floor=${encodeURIComponent(floor)}`
+        : `${getApiBase()}/api/tables/counts`;
 
       const response = await fetch(countsUrl);
       const data = await response.json();
@@ -176,11 +212,11 @@ export default function TableSelectionScreen() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar backgroundColor="#002748" barStyle="light-content" />
 
       {/* FIXED HEADER */}
-      <View style={[styles.header, { paddingHorizontal: hPad }]}>
+      <View style={[styles.header, { paddingHorizontal: hPad, paddingTop: insets.top, height: 200 + insets.top }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Image
             source={require('../../assets/icons/back.png')}
@@ -195,7 +231,7 @@ export default function TableSelectionScreen() {
 
       {/* FIXED TOP CONTROLS CONTAINER */}
       <View style={styles.fixedTopContainer}>
-        {/* FLOOR TABS (Still horizontally scrollable, but statically positioned vertically) */}
+        {/* FLOOR TABS */}
         <View>
           <ScrollView
             horizontal
@@ -248,7 +284,7 @@ export default function TableSelectionScreen() {
           </Text>
         </TouchableOpacity>
 
-        {/* STATUS BOXES — global counts from DB */}
+        {/* STATUS BOXES */}
         <View style={[styles.statusContainer, { paddingHorizontal: hPad }]}>
           <View style={[styles.statusBox, styles.availableBox]}>
             {loadingCounts ? (
@@ -302,7 +338,7 @@ export default function TableSelectionScreen() {
       <ScrollView
         style={styles.gridScrollContainer}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 30 }}
+        contentContainerStyle={{ paddingBottom: 30 + insets.bottom }}
       >
         {loadingTables ? (
           <ActivityIndicator size="small" color="#002748" style={{ marginTop: 30 }} />
@@ -345,12 +381,10 @@ export default function TableSelectionScreen() {
                 ]}
                 onPress={() => {
                   clearCart();
-                  // occupied -> open items directly
                   if (table.status === 'occupied') {
                     router.push({ pathname: '/Screens/selectitems', params: { tableName: table.id, status: table.status, floor: selectedFloor } });
                     return;
                   }
-                  // reserved or available -> collect pax first
                   router.push({ pathname: '/Screens/paxcount', params: { tableName: table.id, floor: selectedFloor, status: table.status } });
                 }}
               >
@@ -367,7 +401,7 @@ export default function TableSelectionScreen() {
           </View>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -375,8 +409,8 @@ const styles = StyleSheet.create({
   container:    { flex: 1, backgroundColor: '#F4F6F8' },
 
   header:       { backgroundColor: '#002748', flexDirection: 'row', alignItems: 'center', paddingVertical: 16, height: 200 },
-  backButton:   { marginRight: 16, marginTop: -50 },
-  headerTitle: { fontWeight: '700', color: '#FFF', marginTop: -50 },
+  backButton:   { marginRight: 16 },
+  headerTitle: { fontWeight: '700', color: '#FFF' },
 
   fixedTopContainer: { backgroundColor: '#F4F6F8' },
   gridScrollContainer: { flex: 1 },

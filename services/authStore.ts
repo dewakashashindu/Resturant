@@ -6,6 +6,8 @@ import { AUTH_SESSION_KEYS, storage } from './storage';
 type AuthUser = {
   userName: string;
   userId: string | number;
+  groupId: string | number; 
+  assignedFloors?: string[];
 };
 
 type AuthStore = {
@@ -28,16 +30,27 @@ export const useAuthStore = create<AuthStore>((set) => ({
   user: null,
   isHydrated: false,
   isAuthenticated: false,
+  
 
+  
   hydrateAuth: async () => {
     try {
       const mmkvToken = normalize(storage.getString(AUTH_SESSION_KEYS.token));
       const mmkvUsername = normalize(storage.getString(AUTH_SESSION_KEYS.username));
       const mmkvUserId = normalize(storage.getString(AUTH_SESSION_KEYS.userId));
+      const mmkvGroupId = normalize(storage.getString(AUTH_SESSION_KEYS.groupId)); 
+      const mmkvFloorsStr = storage.getString('assignedFloors');
 
       let token = mmkvToken;
       let username = mmkvUsername;
       let userId = mmkvUserId;
+      let groupId = mmkvGroupId; 
+
+      let assignedFloors: string[] = [];
+
+      if (mmkvFloorsStr) {
+        try { assignedFloors = JSON.parse(mmkvFloorsStr); } catch { assignedFloors = []; }
+      }
 
       if (!token) {
         const legacyToken = normalize(await AsyncStorage.getItem('token'));
@@ -64,12 +77,32 @@ export const useAuthStore = create<AuthStore>((set) => ({
         }
       }
 
+      if (!groupId) {
+        const legacyGroupId = normalize(await AsyncStorage.getItem('groupId'));
+        if (legacyGroupId) {
+          groupId = legacyGroupId;
+          storage.set(AUTH_SESSION_KEYS.groupId, groupId);
+        }
+      }
+
+      if (assignedFloors.length === 0) {
+        const legacyFloorsStr = await AsyncStorage.getItem('assignedFloors');
+        if (legacyFloorsStr) {
+          try { 
+            assignedFloors = JSON.parse(legacyFloorsStr); 
+            storage.set('assignedFloors', legacyFloorsStr); 
+          } catch { assignedFloors = []; }
+        }
+      }
+
       set({
         token: token || null,
         user: token
           ? {
               userName: username || 'User',
               userId: userId || username || 'User',
+              groupId: groupId || '1', 
+              assignedFloors: assignedFloors,
             }
           : null,
         isAuthenticated: Boolean(token),
@@ -86,20 +119,29 @@ export const useAuthStore = create<AuthStore>((set) => ({
     }
   },
 
+  
   setSession: ({ token, user }) => {
     const nextToken = normalize(token);
     const nextUser = {
-      userName: normalize(user.userName) || 'User',
-      userId: user.userId,
+    userName: normalize((user as any).userName || (user as any).username) || 'User',
+      userId: (user as any).userId || (user as any).UserId,
+      groupId: (user as any).groupId || (user as any).GroupId,
+      assignedFloors: (user as any).assignedFloors || [],
     };
 
     storage.set(AUTH_SESSION_KEYS.token, nextToken);
     storage.set(AUTH_SESSION_KEYS.isLoggedIn, 'true');
     storage.set(AUTH_SESSION_KEYS.username, String(nextUser.userName));
     storage.set(AUTH_SESSION_KEYS.userId, String(nextUser.userId));
-    AsyncStorage.setItem('token', nextToken).catch(() => {});
+    storage.set(AUTH_SESSION_KEYS.groupId, String(nextUser.groupId));
+
+storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
+
+   AsyncStorage.setItem('token', nextToken).catch(() => {});
     AsyncStorage.setItem('username', String(nextUser.userName)).catch(() => {});
     AsyncStorage.setItem('userId', String(nextUser.userId)).catch(() => {});
+    AsyncStorage.setItem('groupId', String(nextUser.groupId)).catch(() => {});
+    AsyncStorage.setItem('assignedFloors', JSON.stringify(nextUser.assignedFloors)).catch(() => {});
 
     set({
       token: nextToken,
@@ -115,7 +157,9 @@ export const useAuthStore = create<AuthStore>((set) => ({
       storage.set(AUTH_SESSION_KEYS.isLoggedIn, 'false');
       storage.set(AUTH_SESSION_KEYS.username, '');
       storage.set(AUTH_SESSION_KEYS.userId, '');
-      await AsyncStorage.multiRemove(['token', 'username', 'userId']);
+      storage.set(AUTH_SESSION_KEYS.groupId, '');
+      storage.set('assignedFloors', '');
+      await AsyncStorage.multiRemove(['token', 'username', 'userId', 'groupId', 'assignedFloors']);
     } catch (error) {
       console.log('[AuthStore] clearSession failed', error);
     } finally {
@@ -136,14 +180,18 @@ export const useAuthStore = create<AuthStore>((set) => ({
         mmkvStorage.delete(AUTH_SESSION_KEYS.isLoggedIn);
         mmkvStorage.delete(AUTH_SESSION_KEYS.username);
         mmkvStorage.delete(AUTH_SESSION_KEYS.userId);
+        mmkvStorage.delete(AUTH_SESSION_KEYS.groupId);
+        mmkvStorage.delete('assignedFloors');
       } else {
         storage.set(AUTH_SESSION_KEYS.token, '');
         storage.set(AUTH_SESSION_KEYS.isLoggedIn, 'false');
         storage.set(AUTH_SESSION_KEYS.username, '');
         storage.set(AUTH_SESSION_KEYS.userId, '');
+        storage.set(AUTH_SESSION_KEYS.groupId, '');
       }
 
-      await AsyncStorage.multiRemove(['token', 'username', 'userId']);
+      storage.set('assignedFloors', '');
+      await AsyncStorage.multiRemove(['token', 'username', 'userId', 'groupId', 'assignedFloors']);
     } catch (error) {
       console.log('[AuthStore] forceLogout failed', error);
     } finally {

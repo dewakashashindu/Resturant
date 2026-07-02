@@ -7,7 +7,6 @@ import {
   FlatList,
   Image,
   Modal,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -18,7 +17,9 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient, getCachedOrderDescriptions } from '../../services/api';
+import { useAuthStore } from '../../services/authStore';
 import { CartItem, useCartStore } from '../../services/cartStore';
 import { useOrderStore } from '../../services/orderStore';
 
@@ -35,6 +36,7 @@ export default function CartScreen() {
   const orderType = useCartStore((state) => state.orderType);
   const customerInfo = useCartStore((state) => state.customerInfo);
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   const isTablet = width >= 600;
   const isSmall = height < 700;
@@ -96,7 +98,7 @@ const lastConfirmedOrder = useOrderStore((s) => s.lastConfirmedOrder);
 
   // Counts only unique types of items
   const totalItemsCount = cartItems.length;
-
+const currentUser = useAuthStore.getState().user;
   useEffect(() => {
     // Instantly load the same globally synced preset list into the Cart view modal.
     setRemarkOptions(getCachedOrderDescriptions());
@@ -232,7 +234,7 @@ const lastConfirmedOrder = useOrderStore((s) => s.lastConfirmedOrder);
     const payload = {
       orderType: orderType || 'DI', 
       tableNo: finalTableNo,            
-      userId: 'SYSTEM',
+     userId: currentUser?.userId ? String(currentUser.userId) : '1',
       tableGrpId: tableId ?? '',
       lPax: Number(localPax ?? 0),
       fPax: Number(foreignPax ?? 0),
@@ -464,13 +466,17 @@ try {
                   style={[styles.changeTableBtn, { paddingVertical: isTablet ? 12 : 10 }]}
                   onPress={() => {
                     setDropdownVisible(false);
-                    clearCartInStore();
-                    setRemarksByCode({});
-                    router.push('/Screens/tableselection');
+                    if (orderType === 'TA') {
+                      router.push('/Screens/operation');
+                    } else {
+                      clearCartInStore();
+                      setRemarksByCode({});
+                      router.push('/Screens/tableselection');
+                    }
                   }}
                 >
                   <Text style={[styles.changeTableText, { fontSize: isTablet ? 14 : 13 }]}>
-                    Change Table
+                    {orderType === 'TA' ? 'Change Order' : 'Change Table'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -605,7 +611,7 @@ try {
         style={{ flex: 1 }}
         contentContainerStyle={[
           styles.listContent,
-          { paddingHorizontal: hPad, paddingBottom: listBottomPad },
+          { paddingHorizontal: hPad, paddingBottom: listBottomPad + insets.bottom },
         ]}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>

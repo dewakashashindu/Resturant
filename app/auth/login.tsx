@@ -14,8 +14,9 @@ import {
   View,
 } from 'react-native';
 
-import { apiClient } from '../../services/api';
+import { apiClient, setBackendIP } from '../../services/api';
 import { useAuthStore } from '../../services/authStore';
+import { getUniqueDeviceId } from '../../services/deviceIdService';
 import useItemStore from '../../services/itemStore';
 import { AUTH_SESSION_KEYS, storage } from '../../services/storage';
 
@@ -32,7 +33,10 @@ export default function LoginScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
   const setSession = useAuthStore((state) => state.setSession);
-  const prefetchMenuBootstrapData = useItemStore((state) => state.prefetchMenuBootstrapData);
+  // Use hydrateItems instead of prefetchMenuBootstrapData:
+  // hydrateItems checks if today's cache is fresh → skips API if yes.
+  // prefetchMenuBootstrapData always does a full 322-row pull regardless.
+  const hydrateItems = useItemStore((state) => state.hydrateItems);
 
   const isTablet = width >= 600;
   const isSmall  = height < 700;
@@ -107,7 +111,7 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     if (!(global as any).backendIP) {
       const fallbackIP = devIP.trim() || '192.168.8.100';
-      (global as any).backendIP = fallbackIP;
+      setBackendIP(fallbackIP);
       console.log('[Login] Auto-configured backendIP on login:', fallbackIP);
     }
     console.log('[Login] submit pressed', {
@@ -132,6 +136,52 @@ export default function LoginScreen() {
       return;
     }
 
+try {
+  console.log('[Login] Fetching Unique Device ID...');
+  const deviceId = await getUniqueDeviceId();
+  
+  if (!deviceId) {
+    Alert.alert(
+      "Device Error",
+      "Could not identify this device. Please check app permissions and try again."
+    );
+    return; 
+  }
+
+  console.log('[Login] Calling apiClient.checkDeviceStatus now...');
+  const deviceResult = await apiClient.checkDeviceStatus(deviceId);
+  console.log('[Login] Device check-in response received:', deviceResult);
+   
+  const baseIP = (global as any).backendIP || devIP.trim() || '192.168.8.100';
+  const deviceCheckResponse = await fetch(`http://${baseIP}:3000/api/devices/check-in`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deviceId }),
+  });
+
+  const deviceData = await deviceCheckResponse.json();
+
+ 
+  if (!deviceCheckResponse.ok || deviceData.status === "pending") {
+    Alert.alert(
+      "Approval Pending",
+      `This device has been successfully registered in the system.\n\nYour Device ID:\n${deviceId}\n\nPlease inform your manager to approve this device to proceed.`
+    );
+    return; // Stop the flow here to prevent standard user authentication
+  }
+
+  // Reaching here means deviceData.allowed === true (Admin Approved)
+  console.log('[Login] Device authorized! Proceeding to user authentication.');
+
+} catch (deviceError) {
+  console.log('[Login] Device Check Error:', deviceError);
+  Alert.alert(
+    "Connection Error",
+    "Unable to verify device identity. Please ensure the backend server is running and accessible."
+  );
+  return; // Block login if the server is unreachable or offline
+}
+
     try {
       console.log('[Login] calling apiClient.login');
       const result = await apiClient.login(username, password);
@@ -140,9 +190,10 @@ export default function LoginScreen() {
         ok: result.ok,
         hasData: Boolean(result.data),
         tokenPresent: Boolean(result.data?.token),
-        user: result.data?.user,
+        username: result.data?.user?.user ?? username,
         error: result.error,
         message: result.data?.message,
+        menuBootstrapCount: result.data?.user?.menuBootstrapData ? result.data.user.menuBootstrapData.length : 0,
       });
 
       if (!result.ok) {
@@ -168,19 +219,33 @@ export default function LoginScreen() {
       }
 
       if (result.data?.token) {
+
+       
         const loggedInUserName = String(result.data?.user?.username ?? username).trim();
-        const loggedInUserId = result.data?.user?.id ?? result.data?.user?.userId ?? loggedInUserName;
+        const loggedInUserId = 
+          result.data?.user?.userId ?? 
+          result.data?.user?.UserId ?? 
+          result.data?.user?.UserCode ?? 
+          result.data?.user?.userCode ?? 
+          result.data?.user?.LogId ?? 
+          result.data?.user?.StaffId ?? 
+          result.data?.user?.EmpId ??
+          '999';
+        const loggedInGroupId = result.data?.user?.GroupId ?? result.data?.user?.groupId ?? result.data?.groupId ?? '1';
+        console.log('[Login Success Check] Extracted Group ID:', loggedInGroupId);
 
         setSession({
           token: result.data.token,
           user: {
             userName: loggedInUserName,
             userId: loggedInUserId,
+            groupId: loggedInGroupId,
+            assignedFloors: result.data.assignedFloors || result.data.user?.assignedFloors || [],
           },
         });
 
-        void prefetchMenuBootstrapData().catch((error) => {
-          console.log('[Login] bootstrap menu prefetch failed', error);
+        void hydrateItems().catch((error) => {
+          console.log('[Login] menu hydrate failed (non-fatal, cache used)', error);
         });
 
         router.replace('/(tabs)');
@@ -202,7 +267,7 @@ export default function LoginScreen() {
       Alert.alert('IP Error', 'Please enter a valid IP address.');
       return;
     }
-    (global as any).backendIP = formattedIP;
+    setBackendIP(formattedIP);
     Alert.alert('IP Configured', `Backend IP set to: ${formattedIP}`);
   };
 

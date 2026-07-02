@@ -1,554 +1,486 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-    Image,
-    Modal,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    useWindowDimensions,
-    View
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  Modal,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { apiClient } from '../../services/api';
 
-interface Waiter {
-  id: string;
-  name: string;
-  selectedFloors: string[];
+// Shape of a row coming back from GET /api/auth/workers
+interface WorkerRecord {
+  UserId: number | string;
+  UserName: string;
+  LoginName: string;
+  ContNo: string;
+  GroupId: string | number;
+  Enable: number | boolean;
+  assignedFloors?: string[] | string; 
 }
 
-  const floors = [
-  'Ground Floor',
-  '1st Floor',
-  '2nd Floor',
-  '3rd Floor',
-  'Beach Wing 1',
-  'Beach Wing 2',
-  'Private Front',
-  'Private Sealed'
-];
+// Shape of a row coming back from GET /api/table-groups (Tbl_TableGroup.GroupName)
+interface TableGroupOption {
+  GroupName: string;
+}
 
-export default function ManageFloorAccessScreen() {
+export default function ManageAccessScreen() {
   const router = useRouter();
-
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
+  // State Management
   const [waiterName, setWaiterName] = useState('');
-  const [waiters, setWaiters] = useState<Waiter[]>([
-    { id: '1', name: 'Tharaka Silva', selectedFloors: ['Ground Floor'] },
-    { id: '2', name: 'Supun Perera', selectedFloors: ['1st Floor', '2nd Floor'] },
-    { id: '3', name: 'Nimal Fernando', selectedFloors: ['Ground Floor', '1st Floor'] },
-  ]);
-  const [showFloorModal, setShowFloorModal] = useState(false);
-  const [selectedWaiterId, setSelectedWaiterId] = useState<string | null>(null);
+
+  // ── User groups fetched from Tbl_UserGroups (GroupId + GroupDes) ──
+  const [userGroups, setUserGroups] = useState<{ GroupId: string; GroupDes: string }[]>([]);
+  const [userGroupsLoading, setUserGroupsLoading] = useState<boolean>(true);
+  const [userGroupsError, setUserGroupsError] = useState<string | null>(null);
+
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('');
+  const selectedGroupDes = useMemo(
+    () => userGroups.find((g) => g.GroupId === selectedGroupId)?.GroupDes ?? '',
+    [userGroups, selectedGroupId]
+  );
+
+  // ── Workers fetched from Tbl_UserDetailsTest ──
+  const [workers, setWorkers] = useState<WorkerRecord[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // ── Table Groups fetched from Tbl_TableGroup (used in the Manage dropdown) ──
+  const [tableGroups, setTableGroups] = useState<TableGroupOption[]>([]);
+  const [tableGroupsLoading, setTableGroupsLoading] = useState<boolean>(false);
+  const [tableGroupsError, setTableGroupsError] = useState<string | null>(null);
+
+  // ── Manage / Floor-Access multi-select modal state ──
+  const [manageModalVisible, setManageModalVisible] = useState(false);
+  const [activeWaiter, setActiveWaiter] = useState<WorkerRecord | null>(null);
+  // Map of UserId -> array of selected GroupName values (multi-choice)
+  const [floorAccessMap, setFloorAccessMap] = useState<Record<string, string[]>>({});
 
   const isTablet = width >= 600;
-  const isSmall = height < 700;
+  const isSmall  = height < 700;
 
-  const headerH = isTablet ? 160 : isSmall ? 110 : 140;
-  const titleFs = isTablet ? 28 : isSmall ? 20 : 24;
-  const backIconSize = isTablet ? 22 : isSmall ? 14 : 34;
-  const backBtnSize = isTablet ? 40 : isSmall ? 30 : 34;
-  const hPad = isTablet ? 24 : 16;
+  // Responsive Layout Parameters
+  const headerH      = isTablet ? 140 : isSmall ? 90  : 200;
+  const titleFs      = isTablet ? 28  : isSmall ? 20  : 24;
+  const backIconSize = isTablet ? 28  : isSmall ? 44  : 44;
+  const backBtnSize  = isTablet ? 48  : isSmall ? 36  : 44;
+  const hPad         = isTablet ? 24  : 16;
+  
+  const inputFs      = isTablet ? 18  : 16;
+  const labelFs      = isTablet ? 18  : 16;
+  const nameFs       = isTablet ? 18  : 16;
 
-  const inputH = isTablet ? 58 : isSmall ? 46 : 52;
-  const inputFs = isTablet ? 18 : isSmall ? 14 : 16;
+  // ── Fetch workers on mount ──
+  useEffect(() => {
+    let isMounted = true;
 
-  const sectionFs = isTablet ? 18 : isSmall ? 14 : 16;
+    const fetchWorkers = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await apiClient.getWorkers();
+        if (!isMounted) return;
 
-  const manageBtnH = isTablet ? 34 : isSmall ? 28 : 32;
-  const manageBtnFs = isTablet ? 14 : isSmall ? 11 : 12;
+        if (response.ok && Array.isArray(response.data)) {
+          const rawWorkers = response.data as WorkerRecord[];
+          setWorkers(rawWorkers);
 
+          
+          const initialMap: Record<string, string[]> = {};
+          rawWorkers.forEach((w) => {
+            if (w.assignedFloors) {
+              try {
+                initialMap[String(w.UserId)] = Array.isArray(w.assignedFloors)
+                  ? w.assignedFloors
+                  : JSON.parse(w.assignedFloors);
+              } catch {
+                initialMap[String(w.UserId)] = [];
+              }
+            }
+          });
+          setFloorAccessMap(initialMap);
+
+        } else {
+          setError(response.error || 'Failed to load workers.');
+        }
+      } catch (err) {
+        if (isMounted) setError('Failed to load workers.');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchWorkers();
+    return () => { isMounted = false; };
+  }, []);
+
+  // ── Fetch user groups (GroupId -> GroupDes mapping) on mount ──
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchUserGroups = async () => {
+      setUserGroupsLoading(true);
+      setUserGroupsError(null);
+      try {
+        const response = await apiClient.getUserGroups();
+        if (!isMounted) return;
+
+        if (response.ok && Array.isArray(response.data)) {
+          const groups = response.data as { GroupId: string; GroupDes: string }[];
+          setUserGroups(groups);
+          if (groups.length > 0) setSelectedGroupId(groups[0].GroupId);
+        } else {
+          setUserGroupsError('Failed to load user groups.');
+        }
+      } catch (err) {
+        if (isMounted) setUserGroupsError('Failed to load user groups.');
+      } finally {
+        if (isMounted) setUserGroupsLoading(false);
+      }
+    };
+
+    fetchUserGroups();
+    return () => { isMounted = false; };
+  }, []);
+
+  // ── Fetch table groups (floor access options) on mount ──
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchTableGroups = async () => {
+      setTableGroupsLoading(true);
+      setTableGroupsError(null);
+      try {
+        const response = await apiClient.getTableGroups();
+        if (!isMounted) return;
+
+        if (response.ok && Array.isArray(response.data)) {
+          setTableGroups(response.data as TableGroupOption[]);
+        } else {
+          setTableGroupsError('Failed to load floor groups.');
+        }
+      } catch (err) {
+        if (isMounted) setTableGroupsError('Failed to load floor groups.');
+      } finally {
+        if (isMounted) setTableGroupsLoading(false);
+      }
+    };
+
+    fetchTableGroups();
+    return () => { isMounted = false; };
+  }, []);
+
+  const normalizeGroupId = (value: unknown): string => {
+    const str = String(value ?? '').trim();
+    if (!str) return '';
+    const num = Number(str);
+    return Number.isFinite(num) ? String(num) : str;
+  };
+
+  const filteredWorkers = useMemo(
+    () => workers.filter((worker) => normalizeGroupId(worker.GroupId) === normalizeGroupId(selectedGroupId)),
+    [workers, selectedGroupId]
+  );
+
+  // Handlers
   const handleAddWaiter = () => {
-    if (waiterName.trim()) {
-      const newWaiter: Waiter = {
-        id: Date.now().toString(),
-        name: waiterName,
-        selectedFloors: [],
-      };
-      setWaiters([...waiters, newWaiter]);
-      setWaiterName('');
+    if (!waiterName.trim()) return;
+    setWaiterName('');
+  };
+
+  const handleManage = (waiter: WorkerRecord) => {
+    setActiveWaiter(waiter);
+    setManageModalVisible(true);
+  };
+
+  const closeManageModal = () => {
+    setManageModalVisible(false);
+  };
+
+  const toggleFloorAccess = (groupName: string) => {
+    if (!activeWaiter) return;
+    const waiterId = String(activeWaiter.UserId);
+
+    setFloorAccessMap((prev) => {
+      const current = prev[waiterId] ?? [];
+      const alreadySelected = current.includes(groupName);
+      const updated = alreadySelected
+        ? current.filter((g) => g !== groupName)
+        : [...current, groupName];
+      return { ...prev, [waiterId]: updated };
+    });
+  };
+
+  
+  const handleSaveFloorAccess = async () => {
+    if (!activeWaiter) return;
+    
+    const waiterId = String(activeWaiter.UserId);
+    const selectedFloors = floorAccessMap[waiterId] ?? [];
+
+    try {
+      
+      const response = await apiClient.saveUserFloorAccess({
+        UserId: activeWaiter.UserId,        
+        Floors: selectedFloors,             
+        AssignedBy: 1                
+      });
+
+      if (response.ok) {
+        Alert.alert('Success', `Floor access updated for ${activeWaiter.UserName}.`);
+        
+        
+        setWorkers(prev => 
+          prev.map(w => w.UserId === activeWaiter.UserId ? { ...w, assignedFloors: selectedFloors } : w)
+        );
+      } else {
+        Alert.alert('Error', response.error || 'Could not update floor access.');
+      }
+    } catch (err) {
+      console.log('Failed to save floor access:', err);
+      Alert.alert('Error', 'An unexpected error occurred.');
+    } finally {
+      setManageModalVisible(false);
     }
   };
 
-  const handleDeleteWaiter = (id: string) => {
-    setWaiters(waiters.filter(w => w.id !== id));
-  };
-
-  const handleToggleFloor = (floor: string) => {
-    if (!selectedWaiterId) return;
-
-    setWaiters(waiters.map(w => {
-      if (w.id === selectedWaiterId) {
-        const isSelected = w.selectedFloors.includes(floor);
-        return {
-          ...w,
-          selectedFloors: isSelected
-            ? w.selectedFloors.filter(f => f !== floor)
-            : [...w.selectedFloors, floor],
-        };
-      }
-      return w;
-    }));
-  };
-
-  const getSelectedWaiter = (): Waiter | undefined => {
-    return waiters.find(w => w.id === selectedWaiterId);
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar
-        backgroundColor="#FFFFFF"
-        barStyle="dark-content"
-      />
+    <View style={styles.container}>
+      <StatusBar backgroundColor="#002748" barStyle="light-content" />
 
-      {/* HEADER */}
-      <View
+      <View 
         style={[
-          styles.header,
-          {
-            height: headerH,
-            paddingHorizontal: hPad,
-          },
+          styles.header, 
+          { 
+            height: headerH + insets.top, 
+            paddingTop: insets.top, 
+            paddingHorizontal: hPad 
+          }
         ]}
       >
-        <TouchableOpacity
-          style={[
-            styles.backButton,
-            {
-              width: backBtnSize,
-              height: backBtnSize,
-              borderRadius: backBtnSize / 2,
-            },
-          ]}
-          onPress={() => router.back()}
-        >
-          <Image
-            source={require('../../assets/icons/back.png')}
-            style={{
-              width: backIconSize,
-              height: backIconSize,
-            }}
-            resizeMode="contain"
-          />
-        </TouchableOpacity>
+        <View style={[styles.headerTopRow, { flex: 1, alignItems: 'center' }]}>
+          <TouchableOpacity
+            style={[styles.backButton, { width: backBtnSize, height: backBtnSize }]}
+            onPress={() => router.back()}
+            activeOpacity={0.7}
+          >
+            <Image
+              source={require('../../assets/icons/back.png')}
+              style={{ width: backIconSize, height: backIconSize, tintColor: '#FFF' }}
+              resizeMode="contain"
+            />
+          </TouchableOpacity>
 
-        <Text
-          style={[
-            styles.headerTitle,
-            { fontSize: titleFs },
-          ]}
-        >
-          Manage Table Access
-        </Text>
+          <Text style={[styles.headerTitle, { fontSize: titleFs }]}>
+            Manage Floor Access
+          </Text>
 
-        <View style={{ width: backBtnSize }} />
+          <View style={{ width: backBtnSize }} />
+        </View>
       </View>
 
-      {/* CONTENT */}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.content,
-          {
-            paddingHorizontal: hPad,
-            paddingBottom: 120,
-          },
-        ]}
-      >
-        {/* INPUT ROW */}
-        <View style={styles.inputRow}>
-          <TextInput
-            placeholder="Waiter Name"
-            placeholderTextColor="#777"
-            value={waiterName}
-            onChangeText={setWaiterName}
-            style={[
-              styles.input,
-              {
-                height: inputH,
-                fontSize: inputFs,
-              },
-            ]}
-          />
-
-          <TouchableOpacity
-            style={[
-              styles.addButton,
-              { height: inputH },
-            ]}
-            activeOpacity={0.85}
-            onPress={handleAddWaiter}
-          >
-            <Text style={styles.addIcon}>＋</Text>
-
-            <Text
-              style={[
-                styles.addText,
-                { fontSize: manageBtnFs + 1 },
-              ]}
-            >
-              Add
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* SECTION */}
-        <Text
-          style={[
-            styles.sectionTitle,
-            {
-              fontSize: sectionFs,
-              marginTop: isTablet ? 28 : 22,
-            },
-          ]}
+      {/* ── HORIZONTAL USER GROUPS SELECTION ROW ── */}
+      <View style={styles.groupSectionContainer}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={[styles.horizontalScroll, { paddingHorizontal: hPad }]}
         >
-          Manage Access
-        </Text>
+          {userGroups.map((group) => {
+            const isSelected = selectedGroupId === group.GroupId;
+            return (
+              <TouchableOpacity
+                key={group.GroupId}
+                style={[styles.groupChip, isSelected && styles.groupChipActive]}
+                onPress={() => setSelectedGroupId(group.GroupId)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.groupChipText, isSelected && styles.groupChipTextActive]}>
+                  {group.GroupDes}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
+      {/* ── SECURE ACCESS MANAGEMENT DATA LIST ── */}
+      <View style={[styles.listHeaderContainer, { paddingHorizontal: hPad }]}>
+        <Text style={[styles.listHeaderLabel, { fontSize: labelFs }]}>Manage Access</Text>
         <View style={styles.divider} />
+      </View>
 
-        {/* LIST */}
-        {waiters.map((waiter, index) => (
-          <View
-            key={waiter.id}
-            style={styles.waiterRow}
-          >
-            {/* LEFT */}
-            <View style={styles.waiterLeft}>
-              <Text
-                style={[
-                  styles.waiterName,
-                  {
-                    fontSize: inputFs,
-                  },
-                ]}
-              >
-                {waiter.name}
-              </Text>
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="small" color="#002748" />
+        </View>
+      ) : error ? (
+        <View style={{ flex: 1, alignItems: 'center', paddingHorizontal: hPad, paddingTop: 24 }}>
+          <Text style={{ color: '#B00020', textAlign: 'center', fontFamily: 'Roboto' }}>{error}</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredWorkers}
+          keyExtractor={(item) => String(item.UserId)}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: hPad, paddingBottom: 120 + insets.bottom }}
+          ListEmptyComponent={
+            <Text style={{ color: '#666', textAlign: 'center', marginTop: 24, fontFamily: 'Roboto' }}>
+              No workers found in this group.
+            </Text>
+          }
+          renderItem={({ item }) => (
+            <View style={styles.waiterRow}>
+              <View style={styles.waiterInfo}>
+                <Text style={[styles.waiterName, { fontSize: nameFs }]}>{item.UserName}</Text>
+                <Text style={styles.waiterGroupTag}>{selectedGroupDes}</Text>
+              </View>
+              
+              <View style={styles.actionGroup}>
+                <TouchableOpacity 
+                  style={styles.iconBtn} 
+                  activeOpacity={0.6}
+                  onPress={() => setWorkers(workers.filter(w => w.UserId !== item.UserId))}
+                >
+                  <Image
+                    source={require('../../assets/icons/trash.png')} 
+                    style={styles.trashIcon}
+                    resizeMode="contain"
+                  />
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={() => handleDeleteWaiter(waiter.id)}
-              >
-                <Ionicons name="trash-outline" size={isTablet ? 28 : 22} color="rgba(0,0,0,0.5)" />
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.manageBtn}
+                  onPress={() => handleManage(item)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.manageBtnText}>Manage</Text>
+                  <Image
+                    source={require('../../assets/icons/arrow-right.png')}
+                    style={styles.arrowIcon}
+                    resizeMode="contain"
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
+          )}
+        />
+      )}
 
-            {/* RIGHT */}
-            <TouchableOpacity
-              style={[
-                styles.manageButton,
-                {
-                  height: manageBtnH,
-                },
-              ]}
-              activeOpacity={0.85}
-              onPress={() => {
-                setSelectedWaiterId(waiter.id);
-                setShowFloorModal(true);
-              }}
-            >
-              <Text
-                style={[
-                  styles.manageText,
-                  {
-                    fontSize: manageBtnFs,
-                  },
-                ]}
-              >
-                Manage
-              </Text>
-
-              <Text style={styles.manageArrow}>
-                ▼
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ))}
-      </ScrollView>
-
-      {/* FLOOR SELECTION MODAL */}
+      {/* ── FLOOR ACCESS MULTI-SELECT DROPDOWN ── */}
       <Modal
-        visible={showFloorModal}
-        animationType="slide"
-        transparent={true}
+        visible={manageModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeManageModal}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Select Floors for {getSelectedWaiter()?.name}
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowFloorModal(false);
-                  setSelectedWaiterId(null);
-                }}
-              >
-                <Text style={styles.modalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
+        <View style={modalStyles.overlay}>
+          <View style={modalStyles.sheet}>
+            <Text style={modalStyles.title}>
+              Floor Access{activeWaiter ? ` — ${activeWaiter.UserName}` : ''}
+            </Text>
 
-            <ScrollView style={styles.modalScroll}>
-              {floors.map((floor) => {
-                const isSelected = getSelectedWaiter()?.selectedFloors.includes(floor) || false;
+            <ScrollView style={modalStyles.optionsList}>
+              {tableGroupsLoading && (
+                <ActivityIndicator size="small" color="#002748" style={{ marginVertical: 16 }} />
+              )}
+
+              {!tableGroupsLoading && tableGroupsError && (
+                <Text style={modalStyles.errorText}>{tableGroupsError}</Text>
+              )}
+
+              {!tableGroupsLoading && !tableGroupsError && tableGroups.length === 0 && (
+                <Text style={modalStyles.emptyText}>No floor groups found.</Text>
+              )}
+
+              {!tableGroupsLoading && !tableGroupsError && tableGroups.map((group) => {
+                const waiterId = activeWaiter ? String(activeWaiter.UserId) : '';
+                const isChecked = (floorAccessMap[waiterId] ?? []).includes(group.GroupName);
                 return (
                   <TouchableOpacity
-                    key={floor}
-                    style={styles.floorOption}
-                    onPress={() => handleToggleFloor(floor)}
+                    key={group.GroupName}
+                    style={modalStyles.optionRow}
+                    onPress={() => toggleFloorAccess(group.GroupName)}
+                    activeOpacity={0.7}
                   >
-                    <View
-                      style={[
-                        styles.checkbox,
-                        isSelected && styles.checkboxSelected,
-                      ]}
-                    >
-                      {isSelected && (
-                        <Text style={styles.checkmark}>✓</Text>
-                      )}
+                    <View style={[modalStyles.checkbox, isChecked && modalStyles.checkboxChecked]}>
+                      {isChecked && <Text style={modalStyles.checkmark}>✓</Text>}
                     </View>
-                    <Text style={styles.floorText}>{floor}</Text>
+                    <Text style={modalStyles.optionText}>{group.GroupName}</Text>
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
 
-            <TouchableOpacity
-              style={styles.modalButton}
-              onPress={() => {
-                setShowFloorModal(false);
-                setSelectedWaiterId(null);
-              }}
-            >
-              <Text style={styles.modalButtonText}>Done</Text>
-            </TouchableOpacity>
+            <View style={modalStyles.actionsRow}>
+              <TouchableOpacity style={modalStyles.cancelBtn} onPress={closeManageModal} activeOpacity={0.8}>
+                <Text style={modalStyles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={modalStyles.saveBtn} onPress={handleSaveFloorAccess} activeOpacity={0.8}>
+                <Text style={modalStyles.saveBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F3F3F3',
-  },
+  container: { flex: 1, backgroundColor: '#F4F6F8' },
+  header: { backgroundColor: '#002748', justifyContent: 'center' },
+  headerTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
+  backButton: { justifyContent: 'center', alignItems: 'flex-start' },
+  headerTitle: { fontWeight: '500', color: '#FFF', textAlign: 'center', flex: 1, fontFamily: 'Roboto' },
+  groupSectionContainer: { marginTop: 16, height: 40 },
+  horizontalScroll: { gap: 8, alignItems: 'center' },
+  groupChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#E4E8EC', borderWidth: 1, borderColor: 'rgba(0,39,72,0.1)', justifyContent: 'center', alignItems: 'center' },
+  groupChipActive: { backgroundColor: '#002748', borderColor: '#002748' },
+  groupChipText: { fontSize: 13, color: '#002748', fontWeight: '500', fontFamily: 'Roboto' },
+  groupChipTextActive: { color: '#FFF' },
+  listHeaderContainer: { marginTop: 24, marginBottom: 16 },
+  listHeaderLabel: { color: '#000', fontWeight: '300', fontFamily: 'Roboto', marginBottom: 8 },
+  divider: { width: '100%', height: 1, backgroundColor: 'rgba(0,0,0,0.2)' },
+  waiterRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFF', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12, marginBottom: 10, elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
+  waiterInfo: { flexDirection: 'column', gap: 4 },
+  waiterName: { color: '#000', fontWeight: '400', fontFamily: 'Roboto' },
+  waiterGroupTag: { fontSize: 11, color: '#666', fontWeight: '500', fontFamily: 'Roboto', backgroundColor: '#F0F2F5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start' },
+  actionGroup: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  iconBtn: { padding: 4, justifyContent: 'center', alignItems: 'center' },
+  trashIcon: { width: 20, height: 20, tintColor: 'rgba(0,0,0,0.5)' },
+  manageBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#D9D9D9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, gap: 6 },
+  manageBtnText: { color: '#000', fontSize: 12, fontWeight: '400', fontFamily: 'Roboto' },
+  arrowIcon: { width: 10, height: 10, tintColor: '#000' }
+});
 
-  header: {
-    backgroundColor: '#002748',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-
-  backButton: {
- 
-  },
-
-  headerTitle: {
-    fontWeight: '600',
-    color: '#FFF',
-    textAlign: 'center',
-    flex: 1,
-  },
-
-  content: {
-    paddingTop: 20,
-  },
-
-  inputRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  input: {
-    width: '72%',
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#000',
-    paddingHorizontal: 16,
-    color: '#000',
-    fontWeight: '300',
-  },
-
-  addButton: {
-    width: '24%',
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#000',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  addIcon: {
-    fontSize: 18,
-    color: '#000',
-    marginRight: 4,
-  },
-
-  addText: {
-    color: '#000',
-    fontWeight: '500',
-  },
-
-  sectionTitle: {
-    color: '#000',
-    fontWeight: '500',
-    marginBottom: 12,
-  },
-
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    marginBottom: 10,
-  },
-
-  waiterRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 16,
-  },
-
-  waiterLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  waiterName: {
-    color: '#000',
-    fontWeight: '400',
-    marginRight: 12,
-  },
-
-  deleteButton: {
-    padding: 4,
-  },
-
-  manageButton: {
-    backgroundColor: '#D9D9D9',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  manageText: {
-    color: '#000',
-    fontWeight: '400',
-    marginRight: 4,
-  },
-
-  manageArrow: {
-    fontSize: 10,
-    color: '#000',
-  },
-
-  // Modal Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-
-  modalContent: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '80%',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-    paddingBottom: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
-  },
-
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-    flex: 1,
-  },
-
-  modalClose: {
-    fontSize: 24,
-    fontWeight: '300',
-    color: '#666',
-  },
-
-  modalScroll: {
-    marginBottom: 20,
-  },
-
-  floorOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-    backgroundColor: '#F5F5F5',
-  },
-
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: '#000',
-    marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  checkboxSelected: {
-    backgroundColor: '#002748',
-    borderColor: '#002748',
-  },
-
-  checkmark: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#FFF',
-  },
-
-  floorText: {
-    fontSize: 16,
-    color: '#000',
-    fontWeight: '400',
-  },
-
-  modalButton: {
-    backgroundColor: '#002748',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-
-  modalButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFF',
-  },
+const modalStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
+  sheet: { width: '100%', maxWidth: 420, maxHeight: '70%', backgroundColor: '#FFF', borderRadius: 16, paddingTop: 20, paddingHorizontal: 20, paddingBottom: 16, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 6 },
+  title: { fontSize: 16, fontWeight: '500', color: '#002748', fontFamily: 'Roboto', marginBottom: 12 },
+  optionsList: { maxHeight: 320, marginBottom: 12 },
+  optionRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 12 },
+  checkbox: { width: 20, height: 20, borderRadius: 4, borderWidth: 1.5, borderColor: 'rgba(0,39,72,0.4)', justifyContent: 'center', alignItems: 'center' },
+  checkboxChecked: { backgroundColor: '#002748', borderColor: '#002748' },
+  checkmark: { color: '#FFF', fontSize: 13, fontWeight: '700' },
+  optionText: { fontSize: 14, color: '#000', fontFamily: 'Roboto' },
+  errorText: { color: '#B00020', fontFamily: 'Roboto', paddingVertical: 12, textAlign: 'center' },
+  emptyText: { color: '#666', fontFamily: 'Roboto', paddingVertical: 12, textAlign: 'center' },
+  actionsRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.08)' },
+  cancelBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, backgroundColor: '#E4E8EC' },
+  cancelBtnText: { color: '#002748', fontSize: 13, fontWeight: '500', fontFamily: 'Roboto' },
+  saveBtn: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8, backgroundColor: '#002748' },
+  saveBtnText: { color: '#FFF', fontSize: 13, fontWeight: '500', fontFamily: 'Roboto' }
 });

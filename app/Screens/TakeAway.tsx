@@ -3,7 +3,6 @@ import React, { useRef, useState } from 'react';
 import {
   Image,
   Platform,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useDerivedValue, useSharedValue, withTiming } from 'react-native-reanimated';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { apiClient } from '../../services/api';
 import { useCartStore } from '../../services/cartStore';
@@ -35,6 +35,7 @@ export default function TakeAwayScreen() {
   const setOrderType = useCartStore((state) => state.setOrderType);
 
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   
   const [currentTableNumber, setCurrentTableNumber] = useState('Loading...');
   const [serialLoading, setSerialLoading] = useState(false);
@@ -184,7 +185,7 @@ const handleConfirm = async () => {
         </View>
 
         <ScrollView 
-          contentContainerStyle={[styles.scrollContent, { paddingHorizontal: hPad }]} 
+          contentContainerStyle={[styles.scrollContent, { paddingHorizontal: hPad, paddingBottom: 34 + insets.bottom }]} 
           showsVerticalScrollIndicator={false}
         >
           
