@@ -37,18 +37,18 @@ export default function SettingsScreen() {
 
   // Layout parameters matching the updated banner spec
   const headerH      = isTablet ? 240 : isSmall ? 180 : 210;
-  const titleFs      = isTablet ? 30  : isSmall ? 20  : 24;
-  const backIconSize = isTablet ? 32  : isSmall ? 20  : 44;
-  const backBtnSize  = isTablet ? 48  : isSmall ? 36  : 44;
+  const titleFs      = isTablet ? 32  : isSmall ? 20  : 24;
+  const backIconSize = isTablet ? 56  : isSmall ? 20  : 44;
+  const backBtnSize  = isTablet ? 60  : isSmall ? 36  : 44;
   const hPad         = isTablet ? 24  : 16;
   const avatarSize   = isTablet ? 120 : isSmall ? 80  : 100;
-  const nameFs       = isTablet ? 22  : isSmall ? 16  : 18;
-  const sectionFs    = isTablet ? 18  : isSmall ? 14  : 16;
-  const floorFs      = isTablet ? 18  : isSmall ? 14  : 16;
-  const changePwFs   = isTablet ? 18  : isSmall ? 14  : 16;
+  const nameFs       = isTablet ? 24  : isSmall ? 16  : 18;
+  const sectionFs    = isTablet ? 20  : isSmall ? 14  : 16;
+  const floorFs      = isTablet ? 20  : isSmall ? 14  : 16;
+  const changePwFs   = isTablet ? 20  : isSmall ? 14  : 16;
   const changePwH    = isTablet ? 50  : isSmall ? 38  : 44;
   const manageBtnH   = isTablet ? 46  : isSmall ? 34  : 40;
-  const manageFs     = isTablet ? 16  : isSmall ? 13  : 14;
+  const manageFs     = isTablet ? 20  : isSmall ? 13  : 14;
 const user = useAuthStore((state) => state.user);
 console.log("Current User Group ID is:", user?.groupId);
 

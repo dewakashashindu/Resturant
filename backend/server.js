@@ -146,9 +146,14 @@ app.post('/api/auth/login', async (req, res) => {
   
     const floorResult = await pool.request()
       .input('UserId', sql.VarChar, String(user.UserId))
-      .query('SELECT FloorName FROM Tbl_UserFloorAccess WHERE UserId = @UserId');
+      .query(`
+        SELECT g.GroupName
+        FROM Tbl_TableGroupAccess a
+        INNER JOIN Tbl_TableGroup g ON g.GroupId = a.TableGroupId
+        WHERE a.UserId = @UserId
+      `);
 
-    const assignedFloors = floorResult.recordset.map(row => row.FloorName);
+    const assignedFloors = floorResult.recordset.map(row => row.GroupName);
     
    
     const token = jwt.sign(
@@ -182,6 +187,92 @@ app.post('/api/auth/login', async (req, res) => {
 
 
 
+
+// Username existence check — called on blur from the login screen.
+// Returns 200 { exists: true } if the username is in Tbl_UserDetails,
+// 404 { exists: false } if not found, and 503 if the DB pool is not connected.
+app.get('/api/auth/check-username', async (req, res) => {
+  const { username } = req.query;
+
+  const usernameErr = validateUsername(String(username || ''));
+  if (usernameErr) return res.status(400).json({ exists: false, message: usernameErr });
+
+  try {
+    const pool = await poolPromise;
+
+    if (!pool.__connected) {
+      return res.status(503).json({ exists: false, message: 'Database is not connected.' });
+    }
+
+    const result = await pool.request()
+      .input('username', sql.VarChar, String(username))
+      .query('SELECT 1 AS found FROM Tbl_UserDetails WHERE LoginName = @username');
+
+    if (result.recordset.length > 0) {
+      return res.json({ exists: true });
+    } else {
+      return res.status(404).json({ exists: false, message: 'Username not found.' });
+    }
+  } catch (error) {
+    console.error('[check-username] DB error:', error);
+    return res.status(503).json({ exists: false, message: 'Database error. Please try again.' });
+  }
+});
+
+// Verifies that a given username/password belongs to a user with manager-level
+// privileges. Used by the billing screen before allowing a void override.
+// Matches against Tbl_UserGroups.GroupDes — confirmed values: Cashier, Steward,
+// Manager, Driver, Store Keeper, Chefs, Barmen. Only "Manager" (GroupId 003)
+// is authorized to approve voids.
+const MANAGER_ROLE_NAMES = ['manager'];
+
+app.post('/api/auth/verify-manager', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    const usernameErr = validateUsername(username);
+    if (usernameErr) return res.status(400).json({ message: usernameErr });
+
+    const passwordErr = validatePassword(password);
+    if (passwordErr) return res.status(400).json({ message: passwordErr });
+
+    const pool = await poolPromise;
+
+    const result = await pool.request()
+      .input('username', sql.VarChar, username)
+      .query(`
+        SELECT u.UserId, u.LoginName, u.Password, u.GroupId, g.GroupDes
+        FROM Tbl_UserDetails u
+        LEFT JOIN Tbl_UserGroups g ON g.GroupId = u.GroupId
+        WHERE u.LoginName = @username
+      `);
+
+    const user = result.recordset[0];
+    if (!user) return res.status(401).json({ message: 'Invalid manager credentials' });
+
+    const passwordMatch = await bcrypt.compare(password, user.Password);
+    if (!passwordMatch) return res.status(401).json({ message: 'Invalid manager credentials' });
+
+    const groupDes = String(user.GroupDes || '').trim().toLowerCase();
+    const isManager = MANAGER_ROLE_NAMES.includes(groupDes);
+    if (!isManager) {
+      return res.status(403).json({ message: 'This user is not authorized to approve voids' });
+    }
+
+    return res.json({
+      message: 'Manager verified',
+      manager: {
+        userId: user.UserId,
+        username: user.LoginName,
+        groupId: user.GroupId,
+        role: user.GroupDes,
+      },
+    });
+  } catch (error) {
+    console.error('[Backend Verify Manager Error]:', error);
+    return res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
 
 app.post('/api/auth/signup', async (req, res) => {
   try {
@@ -724,40 +815,33 @@ app.get('/api/menu/items', async (req, res) => {
     let since = req.query.since;
     console.log('[Backend] GET /api/menu/items since=', since);
 
-    if (!since || since === 'undefined' || since === 'null' || since === '') {
-      since = null; 
-    }
-
     const pool = await poolPromise;
-    let result;
     
-    if (since) {
-      result = await pool.request()
-        .input('since', sql.VarChar, String(since))
-        .query(`
-          SELECT *
-          FROM Vw_MenuAssignment
-          WHERE DisplayInFront = '1'
-            AND MenuAssiEnable = '1'
-            AND MenuItemEnable = '1'
-            AND LastUpdated > @since
-        `);
-    } else {
-      result = await pool.request().query(`
-        SELECT *
-        FROM Vw_MenuAssignment
-        WHERE DisplayInFront = '1'
-          AND MenuAssiEnable = '1'
-          AND MenuItemEnable = '1'
-      `);
-    }
+
+    const result = await pool.request().query(`
+      SELECT *
+      FROM Vw_MenuAssignment WITH (NOLOCK)
+      WHERE DisplayInFront = '1'
+        AND MenuAssiEnable = '1'
+        AND MenuItemEnable = '1'
+    `);
 
     const rows = result && result.recordset ? result.recordset : [];
     console.log('[Backend] /api/menu/items sql returned rows=', rows.length);
-    return res.json({ items: rows, lastSyncTime: new Date().toISOString(), ok: true });
+    
+  
+    return res.json({ 
+      items: rows, 
+      lastSyncTime: new Date().toISOString(), 
+      ok: true 
+    });
+
   } catch (error) {
     console.log('[Backend] /api/menu/items error', error && error.message ? error.message : error);
-    return res.status(500).json({ ok: false, error: error && error.message ? error.message : String(error) });
+    return res.status(500).json({ 
+      ok: false, 
+      error: error && error.message ? error.message : String(error) 
+    });
   }
 });
 
@@ -808,8 +892,8 @@ const getBearerUserId = (req, fallbackUserId = 'SYSTEM') => {
       const token = authHeader.slice(7).trim();
       
       const decoded = jwt.verify(token, JWT_SECRET_KEY);
-      if (decoded && typeof decoded === 'object' && decoded.id) {
-        return pickString(decoded.id, 50) || fallback;
+      if (decoded && typeof decoded === 'object' && decoded.userId) {
+        return pickString(decoded.userId, 50) || fallback;
       }
     }
   } catch (error) {
@@ -1027,19 +1111,17 @@ const invoiceNo = `INV-${datePart}-${String(seq).padStart(3, '0')}`;
             tempReq.input('FPax', sql.Float, fPax);
             tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
             tempReq.input('OderType', sql.VarChar(5), orderTypeVal); // 👈 [FIXED]
-            tempReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
 
             await tempReq.query(`
               INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-                (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, MgrID, OderType, AoR, InvoiceNo)
+                (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, MgrID, OderType, AoR)
               VALUES
-                (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, '0', @OderType, 'A', @InvoiceNo)
+                (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, '0', @OderType, 'A')
             `);
           }
         } catch (err) {
           console.error(`[DB ERROR] Failed to save item: ${item.ItemCode} -> Error:`, err.message);
-          
-          continue; 
+          throw err;
         }
       }
 
@@ -1101,13 +1183,12 @@ const billingAddItemHandler = async (req, res) => {
           tempReq.input('LPax', sql.Float, lPax);
           tempReq.input('FPax', sql.Float, fPax);
           tempReq.input('MgrID', sql.NVarChar(50), mgrId || '0');
-          tempReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo || null);
 
           await tempReq.query(`
             INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-              (TabelNo, UserID, ItemCode, QTY, SalesPrice, ItemRemarks, TabelGrpID, LPax, FPax, AoR, TxnDateTime, MgrID, InvoiceNo)
+              (TabelNo, UserID, ItemCode, QTY, SalesPrice, ItemRemarks, TabelGrpID, LPax, FPax, AoR, TxnDateTime, MgrID)
             VALUES
-              (@TabelNo, @UserID, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @TabelGrpID, @LPax, @FPax, 'A', ${SQL_SRI_LANKA_NOW}, @MgrID, @InvoiceNo)
+              (@TabelNo, @UserID, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @TabelGrpID, @LPax, @FPax, 'A', ${SQL_SRI_LANKA_NOW}, @MgrID)
           `);
 
           const lookupReq = new sql.Request(transaction);
@@ -1260,13 +1341,12 @@ const billingRemoveItemHandler = async (req, res) => {
       logReq.input('LPax', sql.Float, lPaxValue);
       logReq.input('FPax', sql.Float, fPaxValue);
       logReq.input('SalesPrice', sql.Decimal(18, 2), salesPriceValue);
-      logReq.input('InvoiceNo', sql.NVarChar(50), body.invoiceNo ?? body.InvoiceNo ?? null);
 
       await logReq.query(`
         INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-          (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, LPax, FPax, SalesPrice, MgrID, TxnDateTime, AoR, InvoiceNo)
+          (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, LPax, FPax, SalesPrice, MgrID, TxnDateTime, AoR)
         VALUES
-          (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, @LPax, @FPax, @SalesPrice, @MgrID, ${SQL_SRI_LANKA_NOW}, 'R', @InvoiceNo)
+          (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, @LPax, @FPax, @SalesPrice, @MgrID, ${SQL_SRI_LANKA_NOW}, 'R')
       `);
 
       const updReq = new sql.Request(transaction);
@@ -1597,15 +1677,16 @@ app.get('/api/auth/workers', async (req, res) => {
     `);
 
     const floorResult = await pool.request().query(`
-      SELECT UserId, FloorName
-      FROM Tbl_UserFloorAccess
+      SELECT a.UserId, g.GroupName
+      FROM Tbl_TableGroupAccess a
+      INNER JOIN Tbl_TableGroup g ON g.GroupId = a.TableGroupId
     `);
 
     const floorsByUser = {};
     floorResult.recordset.forEach((row) => {
       const key = String(row.UserId);
       if (!floorsByUser[key]) floorsByUser[key] = [];
-      floorsByUser[key].push(row.FloorName);
+      floorsByUser[key].push(row.GroupName);
     });
 
     const workers = result.recordset.map((w) => ({
@@ -1625,7 +1706,7 @@ app.get('/api/table-groups', async (req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
-      SELECT GroupName
+      SELECT GroupId, GroupName
       FROM Tbl_TableGroup
       WHERE GroupName IS NOT NULL
       ORDER BY GroupName
@@ -1639,29 +1720,32 @@ app.get('/api/table-groups', async (req, res) => {
 
 // floor access management
 app.post('/api/user-floor-access/save', async (req, res) => {
-  const { UserId, Floors, AssignedBy } = req.body;
+  const { UserId, TableGroupIds, AssignedBy } = req.body;
 
-  if (!UserId || !Array.isArray(Floors)) {
-    return res.status(400).json({ success: false, message: 'Invalid payload. UserId and Floors array are required.' });
+  if (!UserId || !Array.isArray(TableGroupIds)) {
+    return res.status(400).json({ success: false, message: 'Invalid payload. UserId and TableGroupIds array are required.' });
   }
 
   try {
     const pool = await poolPromise;
-    
-    
-    await pool.request()
-      .input('UserId', sql.VarChar(50), UserId)
-      .query('DELETE FROM Tbl_UserFloorAccess WHERE UserId = @UserId');
 
-    
-    for (const floorName of Floors) {
+    // Delete existing access for this user
+    await pool.request()
+      .input('UserId', sql.VarChar(50), String(UserId))
+      .query('DELETE FROM Tbl_TableGroupAccess WHERE UserId = @UserId');
+
+    // Insert each selected TableGroupId (FloorName is populated from
+    // Tbl_TableGroup.GroupName since the column still exists and disallows NULLs)
+    for (const groupId of TableGroupIds) {
       await pool.request()
-        .input('UserId', sql.VarChar(50), UserId)
-        .input('FloorName', sql.VarChar(100), floorName)
-        .input('AssignedBy', sql.Int, AssignedBy || 0)
+        .input('UserId',       sql.VarChar(50), String(UserId))
+        .input('TableGroupId', sql.VarChar(50), String(groupId))
+        .input('AssignedBy',   sql.VarChar(50), String(AssignedBy || ''))
         .query(`
-          INSERT INTO Tbl_UserFloorAccess (UserId, FloorName, AssignedBy, CreatedAt)
-          VALUES (@UserId, @FloorName, @AssignedBy, GETDATE())
+          INSERT INTO Tbl_TableGroupAccess (UserId, TableGroupId, FloorName, AssignedBy)
+          SELECT @UserId, @TableGroupId, g.GroupName, @AssignedBy
+          FROM Tbl_TableGroup g
+          WHERE g.GroupId = @TableGroupId
         `);
     }
 
@@ -1734,7 +1818,7 @@ app.post('/api/devices/check-in', async (req, res) => {
           0, 0, 0, 0, '0', 
           '0', '0', '0', '0', 0, 
           0, 0, 0, 0, 0, 
-          ' ', 0, 0 -- 👈 IsApproved එක 0 (Pending) විදිහට වැටේ
+          ' ', 0, 0 -- 
         )
       `);
 

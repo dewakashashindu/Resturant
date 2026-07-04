@@ -26,17 +26,14 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword]   = useState(false);
   const [usernameError, setUsernameError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [usernameChecking, setUsernameChecking] = useState(false);
 
- 
- const [devIP, setDevIP] = useState((global as any).backendIP || '192.168.8.100');
+  const [devIP, setDevIP] = useState((global as any).backendIP || '192.168.8.100');
 
   const router = useRouter();
   const { width, height } = useWindowDimensions();
   const setSession = useAuthStore((state) => state.setSession);
-  // Use hydrateItems instead of prefetchMenuBootstrapData:
-  // hydrateItems checks if today's cache is fresh → skips API if yes.
-  // prefetchMenuBootstrapData always does a full 322-row pull regardless.
-  const hydrateItems = useItemStore((state) => state.hydrateItems);
+  const prefetchMenuBootstrapData = useItemStore((state) => state.prefetchMenuBootstrapData);
 
   const isTablet = width >= 600;
   const isSmall  = height < 700;
@@ -62,10 +59,10 @@ export default function LoginScreen() {
   const hPad        = isTablet ? 40  : 20;
   const eyeSize     = isTablet ? 26  : 22;
 
-  // Only letters and numbers allowed (no . , / ; ' ] ) * or any special symbol)
   const usernamePattern = /^[A-Za-z0-9]+$/;
   const passwordPattern = /^[A-Za-z0-9!@#]+$/;
 
+  // ─── VALIDATION ──────────────────────────────────────────────────────────────
   const validateUsername = (value: string): boolean => {
     if (!value.trim()) {
       setUsernameError('Please enter your username.');
@@ -108,12 +105,14 @@ export default function LoginScreen() {
     return true;
   };
 
+  // ─── MAIN LOGIN HANDLER ───────────────────────────────────────────────────────
   const handleLogin = async () => {
     if (!(global as any).backendIP) {
       const fallbackIP = devIP.trim() || '192.168.8.100';
       setBackendIP(fallbackIP);
       console.log('[Login] Auto-configured backendIP on login:', fallbackIP);
     }
+
     console.log('[Login] submit pressed', {
       username,
       passwordLength: password.length,
@@ -136,72 +135,103 @@ export default function LoginScreen() {
       return;
     }
 
-try {
-  console.log('[Login] Fetching Unique Device ID...');
-  const deviceId = await getUniqueDeviceId();
-  
-  if (!deviceId) {
-    Alert.alert(
-      "Device Error",
-      "Could not identify this device. Please check app permissions and try again."
-    );
-    return; 
-  }
+    // ─── DEVICE CHECK ───────────────────────────────────────────────────────────
+    try {
+      console.log('[Login] Fetching Unique Device ID...');
+      const deviceId = await getUniqueDeviceId();
 
-  console.log('[Login] Calling apiClient.checkDeviceStatus now...');
-  const deviceResult = await apiClient.checkDeviceStatus(deviceId);
-  console.log('[Login] Device check-in response received:', deviceResult);
-   
-  const baseIP = (global as any).backendIP || devIP.trim() || '192.168.8.100';
-  const deviceCheckResponse = await fetch(`http://${baseIP}:3000/api/devices/check-in`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ deviceId }),
-  });
+      if (!deviceId) {
+        Alert.alert(
+          'Device Error',
+          'Could not identify this device. Please check app permissions and try again.'
+        );
+        return;
+      }
 
-  const deviceData = await deviceCheckResponse.json();
+      console.log('[Login] Calling device check-in...');
 
- 
-  if (!deviceCheckResponse.ok || deviceData.status === "pending") {
-    Alert.alert(
-      "Approval Pending",
-      `This device has been successfully registered in the system.\n\nYour Device ID:\n${deviceId}\n\nPlease inform your manager to approve this device to proceed.`
-    );
-    return; // Stop the flow here to prevent standard user authentication
-  }
+      // ✅ SINGLE call only — removed duplicate apiClient.checkDeviceStatus()
+      // Previously two calls were made causing a race condition:
+      //   Call 1: apiClient.checkDeviceStatus(deviceId) → POST /check-in (result ignored)
+      //   Call 2: fetch('/check-in') → same endpoint (result used)
+      // Race condition: Call 1 inserts device as "pending", Call 2 reads it as "pending"
+      // Fix: Remove Call 1 entirely, use only Call 2 result
+      const baseIP = (global as any).backendIP || devIP.trim() || '192.168.8.100';
+      let deviceData: any = null;
+      let deviceCheckOk   = false;
 
-  // Reaching here means deviceData.allowed === true (Admin Approved)
-  console.log('[Login] Device authorized! Proceeding to user authentication.');
+      try {
+        const deviceCheckResponse = await fetch(
+          `http://${baseIP}:3000/api/devices/check-in`,
+          {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ deviceId }),
+          }
+        );
+        deviceData    = await deviceCheckResponse.json();
+        deviceCheckOk = deviceCheckResponse.ok;
 
-} catch (deviceError) {
-  console.log('[Login] Device Check Error:', deviceError);
-  Alert.alert(
-    "Connection Error",
-    "Unable to verify device identity. Please ensure the backend server is running and accessible."
-  );
-  return; // Block login if the server is unreachable or offline
-}
+        console.log('[Login] Device check-in response received:', {
+          httpStatus:   deviceCheckResponse.status,
+          deviceData,
+          deviceCheckOk,
+        });
 
+      } catch (fetchError) {
+        console.log('[Login] Device check-in fetch failed (server unreachable):', fetchError);
+        Alert.alert(
+          'Connection Error',
+          'Unable to reach the server. Please check your network connection and try again.'
+        );
+        return;
+      }
+
+      // ✅ Approval status check from the SINGLE call result
+      if (!deviceCheckOk || deviceData?.status === 'pending') {
+        Alert.alert(
+          'Approval Pending',
+          `This device has been successfully registered in the system.\n\nYour Device ID:\n${deviceId}\n\nPlease inform your manager to approve this device to proceed.`
+        );
+        return;
+      }
+
+      // ✅ Reaches here only when deviceData.allowed === true (Admin Approved)
+      console.log('[Login] Device authorized! Proceeding to user authentication.');
+
+    } catch (deviceError) {
+      console.log('[Login] Device Check Error:', deviceError);
+      Alert.alert(
+        'Connection Error',
+        'Unable to verify device identity. Please ensure the backend server is running.'
+      );
+      return;
+    }
+    // ─── END DEVICE CHECK ───────────────────────────────────────────────────────
+
+    // ─── USER AUTHENTICATION ────────────────────────────────────────────────────
     try {
       console.log('[Login] calling apiClient.login');
       const result = await apiClient.login(username, password);
 
       console.log('[Login] apiClient.login response', {
-        ok: result.ok,
-        hasData: Boolean(result.data),
-        tokenPresent: Boolean(result.data?.token),
-        username: result.data?.user?.user ?? username,
-        error: result.error,
-        message: result.data?.message,
-        menuBootstrapCount: result.data?.user?.menuBootstrapData ? result.data.user.menuBootstrapData.length : 0,
+        ok:                 result.ok,
+        hasData:            Boolean(result.data),
+        tokenPresent:       Boolean(result.data?.token),
+        username:           result.data?.user?.user ?? username,
+        error:              result.error,
+        message:            result.data?.message,
+        menuBootstrapCount: result.data?.user?.menuBootstrapData
+          ? result.data.user.menuBootstrapData.length
+          : 0,
       });
 
       if (!result.ok) {
         const msg: string = result.data?.message ?? result.error ?? '';
 
         console.log('[Login] API returned non-ok response', {
-          message: msg,
-          rawData: result.data,
+          message:  msg,
+          rawData:  result.data,
           rawError: result.error,
         });
 
@@ -211,7 +241,7 @@ try {
         ) {
           setPasswordError('Incorrect username or password. Please try again.');
         } else if (msg.toLowerCase().includes('network request failed')) {
-          setPasswordError('Cannot connect to server. Check backend is running and device can reach it.');
+          setPasswordError('Cannot connect to server. Check backend is running.');
         } else {
           setPasswordError(msg || 'Login failed. Please try again.');
         }
@@ -219,48 +249,63 @@ try {
       }
 
       if (result.data?.token) {
+        const loggedInUserName = String(
+          result.data?.user?.username ?? username
+        ).trim();
 
-       
-        const loggedInUserName = String(result.data?.user?.username ?? username).trim();
-        const loggedInUserId = 
-          result.data?.user?.userId ?? 
-          result.data?.user?.UserId ?? 
-          result.data?.user?.UserCode ?? 
-          result.data?.user?.userCode ?? 
-          result.data?.user?.LogId ?? 
-          result.data?.user?.StaffId ?? 
-          result.data?.user?.EmpId ??
+        const loggedInUserId =
+          result.data?.user?.userId   ??
+          result.data?.user?.UserId   ??
+          result.data?.user?.UserCode ??
+          result.data?.user?.userCode ??
+          result.data?.user?.LogId    ??
+          result.data?.user?.StaffId  ??
+          result.data?.user?.EmpId    ??
           '999';
-        const loggedInGroupId = result.data?.user?.GroupId ?? result.data?.user?.groupId ?? result.data?.groupId ?? '1';
+
+        const loggedInGroupId =
+          result.data?.user?.GroupId ??
+          result.data?.user?.groupId ??
+          result.data?.groupId       ??
+          '1';
+
         console.log('[Login Success Check] Extracted Group ID:', loggedInGroupId);
 
         setSession({
           token: result.data.token,
           user: {
-            userName: loggedInUserName,
-            userId: loggedInUserId,
-            groupId: loggedInGroupId,
-            assignedFloors: result.data.assignedFloors || result.data.user?.assignedFloors || [],
+            userName:       loggedInUserName,
+            userId:         loggedInUserId,
+            groupId:        loggedInGroupId,
+            assignedFloors:
+              result.data.assignedFloors      ||
+              result.data.user?.assignedFloors ||
+              [],
           },
         });
 
-        void hydrateItems().catch((error) => {
-          console.log('[Login] menu hydrate failed (non-fatal, cache used)', error);
+        void prefetchMenuBootstrapData().catch((error) => {
+          console.log('[Login] menu prefetch failed (non-fatal, cache used)', error);
         });
 
         router.replace('/(tabs)');
         return;
+
       } else {
         setPasswordError('Login succeeded but no token was returned.');
         return;
       }
+
     } catch (e) {
       console.log('[Login] caught error during login flow', e);
-      setPasswordError('Cannot connect to server. Check backend URL and server status.');
+      setPasswordError(
+        'Cannot connect to server. Check backend URL and server status.'
+      );
     }
+    // ─── END USER AUTHENTICATION ─────────────────────────────────────────────────
   };
 
-  
+  // ─── DEV IP CONFIRM ──────────────────────────────────────────────────────────
   const handleConfirmIP = () => {
     const formattedIP = devIP.trim();
     if (!formattedIP) {
@@ -279,6 +324,7 @@ try {
     />
   );
 
+  // ─── RENDER ───────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
@@ -303,6 +349,7 @@ try {
         ]}
       />
 
+      {/* LOGO */}
       <View style={[styles.logoContainer, { marginTop: logoMT }]}>
         <Image
           source={require('../../assets/images/CAPTURE 1.png')}
@@ -311,6 +358,7 @@ try {
         />
       </View>
 
+      {/* HEADER */}
       <View style={{ marginTop: headerMT }}>
         <Text style={[styles.title, { fontSize: titleFs }]}>Welcome !</Text>
         <Text style={[styles.subtitle, { fontSize: subtitleFs }]}>
@@ -339,9 +387,36 @@ try {
             setUsername(text);
             if (usernameError) validateUsername(text);
           }}
-          onBlur={() => validateUsername(username)}
+          onBlur={async () => {
+            const localOk = validateUsername(username);
+            if (!localOk) return;
+
+            setUsernameChecking(true);
+            try {
+              const result = await apiClient.checkUsername(username);
+              if (result.status === 'found') {
+                setUsernameError('');
+              } else if (result.status === 'not_found') {
+                setUsernameError('Username not found. Please check and try again.');
+              } else if (result.status === 'server_unreachable') {
+                setUsernameError('Cannot reach server. Check your network or backend IP.');
+              } else if (result.status === 'db_error') {
+                setUsernameError('Database error. Please try again later.');
+              }
+            } catch (_) {
+              setUsernameError('Cannot reach server. Check your network or backend IP.');
+            } finally {
+              setUsernameChecking(false);
+            }
+          }}
         />
-        {usernameError ? (
+        {usernameChecking ? (
+          <View style={styles.errorRow}>
+            <Text style={[styles.errorText, { color: '#075EA7' }]}>
+              Checking username…
+            </Text>
+          </View>
+        ) : usernameError ? (
           <View style={styles.errorRow}>
             <Ionicons name="alert-circle" size={14} color="#D32F2F" style={{ marginTop: 1 }} />
             <Text style={styles.errorText}>{usernameError}</Text>
@@ -388,13 +463,17 @@ try {
         ) : null}
       </View>
 
+      {/* FORGOT PASSWORD */}
       <TouchableOpacity
         style={{ marginTop: forgotMT, alignSelf: 'flex-end' }}
         onPress={() => router.push('/auth/forgotpassword')}
       >
-        <Text style={[styles.forgotText, { fontSize: forgotFs }]}>Forgot Password?</Text>
+        <Text style={[styles.forgotText, { fontSize: forgotFs }]}>
+          Forgot Password?
+        </Text>
       </TouchableOpacity>
 
+      {/* LOGIN BUTTON */}
       <TouchableOpacity
         style={[
           styles.loginButton,
@@ -405,6 +484,7 @@ try {
         <Text style={[styles.loginText, { fontSize: btnFs }]}>Login</Text>
       </TouchableOpacity>
 
+      {/* SIGN UP */}
       <View style={[styles.signupContainer, { marginTop: signupMT }]}>
         <Text style={[styles.signupText, { fontSize: signupFs }]}>
           Don't have an account?
@@ -414,7 +494,7 @@ try {
         </TouchableOpacity>
       </View>
 
-      {/*  DEV CONFIG: IP TEXT BOX & CONFIRM BUTTON */}
+      {/* DEV IP CONFIG */}
       <View style={[styles.devContainer, { marginTop: signupMT }]}>
         <TextInput
           placeholder="Dev IP (e.g. 192.168.1.50)"
@@ -422,7 +502,7 @@ try {
           style={[
             styles.devInput,
             {
-              height:       Math.max(42, inputH * 0.8), // Responsive height
+              height:       Math.max(42, inputH * 0.8),
               borderRadius: inputRadius,
             },
           ]}
@@ -450,8 +530,12 @@ try {
   );
 }
 
+// ─── STYLES ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  container: {
+    flex:            1,
+    backgroundColor: '#FFFFFF',
+  },
 
   topCircle: {
     position:        'absolute',
@@ -468,7 +552,9 @@ const styles = StyleSheet.create({
     right:           -70,
   },
 
-  logoContainer: { alignItems: 'center' },
+  logoContainer: {
+    alignItems: 'center',
+  },
 
   title: {
     fontWeight:   '600',
@@ -476,7 +562,9 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
 
-  subtitle: { color: '#555' },
+  subtitle: {
+    color: '#555',
+  },
 
   input: {
     width:             '100%',
@@ -544,41 +632,45 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  signupText: { color: '#3B4054' },
+  signupText: {
+    color: '#3B4054',
+  },
 
   signupLink: {
     color:      '#075EA7',
     fontWeight: '600',
   },
 
-  /*  Developer Styles */
   devContainer: {
-    flexDirection: 'row',
-    width: '100%',
-    gap: 10,
-    alignItems: 'center',
+    flexDirection:  'row',
+    width:          '100%',
+    gap:            10,
+    alignItems:     'center',
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
-    paddingTop: 15,
+    paddingTop:     15,
   },
+
   devInput: {
-    flex: 2.2,
-    borderWidth: 1.5,
-    borderColor: '#B0BEC5',
+    flex:              2.2,
+    borderWidth:       1.5,
+    borderColor:       '#B0BEC5',
     paddingHorizontal: 14,
-    color: '#000',
-    backgroundColor: '#F8FAFC',
-    fontSize: 14,
+    color:             '#000',
+    backgroundColor:   '#F8FAFC',
+    fontSize:          14,
   },
+
   devConfirmBtn: {
-    flex: 1,
-    backgroundColor: '#334155', // Slate Grey clean color
-    justifyContent: 'center',
-    alignItems: 'center',
+    flex:            1,
+    backgroundColor: '#334155',
+    justifyContent:  'center',
+    alignItems:      'center',
   },
+
   devBtnText: {
-    color: '#fff',
+    color:      '#fff',
     fontWeight: '600',
-    fontSize: 14,
+    fontSize:   14,
   },
 });

@@ -5,6 +5,8 @@ const svc = new Service({
   name: 'MICRO_E_CHEF_BACKEND', 
   description: 'Micro E Chef Restaurant POS System Backend Express Server.', 
   script: path.join(__dirname, 'server.js'), 
+  
+  nodePath: path.join(__dirname, 'node.exe'), 
   env: [
     {
       name: "NODE_ENV",

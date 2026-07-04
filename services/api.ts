@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { storage } from './storage';
+import { AUTH_SESSION_KEYS, storage } from './storage';
 
 type ExpoConstantsLike = typeof Constants & {
   expoConfig?: { hostUri?: string };
@@ -272,7 +272,13 @@ type RemoveBillingItemPayloadInput = RemoveBillingItemPayload | {
 
 const buildAuthHeaders = async (): Promise<Record<string, string>> => {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = await AsyncStorage.getItem('token');
+  // The current login flow (authStore.setSession) writes the token to MMKV,
+  // not AsyncStorage. Read from MMKV first; fall back to the legacy
+  // AsyncStorage key only for sessions created before that migration.
+  let token = String(storage.getString(AUTH_SESSION_KEYS.token) ?? '').trim();
+  if (!token) {
+    token = String((await AsyncStorage.getItem('token')) ?? '').trim();
+  }
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
@@ -447,6 +453,41 @@ export const apiClient = {
     });
   },
 
+  /**
+   * Checks whether a username exists in the DB.
+   * Called on username field blur — before the user types their password.
+   *
+   * Returns:
+   *   { status: 'found' }              — username exists in DB
+   *   { status: 'not_found' }          — username NOT in DB
+   *   { status: 'server_unreachable' } — cannot reach backend at all
+   *   { status: 'db_error', message }  — backend reachable but DB failed
+   */
+  checkUsername: async (username: string): Promise<{
+    status: 'found' | 'not_found' | 'server_unreachable' | 'db_error';
+    message?: string;
+  }> => {
+    try {
+      const url = `${getDynamicApiBaseUrl()}/api/auth/check-username?username=${encodeURIComponent(username)}`;
+      const response = await fetch(url, { method: 'GET' });
+      const data = await response.json();
+
+      if (response.ok && data.exists === true) {
+        return { status: 'found' };
+      }
+      if (response.status === 404) {
+        return { status: 'not_found', message: data.message };
+      }
+      if (response.status === 503) {
+        return { status: 'db_error', message: data.message };
+      }
+      return { status: 'not_found', message: data.message };
+    } catch (_) {
+      // fetch itself threw — network unreachable or server is down
+      return { status: 'server_unreachable' };
+    }
+  },
+
   signup: async (username: string, password: string, phoneNumber: string) => {
     const response = await fetch(`${getDynamicApiBaseUrl()}/api/auth/signup`, {
       method: 'POST',
@@ -487,8 +528,25 @@ export const apiClient = {
     return { ok: response.ok, data };
   },
 
+  verifyManager: async (username: string, password: string) => {
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/auth/verify-manager`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    let data: any = null;
+    try {
+      data = await response.json();
+    } catch (_) {
+      data = null;
+    }
+    return { ok: response.ok, data };
+  },
+
   getFloors: async () => {
-    const response = await fetch(`${getDynamicApiBaseUrl()}/api/floors`);
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/floors`, {
+      headers: await buildAuthHeaders(),
+    });
     const contentType = response.headers.get('content-type') || '';
     let data: any = null;
     try {
@@ -508,7 +566,9 @@ export const apiClient = {
   },
 
   getTables: async (floor: string) => {
-    const response = await fetch(`${getDynamicApiBaseUrl()}/api/tables?floor=${encodeURIComponent(floor)}`);
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/tables?floor=${encodeURIComponent(floor)}`, {
+      headers: await buildAuthHeaders(),
+    });
     const data = await response.json();
     return { ok: response.ok, data };
   },
@@ -518,7 +578,9 @@ export const apiClient = {
       ? `${getDynamicApiBaseUrl()}/api/tables/counts?floor=${encodeURIComponent(floor)}`
       : `${getDynamicApiBaseUrl()}/api/tables/counts`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: await buildAuthHeaders(),
+    });
     const contentType = response.headers.get('content-type') || '';
     let data: any = null;
     try {
@@ -683,25 +745,14 @@ export const apiClient = {
   },
 
   getOrderDescriptions: async (): Promise<string[]> => {
-    const cached = getCachedOrderDescriptions();
-
+    // Fire-and-forget background refresh — syncGlobalOrderDescriptions() fetches
+    // fresh data from the server and updates MMKV for the next call.
     syncGlobalOrderDescriptions().catch((error) => {
       console.log('⚠️ [MMKV Global Sync] Background refresh failed:', error);
     });
 
-    const response = await requestJson<{ ok?: boolean; descriptions?: string[] }>(`${getDynamicApiBaseUrl()}/api/remarks/order-descriptions`);
-
-    if (!response.ok || !Array.isArray(response.data?.descriptions)) {
-      return cached;
-    }
-
-    const freshDescriptions = response.data.descriptions
-      .map((value) => String(value ?? '').trim())
-      .filter(Boolean);
-
-    storage.set(GLOBAL_PRESET_REMARKS_KEY, JSON.stringify(freshDescriptions));
-
-    return freshDescriptions;
+    // Return cached data immediately — no blocking network call.
+    return getCachedOrderDescriptions();
   },
 
   getTemplateGroup: async (tableNo: string) => {
@@ -869,7 +920,7 @@ getWorkers: async () => {
   },
 
 
-  saveUserFloorAccess: async (payload: { UserId: number | string; Floors: string[]; AssignedBy: number | string }) => {
+  saveUserFloorAccess: async (payload: { UserId: number | string; TableGroupIds: (number | string)[]; AssignedBy: number | string }) => {
     return requestJson(`${getDynamicApiBaseUrl()}/api/user-floor-access/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -67,6 +67,7 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
   const [managerName, setManagerName] = useState('');
   const [managerPassword, setManagerPassword] = useState('');
   const [isManagerAuthView, setIsManagerAuthView] = useState(false);
+  const [managerVerifying, setManagerVerifying] = useState(false);
   const [managerIdError, setManagerIdError] = useState('');
   const [managerPasswordError, setManagerPasswordError] = useState('');
   const [isPresetListView, setIsPresetListView] = useState(false);
@@ -80,6 +81,19 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
   const [dbLPax, setDbLPax] = useState<number | null>(null);
   const [dbFPax, setDbFPax] = useState<number | null>(null);
   const [isLoadingBillFromDb, setIsLoadingBillFromDb] = useState(false);
+
+  // ── Billing Remark Modal (same cart-style popup) ──────────────────────────
+  const [billingRemarkVisible, setBillingRemarkVisible] = useState(false);
+  const [billingRemarkItemId, setBillingRemarkItemId] = useState<string | null>(null);
+  const [billingRemarkItemName, setBillingRemarkItemName] = useState('');
+  const [billingRemarkDraft, setBillingRemarkDraft] = useState('');
+  const [billingModalTags, setBillingModalTags] = useState<string[]>([]);
+  const [billingEditingTagIndex, setBillingEditingTagIndex] = useState<number | null>(null);
+  const [billingIsViewingPresets, setBillingIsViewingPresets] = useState(false);
+  const [billingRemarkOptions, setBillingRemarkOptions] = useState<string[]>([]);
+  const [billingLoadingPresets, setBillingLoadingPresets] = useState(false);
+  // ─────────────────────────────────────────────────────────────────────────
+
   const originalQuantitiesRef = useRef<Record<string, number>>({});
   const originalTableNoRef = useRef('');
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -140,6 +154,107 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     setManagerPasswordError('');
   }, []);
 
+  // ── Billing Remark Modal Handlers ────────────────────────────────────────
+  const openBillingRemarkModal = useCallback((item: any) => {
+    setBillingRemarkItemId(item.menuItemCode);
+    setBillingRemarkItemName(item.menuItmDes ?? '');
+    const existing = String(item.itemRemarks ?? '').trim();
+    const parts = existing ? existing.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+    setBillingModalTags(parts);
+    setBillingRemarkDraft('');
+    setBillingEditingTagIndex(null);
+    setBillingIsViewingPresets(false);
+    setBillingRemarkVisible(true);
+  }, []);
+
+  const billingAddTag = useCallback((tag: string) => {
+    const t = String(tag || '').trim();
+    if (!t) return;
+    setBillingModalTags((prev) => {
+      if (billingEditingTagIndex !== null) {
+        const next = [...prev];
+        const insertAt = Math.max(0, Math.min(billingEditingTagIndex, next.length));
+        next.splice(insertAt, 0, t);
+        setBillingEditingTagIndex(null);
+        return next;
+      }
+      return prev.includes(t) ? prev : [...prev, t];
+    });
+    setBillingRemarkDraft('');
+    setBillingIsViewingPresets(false);
+  }, [billingEditingTagIndex]);
+
+  const billingEditTag = useCallback((tag: string, index: number) => {
+    setBillingRemarkDraft(tag);
+    setBillingEditingTagIndex(index);
+    setBillingModalTags((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const billingRemoveTag = useCallback((tag: string) => {
+    setBillingModalTags((prev) => {
+      const removeIndex = prev.indexOf(tag);
+      if (removeIndex === -1) return prev;
+      return prev.filter((_, i) => i !== removeIndex);
+    });
+  }, []);
+
+  const saveBillingRemarks = useCallback(() => {
+    if (!billingRemarkItemId) return;
+    const trimmedDraft = billingRemarkDraft.trim();
+    const finalTags = [...billingModalTags];
+    if (trimmedDraft) {
+      if (billingEditingTagIndex !== null) {
+        const insertAt = Math.max(0, Math.min(billingEditingTagIndex, finalTags.length));
+        finalTags.splice(insertAt, 0, trimmedDraft);
+      } else if (!finalTags.includes(trimmedDraft)) {
+        finalTags.push(trimmedDraft);
+      }
+    }
+    const compiled = finalTags.join(', ');
+
+    // Persist into confirmed order snapshot or live cart
+    if (lastConfirmedOrder) {
+      useOrderStore.getState().setLastConfirmedOrder({
+        ...lastConfirmedOrder,
+        items: lastConfirmedOrder.items.map((it) =>
+          it.menuItemCode === billingRemarkItemId
+            ? { ...it, itemRemarks: compiled }
+            : it
+        ),
+      });
+    } else {
+      useCartStore.getState().upsertCartItem({
+        ...(cartItems.find((c) => c.menuItemCode === billingRemarkItemId) as any),
+        itemRemarks: compiled,
+      });
+    }
+
+    setBillingRemarkVisible(false);
+    setBillingRemarkItemId(null);
+    setBillingRemarkItemName('');
+    setBillingEditingTagIndex(null);
+    setBillingIsViewingPresets(false);
+  }, [billingEditingTagIndex, billingModalTags, billingRemarkDraft, billingRemarkItemId, cartItems, lastConfirmedOrder]);
+
+  const loadBillingRemarkPresets = useCallback(async () => {
+    setBillingLoadingPresets(true);
+    try {
+      const response = await apiClient.getVoidPresets();
+      if (response.ok && Array.isArray(response.data)) {
+        setBillingRemarkOptions(
+          response.data.map((d: any) => String(d.VoidDescription ?? '').trim()).filter(Boolean)
+        );
+      } else {
+        setBillingRemarkOptions([]);
+      }
+    } catch {
+      setBillingRemarkOptions([]);
+    } finally {
+      setBillingLoadingPresets(false);
+    }
+  }, []);
+  // ─────────────────────────────────────────────────────────────────────────
+
   const showToast = useCallback((message: string) => {
     if (toastTimerRef.current) {
       clearTimeout(toastTimerRef.current);
@@ -161,11 +276,7 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     };
   }, []);
 
-  // When this screen is opened from the "Bill" (unpaid bills) list with only a
-  // table number — i.e. not immediately after confirming a cart — there is no
-  // in-memory cart/confirmed-order snapshot to show. In that case, pull the
-  // table's still-open (unpaid) bill straight from the database instead of
-  // relying on the old MMKV-held-order snapshot.
+  
   useEffect(() => {
     const targetTableNo = String(tableName ?? tableNo ?? '').trim();
     if (!targetTableNo) return;
@@ -409,18 +520,18 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
   const isSmall = height < 700;
 
   const hPad = isTablet ? 40 : 16;
-  const headerH = isTablet ? 110 : isSmall ? 80 : 150;
-  const backIconSize = isTablet ? 22 : isSmall ? 14 : 34;
+  const headerH = isTablet ? 220 : isSmall ? 80 : 150;
+  const backIconSize = isTablet ? 56 : isSmall ? 14 : 34;
   const backBtnSize = isTablet ? 40 : isSmall ? 30 : 44;
-  const titleFs = isTablet ? 28 : isSmall ? 20 : 24;
+  const titleFs = isTablet ? 32 : isSmall ? 20 : 24;
   const logoW = isTablet ? 200 : isSmall ? 120 : 159;
-  const logoH = isTablet ? 76 : isSmall ? 44 : 60;
-  const tableFs = isTablet ? 18 : isSmall ? 13 : 16;
+  const logoH = isTablet ? 100 : isSmall ? 44 : 60;
+  const tableFs = isTablet ? 24 : isSmall ? 13 : 16;
   const dateFs = isTablet ? 16 : isSmall ? 11 : 14;
-  const itemFs = isTablet ? 18 : isSmall ? 13 : 16;
-  const totalFs = isTablet ? 18 : isSmall ? 14 : 16;
+  const itemFs = isTablet ? 20 : isSmall ? 13 : 16;
+  const totalFs = isTablet ? 24 : isSmall ? 14 : 16;
   const btnH = isTablet ? 60 : isSmall ? 42 : 48;
-  const btnFs = isTablet ? 20 : isSmall ? 14 : 16;
+  const btnFs = isTablet ? 24 : isSmall ? 14 : 16;
   const qtySize = isTablet ? 20 : isSmall ? 14 : 16;
   const qtyBtnSize = isTablet ? 28 : isSmall ? 20 : 24;
 
@@ -465,7 +576,7 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     setIsVoidModalVisible(true);
   };
 
-  // 3. Handles when '-' is pressed on an item row
+  // Handles when '-' is pressed on an item row
   const handleVoidPreview = (menuItemCode: string) => {
     const item = displayedItems.find((entry: any) => entry.menuItemCode === menuItemCode) ?? null;
     if (!item) return;
@@ -487,8 +598,8 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     setManagerPasswordError('');
   };
 
-  // 4. Triggered when the manager inputs details and clicks Confirm inside Void Modal
-  const handleVoidConfirm = () => {
+  //  Triggered when the manager inputs details and clicks Confirm inside Void Modal
+  const handleVoidConfirm = async () => {
     if (!activeVoidItem) return;
 
     if (isManagerAuthView) {
@@ -503,6 +614,22 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
 
       if (nextManagerIdError || nextManagerPasswordError) {
         return;
+      }
+
+      if (managerVerifying) return;
+      setManagerVerifying(true);
+      try {
+        const verifyResult = await apiClient.verifyManager(trimmedManagerUsername, trimmedManagerPassword);
+        if (!verifyResult.ok) {
+          setManagerPasswordError(verifyResult.data?.message || 'Invalid manager credentials');
+          return;
+        }
+      } catch (error) {
+        console.log('[BillingScreen] verifyManager failed', error);
+        setManagerPasswordError('Could not verify manager. Check connection and try again.');
+        return;
+      } finally {
+        setManagerVerifying(false);
       }
     }
 
@@ -624,7 +751,7 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     resetVoidState();
   };
 
-  // 5. Calculate gross total from the same items rendered on the billing screen
+  //Calculate gross total from the same items rendered on the billing screen
   const grossTotal = displayedItems.reduce((sum, item: any) => {
     const price = Number(item.salesPrice ?? 0) || 0;
     const qty = Number(item.quantity ?? 0) || 0;
@@ -781,7 +908,6 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
         }
         // On successful finalize/payment, clear the global cart so the next customer starts fresh.
         useOrderStore.getState().clearLastConfirmedOrder();
-        useOrderStore.getState().clearLastConfirmedOrder();
 
         Alert.alert('Done', 'Payment completed and cart cleared.');
         // Navigate back to the main screen (adjust as desired)
@@ -873,30 +999,46 @@ return (
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingHorizontal: hPad, paddingBottom: insets.bottom }]}>
         {displayedItems.map((item: any, index: number) => (
           <View key={item.menuItemCode} style={styles.billItemBlock}>
+            {/*
+              Layout:
+              Row 1 (top): item name wraps up to 2 lines (left) | price + qty (right, fixed)
+              Row 2       : remark text (left-aligned, up to 2 lines), tappable
+            */}
             <View style={styles.itemRow}>
-              <Text style={[styles.itemName, { fontSize: itemFs }]} numberOfLines={1}>{item.menuItmDes}</Text>
+              {/* Left: name — wraps to 2 lines, never truncated */}
+              <Text
+                style={[styles.itemName, { fontSize: itemFs }]}
+                numberOfLines={2}
+              >
+                {item.menuItmDes}
+              </Text>
 
-              <Text style={[styles.itemPrice, { fontSize: itemFs }]}>Lkr {(Number(item.salesPrice ?? 0) * Number(item.quantity ?? 0)).toFixed(2)}</Text>
-
-              <View style={styles.qtyPill}>
-                <TouchableOpacity
-                  onPress={() => updateDisplayedQuantity(item.menuItemCode, -1)}
-                  onLongPress={() => openVoidModal(item.menuItemCode)}
-                  style={[styles.qtyBtn, { width: qtyBtnSize, height: qtyBtnSize }]}
-                  delayLongPress={300}
-                >
-                  <Ionicons name="remove" size={isTablet ? 16 : 12} color="#000" />
-                </TouchableOpacity>
-                <Text style={[styles.qtyText, { fontSize: qtySize }]}>{item.quantity}</Text>
-                <TouchableOpacity
-                  onPress={() => updateDisplayedQuantity(item.menuItemCode, 1)}
-                  style={[styles.qtyBtn, { width: qtyBtnSize, height: qtyBtnSize }]}
-                >
-                  <Ionicons name="add" size={isTablet ? 16 : 12} color="#000" />
-                </TouchableOpacity>
+              {/* Right: price + qty — fixed, never shrinks */}
+              <View style={styles.itemRightBlock}>
+                <Text style={[styles.itemPrice, { fontSize: itemFs }]}>
+                  Lkr {(Number(item.salesPrice ?? 0) * Number(item.quantity ?? 0)).toFixed(2)}
+                </Text>
+                <View style={styles.qtyPill}>
+                  <TouchableOpacity
+                    onPress={() => updateDisplayedQuantity(item.menuItemCode, -1)}
+                    onLongPress={() => openVoidModal(item.menuItemCode)}
+                    style={[styles.qtyBtn, { width: qtyBtnSize, height: qtyBtnSize }]}
+                    delayLongPress={300}
+                  >
+                    <Ionicons name="remove" size={isTablet ? 16 : 12} color="#000" />
+                  </TouchableOpacity>
+                  <Text style={[styles.qtyText, { fontSize: qtySize }]}>{item.quantity}</Text>
+                  <TouchableOpacity
+                    onPress={() => updateDisplayedQuantity(item.menuItemCode, 1)}
+                    style={[styles.qtyBtn, { width: qtyBtnSize, height: qtyBtnSize }]}
+                  >
+                    <Ionicons name="add" size={isTablet ? 16 : 12} color="#000" />
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
 
+            {/* Void remark action button */}
             {pendingVoidItemId === item.menuItemCode && (
               <TouchableOpacity
                 activeOpacity={0.85}
@@ -908,16 +1050,44 @@ return (
                 </View>
               </TouchableOpacity>
             )}
-            {/* Show remark if present on the confirmed snapshot */}
+
+            {/* Remark — left-aligned, up to 2 lines, tappable to edit */}
             {('itemRemarks' in item) && item.itemRemarks ? (
-              <TouchableOpacity activeOpacity={0.8} onPress={() => openVoidModal(item.menuItemCode, true)}>
-                <Text style={{ color: '#555', marginTop: 0, lineHeight: 18 }}>{item.itemRemarks}</Text>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => openBillingRemarkModal(item)}
+                style={styles.billingRemarkRow}
+              >
+                <Text style={[styles.billingRemarkText, { fontSize: itemFs - 2 }]} numberOfLines={2}>
+                  {item.itemRemarks}
+                </Text>
               </TouchableOpacity>
             ) : null}
 
             {index < displayedItems.length - 1 ? <View style={styles.itemDivider} /> : null}
           </View>
         ))}
+
+        {/* Add More button */}
+        <View style={styles.addMoreWrap}>
+          <TouchableOpacity
+            style={styles.addMoreBtn}
+            activeOpacity={0.85}
+            onPress={() =>
+              router.push({
+                pathname: '/Screens/selectitems',
+                params: {
+                  tableName: tableName ?? String(lastConfirmedOrder?.tableNo ?? ''),
+                  localPax: String(lastConfirmedOrder?.lPax ?? localPax ?? '0'),
+                  foreignPax: String(lastConfirmedOrder?.fPax ?? foreignPax ?? '0'),
+                  floor: floor ?? '',
+                },
+              })
+            }
+          >
+            <Text style={styles.addMoreText}>+ Add More</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
 
       {/* FOOTER CONTROLS */}
@@ -989,11 +1159,18 @@ return (
                     </View>
 
                     <View style={styles.managerAuthFooter}>
-                      <TouchableOpacity style={styles.confirmActionButtonPrimary} onPress={handleVoidConfirm} activeOpacity={0.85}>
+                      <TouchableOpacity
+                        style={[styles.confirmActionButtonPrimary, managerVerifying ? { opacity: 0.6 } : null]}
+                        onPress={handleVoidConfirm}
+                        activeOpacity={0.85}
+                        disabled={managerVerifying}
+                      >
                         <View style={styles.confirmIconWrap}>
                           <Ionicons name="checkmark" size={18} color="#FFF" />
                         </View>
-                        <Text style={styles.confirmButtonLabelInlineText}>Confirm</Text>
+                        <Text style={styles.confirmButtonLabelInlineText}>
+                          {managerVerifying ? 'Verifying...' : 'Confirm'}
+                        </Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -1133,6 +1310,114 @@ return (
         </TouchableWithoutFeedback>
       </Modal>
 
+      {/* BILLING REMARK MODAL (same cart-style popup) */}
+      <Modal
+        visible={billingRemarkVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBillingRemarkVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setBillingRemarkVisible(false)}>
+          <View style={styles.remarkModalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.remarkCard}>
+                {!billingIsViewingPresets ? (
+                  <>
+                    <View style={styles.remarkCardHeader}>
+                      <Text style={styles.remarkCardHeaderTitle}>Order Remark</Text>
+                      <TouchableOpacity onPress={() => setBillingRemarkVisible(false)} activeOpacity={0.8}>
+                        <Ionicons name="close" size={22} color="#0F172A" />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.remarkCardBody}>
+                      <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.remarkCardContent} style={styles.remarkScrollArea}>
+                        <View style={styles.tagsWrap}>
+                          {billingModalTags.map((t, index) => (
+                            <View key={`${t}-${index}`} style={styles.tagBadge}>
+                              <TouchableOpacity onPress={() => billingEditTag(t, index)} style={styles.tagLabelBtn} activeOpacity={0.75}>
+                                <Text style={styles.tagText}>{t}</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => billingRemoveTag(t)} style={styles.tagClose}>
+                                <Ionicons name="close" size={14} color="#fff" />
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+                        </View>
+
+                        <View style={styles.remarkInputRow}>
+                          <View style={styles.remarkInputShell}>
+                            <TextInput
+                              value={billingRemarkDraft}
+                              onChangeText={setBillingRemarkDraft}
+                              placeholder="Type custom remark"
+                              placeholderTextColor="rgba(0,0,0,0.5)"
+                              style={styles.remarkInput}
+                            />
+                            <TouchableOpacity
+                              onPress={() => {
+                                setBillingIsViewingPresets(true);
+                                void loadBillingRemarkPresets();
+                              }}
+                              style={styles.remarkDropdownIconBtn}
+                              activeOpacity={0.8}
+                            >
+                              <Ionicons name="chevron-down" size={20} color="#0062AA" />
+                            </TouchableOpacity>
+                          </View>
+
+                          <TouchableOpacity style={styles.addTagBtn} onPress={() => billingAddTag(billingRemarkDraft)}>
+                            <Text style={styles.addTagText}>Add Tag</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </ScrollView>
+
+                      <TouchableOpacity style={styles.saveRemarkBtn} onPress={saveBillingRemarks} activeOpacity={0.85}>
+                        <Text style={styles.saveRemarkText}>Save Remarks</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.remarkCardHeader}>
+                      <TouchableOpacity onPress={() => setBillingIsViewingPresets(false)} activeOpacity={0.8} style={styles.remarkHeaderIconBtn}>
+                        <Ionicons name="arrow-back" size={22} color="#0F172A" />
+                      </TouchableOpacity>
+                      <Text style={styles.remarkCardHeaderTitle}>Select Preset Remark</Text>
+                      <TouchableOpacity onPress={() => setBillingRemarkVisible(false)} activeOpacity={0.8} style={styles.remarkHeaderIconBtn}>
+                        <Ionicons name="close" size={22} color="#0F172A" />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.presetsDivider} />
+
+                    {billingLoadingPresets ? (
+                      <View style={styles.presetsLoaderWrap}>
+                        <ActivityIndicator size="small" color="#002748" />
+                      </View>
+                    ) : (
+                      <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.presetsListContent}>
+                        {billingRemarkOptions.length > 0 ? (
+                          billingRemarkOptions.map((r) => (
+                            <TouchableOpacity key={r} style={styles.presetsRow} onPress={() => billingAddTag(r)}>
+                              <Text style={styles.presetsRowText}>{r}</Text>
+                            </TouchableOpacity>
+                          ))
+                        ) : (
+                          <View style={styles.presetsLoaderWrap}>
+                            <Text style={{ color: 'rgba(0,39,72,0.7)', fontSize: 13 }}>No presets available.</Text>
+                          </View>
+                        )}
+                      </ScrollView>
+                    )}
+                  </>
+                )}
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       {isHydratingBill && (
         <View style={styles.loadingOverlay} pointerEvents="auto">
           <View style={styles.loadingCard}>
@@ -1145,7 +1430,7 @@ return (
   );
 }
 
-// 6. EXACT STYLES RETAINED (No Modifications Made)
+ 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1229,12 +1514,29 @@ const styles = StyleSheet.create({
   },
   itemRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
+    alignItems: 'flex-start',
+    marginBottom: 2,
   },
   billItemBlock: {
     marginBottom: 8,
+  },
+  addMoreWrap: {
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  addMoreBtn: {
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#002748',
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addMoreText: {
+    color: '#002748',
+    fontSize: 16,
+    fontWeight: '700',
   },
   itemDivider: {
     height: 1,
@@ -1245,11 +1547,30 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: '#000',
     flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    marginRight: 8,
+  },
+  itemRightBlock: {
+    flexShrink: 0,
+    alignItems: 'flex-end',
   },
   itemPrice: {
     fontWeight: '400',
     color: '#000',
-    marginHorizontal: 8,
+    flexShrink: 0,
+    textAlign: 'right',
+    marginBottom: 4,
+  },
+  billingRemarkRow: {
+    alignSelf: 'flex-start',
+    marginTop: 2,
+    maxWidth: '100%',
+  },
+  billingRemarkText: {
+    color: '#555',
+    lineHeight: 18,
+    textAlign: 'left',
   },
   qtyPill: {
     flexDirection: 'row',
@@ -1528,6 +1849,34 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
   },
+  // ── Cart-style remark popup (reused in billing) ──────────────────────────
+  remarkModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
+  remarkCard: { width: '90%', maxWidth: 560, height: 320, borderRadius: 20, backgroundColor: '#fff', padding: 16, overflow: 'hidden', elevation: 18, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 16 },
+  remarkCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  remarkCardHeaderTitle: { fontSize: 16, fontWeight: '800', color: '#0F172A', flex: 1, textAlign: 'center' },
+  remarkHeaderIconBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  remarkCardBody: { flex: 1 },
+  remarkScrollArea: { flex: 1 },
+  remarkCardContent: { paddingBottom: 4 },
+  presetsDivider: { height: 1, backgroundColor: '#E2E8F0', marginBottom: 8 },
+  presetsLoaderWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 18 },
+  remarkInput: { height: 48, paddingHorizontal: 12, fontSize: 16, color: '#000', textAlignVertical: 'center', flex: 1 },
+  saveRemarkBtn: { marginTop: 14, height: 48, borderRadius: 8, backgroundColor: '#8D9ED4', alignItems: 'center', justifyContent: 'center' },
+  saveRemarkText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+  tagsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  tagBadge: { backgroundColor: '#0062AA', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, flexDirection: 'row', alignItems: 'center', marginRight: 8, marginBottom: 8 },
+  tagLabelBtn: { paddingRight: 4 },
+  tagText: { color: '#FFF', fontSize: 13, marginRight: 6 },
+  tagClose: { width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(0,0,0,0.2)', alignItems: 'center', justifyContent: 'center' },
+  remarkInputRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 },
+  remarkInputShell: { flex: 1, position: 'relative' },
+  remarkDropdownIconBtn: { position: 'absolute', right: 8, top: 0, bottom: 0, width: 36, alignItems: 'center', justifyContent: 'center' },
+  addTagBtn: { backgroundColor: '#002748', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  addTagText: { color: '#FFF', fontWeight: '700' },
+  presetsListContent: { paddingVertical: 2 },
+  presetsRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F4F4F4' },
+  presetsRowText: { color: '#003366', fontWeight: '600' },
+  // ─────────────────────────────────────────────────────────────────────────
   voidCardScroll: {
     flex: 1,
   },

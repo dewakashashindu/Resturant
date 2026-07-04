@@ -35,12 +35,12 @@ export default function ModeSelectionScreen() {
   const cardW = isTablet ? width * 0.9 : width - hPad * 2;
 
   const innerPad = isTablet ? 24 : 16;
-  const modeGap = isTablet ? 20 : 14;
+  const modeGap = isTablet ? 24 : 14;
   const modeCardW = (cardW - innerPad * 2 - modeGap) / 2;
   const modeCardH = isTablet ? modeCardW * 0.72 : modeCardW * 0.8;
 
   const iconSize = isTablet ? modeCardW * 0.45 : modeCardW * 0.48;
-  const labelFs = isTablet ? 18 : 12;
+  const labelFs = isTablet ? 20 : 12;
   const labelPadH = isTablet ? 32 : 16;
   const labelPadV = isTablet ? 8 : 4;
 

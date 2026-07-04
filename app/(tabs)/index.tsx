@@ -41,17 +41,17 @@ export default function HomeScreen() {
   const isSmall   = height < 680;
 
   // ── RESPONSIVE VALUES ─────────────────────────
-  const headerH     = isTablet ? height * 0.22 : height * 0.35;
+  const headerH     = isTablet ? height * 0.35 : height * 0.35;
   const logoW       = isTablet ? 260 : Math.min(200, width * 0.6);
-  const logoH       = isTablet ? 70  : 55;
+  const logoH       = isTablet ? 200  : 55;
   const greetSize   = isTablet ? 20  : 15;
   const nameSize    = isTablet ? 32  : 24;
-  const dateSize    = isTablet ? 13  : 10;
-  const sectionSize = isTablet ? 22  : 18;
+  const dateSize    = isTablet ? 23  : 10;
+  const sectionSize = isTablet ? 32  : 18;
 
   // Card: 2 columns with gap
-  const cardPadding = isTablet ? 20 : 16;
-  const cardGap     = isTablet ? 16 : 12;
+  const cardPadding = isTablet ? 16 : 16;
+  const cardGap     = isTablet ? 24 : 12;
   const cardWidth   = (width - cardPadding * 2 - cardGap) / 2;
   const cardHeight  = isTablet ? cardWidth * 0.42 : 140;
 
@@ -115,87 +115,86 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#002748" />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* HEADER */}
-        <View style={[styles.header, { height: headerH, paddingHorizontal: cardPadding }]}>
-          <View style={styles.circle} />
+      {/* HEADER - fixed, not scrollable */}
+      <View style={[styles.header, { height: headerH, paddingHorizontal: cardPadding }]}>
+        <View style={styles.circle} />
 
-          {/* LOGO */}
-          <View style={styles.logoContainer}>
-            <Image
-              source={require('../../assets/images/CAPTURE 1.png')}
-              style={{ width: logoW, height: logoH }}
-              resizeMode="contain"
-            />
-          </View>
-
-          {/* GREETING ROW */}
-          <View style={styles.headerRow}>
-            <View>
-              <Text style={[styles.greeting, { fontSize: greetSize }]}>{greetingText}</Text>
-              <Text style={[styles.name, { fontSize: nameSize }]}>{displayName}</Text>
-            </View>
-
-            <View style={styles.dateContainer}>
-              <Text style={[styles.dateText, { fontSize: dateSize }]}>{formattedDate}</Text>
-            </View>
-          </View>
+        {/* LOGO */}
+        <View style={styles.logoContainer}>
+          <Image
+            source={require('../../assets/images/CAPTURE 1.png')}
+            style={{ width: logoW, height: logoH }}
+            resizeMode="contain"
+          />
         </View>
 
-        {/* CONTENT */}
-        <View style={[styles.content, { paddingHorizontal: cardPadding }]}>
-          <Text style={[styles.sectionTitle, { fontSize: sectionSize }]}>
-            Quick Access
-          </Text>
+        {/* GREETING ROW */}
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={[styles.greeting, { fontSize: greetSize }]}>{greetingText}</Text>
+            <Text style={[styles.name, { fontSize: nameSize }]}>{displayName}</Text>
+          </View>
 
-          {/* GRID */}
-          <View style={[styles.grid, { gap: cardGap }]}>
-            {cards.map((item, index) => (
-              <TouchableOpacity
-                key={index}
+          <View style={styles.dateContainer}>
+            <Text style={[styles.dateText, { fontSize: dateSize }]}>{formattedDate}</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* CONTENT - only Quick Access + cards scroll */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { paddingHorizontal: cardPadding }]}
+        style={styles.content}
+      >
+        <Text style={[styles.sectionTitle, { fontSize: sectionSize }]}>
+          Quick Access
+        </Text>
+
+        {/* GRID */}
+        <View style={[styles.grid, { gap: cardGap }]}>
+          {cards.map((item, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[
+                styles.card,
+                {
+                  backgroundColor: item.color,
+                  width: cardWidth,
+                  height: cardHeight,
+                },
+              ]}
+              onPress={() => router.push(item.route as any)}
+            >
+              <View style={styles.cardCircle} />
+
+              {/* ICON BOX */}
+              <View
                 style={[
-                  styles.card,
+                  styles.iconBox,
                   {
-                    backgroundColor: item.color,
-                    width: cardWidth,
-                    height: cardHeight,
+                    backgroundColor: item.iconBg,
+                    width: iconBox,
+                    height: iconBox,
+                    borderRadius: isTablet ? 16 : 12,
                   },
                 ]}
-                onPress={() => router.push(item.route as any)}
               >
-                <View style={styles.cardCircle} />
+                <Image
+                  source={item.icon}
+                  style={{ width: iconSize, height: iconSize }}
+                  resizeMode="contain"
+                />
+              </View>
 
-                {/* ICON BOX */}
-                <View
-                  style={[
-                    styles.iconBox,
-                    {
-                      backgroundColor: item.iconBg,
-                      width: iconBox,
-                      height: iconBox,
-                      borderRadius: isTablet ? 16 : 12,
-                    },
-                  ]}
-                >
-                  <Image
-                    source={item.icon}
-                    style={{ width: iconSize, height: iconSize }}
-                    resizeMode="contain"
-                  />
-                </View>
-
-                <Text style={[styles.cardTitle, { fontSize: cardTitle }]}>
-                  {item.title}
-                </Text>
-                <Text style={[styles.cardSubtitle, { fontSize: cardSub }]}>
-                  {item.subtitle}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+              <Text style={[styles.cardTitle, { fontSize: cardTitle }]}>
+                {item.title}
+              </Text>
+              <Text style={[styles.cardSubtitle, { fontSize: cardSub }]}>
+                {item.subtitle}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -213,12 +212,12 @@ const styles = StyleSheet.create({
   },
 
   // ── HEADER ──────────────────────────────────
-header: {
-  backgroundColor: '#002748',
-  paddingTop: 100,    // ← reduce this (try 25-35)
-  paddingBottom: 40,
-  justifyContent: 'space-between',
-},
+  header: {
+    backgroundColor: '#002748',
+    paddingTop: 100,    // ← reduce this (try 25-35)
+    paddingBottom: 40,
+    justifyContent: 'space-between',
+  },
   circle: {
     position: 'absolute',
     width: 220,
@@ -259,10 +258,10 @@ header: {
   content: {
     backgroundColor: '#fff',
     marginTop: -25,
-    paddingTop: 30,
   },
   sectionTitle: {
     fontWeight: '600',
+    marginTop: 30,
     marginBottom: 20,
   },
 
@@ -270,6 +269,7 @@ header: {
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    paddingBottom: 30,
   },
   card: {
     borderRadius: 20,

@@ -98,7 +98,7 @@ const lastConfirmedOrder = useOrderStore((s) => s.lastConfirmedOrder);
 
   // Counts only unique types of items
   const totalItemsCount = cartItems.length;
-const currentUser = useAuthStore.getState().user;
+const currentUser = useAuthStore((state) => state.user);
   useEffect(() => {
     // Instantly load the same globally synced preset list into the Cart view modal.
     setRemarkOptions(getCachedOrderDescriptions());
@@ -256,13 +256,13 @@ const currentUser = useAuthStore.getState().user;
 try {
       setConfirming(true);
 
-      // 1. Check if we already have a REAL generated number (not 'TA-PENDING')
+      //  Check if we already have a REAL generated number (not 'TA-PENDING')
       let generatedTableNo = lastConfirmedOrder?.tableNo;
       
       // If the stored number is just the placeholder 'TA-PENDING', we treat it as "not generated yet"
       const isPending = !generatedTableNo || generatedTableNo === 'TA-PENDING';
 
-      // 2. Only call the API if we don't have a final TA number yet
+      //  Only call the API if we don't have a final TA number yet
       if (isPending) {
         const res = await apiClient.confirmCart(payload);
         console.log('confirmCart response', res);
@@ -281,7 +281,7 @@ try {
         console.log('Reusing already generated tableNo:', generatedTableNo);
       }
 
-      // 3. Update the Store with the ACTUAL number from the server
+      //  Update the Store with the ACTUAL number from the server
       useOrderStore.getState().setLastConfirmedOrder({
         ...payload,
         tableNo: generatedTableNo ?? '', // Now this will be "TA-1266" instead of "TA-PENDING"
@@ -293,7 +293,7 @@ try {
         createdAt: lastConfirmedOrder?.createdAt ?? new Date().toISOString(),
       });
 
-      // 4. Navigate to Billing
+      // Navigate to Billing
       router.push({
         pathname: '/Screens/BillingScreen',
         params: {
@@ -722,8 +722,8 @@ const styles = StyleSheet.create({
   addMoreBtn:         { height: 52, borderRadius: 12, borderWidth: 1.5, borderColor: '#002748', backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   addMoreText:        { color: '#002748', fontSize: 16, fontWeight: '700' },
   itemContainer:      { marginTop: 24 },
-  itemHeader:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  itemName:           { fontWeight: '500', color: 'black' },
+  itemHeader:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  itemName:           { fontWeight: '500', color: 'black', flex: 1, flexShrink: 1, minWidth: 0, marginRight: 8 },
   itemPrice:          { color: 'black', fontWeight: '400', marginTop: 4 },
   itemRemarkBlock:    { marginTop: 6, alignSelf: 'stretch' },
   itemFooter:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, width: '100%' },

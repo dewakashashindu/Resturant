@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
+import { useAuthStore } from '../../services/authStore';
 
 // Shape of a row coming back from GET /api/auth/workers
 interface WorkerRecord {
@@ -30,6 +31,7 @@ interface WorkerRecord {
 
 // Shape of a row coming back from GET /api/table-groups (Tbl_TableGroup.GroupName)
 interface TableGroupOption {
+  GroupId: number | string;
   GroupName: string;
 }
 
@@ -37,6 +39,7 @@ export default function ManageAccessScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const managerUser = useAuthStore((state) => state.user);
 
   // State Management
   const [waiterName, setWaiterName] = useState('');
@@ -65,22 +68,22 @@ export default function ManageAccessScreen() {
   // ── Manage / Floor-Access multi-select modal state ──
   const [manageModalVisible, setManageModalVisible] = useState(false);
   const [activeWaiter, setActiveWaiter] = useState<WorkerRecord | null>(null);
-  // Map of UserId -> array of selected GroupName values (multi-choice)
-  const [floorAccessMap, setFloorAccessMap] = useState<Record<string, string[]>>({});
+  // Map of UserId -> array of selected GroupId values (multi-choice)
+  const [floorAccessMap, setFloorAccessMap] = useState<Record<string, (number | string)[]>>({});
 
   const isTablet = width >= 600;
   const isSmall  = height < 700;
 
   // Responsive Layout Parameters
-  const headerH      = isTablet ? 140 : isSmall ? 90  : 200;
-  const titleFs      = isTablet ? 28  : isSmall ? 20  : 24;
-  const backIconSize = isTablet ? 28  : isSmall ? 44  : 44;
-  const backBtnSize  = isTablet ? 48  : isSmall ? 36  : 44;
+  const headerH      = isTablet ? 220 : isSmall ? 90  : 200;
+  const titleFs      = isTablet ? 32  : isSmall ? 20  : 24;
+  const backIconSize = isTablet ? 56  : isSmall ? 44  : 44;
+  const backBtnSize  = isTablet ? 60  : isSmall ? 36  : 44;
   const hPad         = isTablet ? 24  : 16;
   
   const inputFs      = isTablet ? 18  : 16;
-  const labelFs      = isTablet ? 18  : 16;
-  const nameFs       = isTablet ? 18  : 16;
+  const labelFs      = isTablet ? 20  : 16;
+  const nameFs       = isTablet ? 20  : 16;
 
   // ── Fetch workers on mount ──
   useEffect(() => {
@@ -96,22 +99,7 @@ export default function ManageAccessScreen() {
         if (response.ok && Array.isArray(response.data)) {
           const rawWorkers = response.data as WorkerRecord[];
           setWorkers(rawWorkers);
-
-          
-          const initialMap: Record<string, string[]> = {};
-          rawWorkers.forEach((w) => {
-            if (w.assignedFloors) {
-              try {
-                initialMap[String(w.UserId)] = Array.isArray(w.assignedFloors)
-                  ? w.assignedFloors
-                  : JSON.parse(w.assignedFloors);
-              } catch {
-                initialMap[String(w.UserId)] = [];
-              }
-            }
-          });
-          setFloorAccessMap(initialMap);
-
+          // floorAccessMap (GroupId-keyed) is built once tableGroups is available — see effect below.
         } else {
           setError(response.error || 'Failed to load workers.');
         }
@@ -182,6 +170,31 @@ export default function ManageAccessScreen() {
     return () => { isMounted = false; };
   }, []);
 
+  // ── Build floorAccessMap (UserId -> selected GroupIds) once both workers'
+  //     assignedFloors (GroupName strings) and tableGroups (GroupId/GroupName) are loaded ──
+  useEffect(() => {
+    if (workers.length === 0 || tableGroups.length === 0) return;
+
+    const nameToId = new Map<string, number | string>();
+    tableGroups.forEach((g) => nameToId.set(g.GroupName, g.GroupId));
+
+    const initialMap: Record<string, (number | string)[]> = {};
+    workers.forEach((w) => {
+      if (!w.assignedFloors) return;
+      let names: string[] = [];
+      try {
+        names = Array.isArray(w.assignedFloors) ? w.assignedFloors : JSON.parse(w.assignedFloors);
+      } catch {
+        names = [];
+      }
+      const ids = names
+        .map((name) => nameToId.get(name))
+        .filter((id): id is number | string => id !== undefined);
+      initialMap[String(w.UserId)] = ids;
+    });
+    setFloorAccessMap(initialMap);
+  }, [workers, tableGroups]);
+
   const normalizeGroupId = (value: unknown): string => {
     const str = String(value ?? '').trim();
     if (!str) return '';
@@ -209,16 +222,16 @@ export default function ManageAccessScreen() {
     setManageModalVisible(false);
   };
 
-  const toggleFloorAccess = (groupName: string) => {
+  const toggleFloorAccess = (groupId: number | string) => {
     if (!activeWaiter) return;
     const waiterId = String(activeWaiter.UserId);
 
     setFloorAccessMap((prev) => {
       const current = prev[waiterId] ?? [];
-      const alreadySelected = current.includes(groupName);
+      const alreadySelected = current.some((id) => String(id) === String(groupId));
       const updated = alreadySelected
-        ? current.filter((g) => g !== groupName)
-        : [...current, groupName];
+        ? current.filter((id) => String(id) !== String(groupId))
+        : [...current, groupId];
       return { ...prev, [waiterId]: updated };
     });
   };
@@ -228,22 +241,26 @@ export default function ManageAccessScreen() {
     if (!activeWaiter) return;
     
     const waiterId = String(activeWaiter.UserId);
-    const selectedFloors = floorAccessMap[waiterId] ?? [];
+    const selectedGroupIds = floorAccessMap[waiterId] ?? [];
 
     try {
       
       const response = await apiClient.saveUserFloorAccess({
-        UserId: activeWaiter.UserId,        
-        Floors: selectedFloors,             
-        AssignedBy: 1                
+        UserId: activeWaiter.UserId,
+        TableGroupIds: selectedGroupIds,
+        AssignedBy: managerUser?.userId ?? '',
       });
 
       if (response.ok) {
+        // workers list display uses GroupName, so map selected GroupIds back to names
+        const selectedGroupNames = tableGroups
+          .filter((g) => selectedGroupIds.some((id) => String(id) === String(g.GroupId)))
+          .map((g) => g.GroupName);
+
         Alert.alert('Success', `Floor access updated for ${activeWaiter.UserName}.`);
-        
-        
-        setWorkers(prev => 
-          prev.map(w => w.UserId === activeWaiter.UserId ? { ...w, assignedFloors: selectedFloors } : w)
+
+        setWorkers(prev =>
+          prev.map(w => w.UserId === activeWaiter.UserId ? { ...w, assignedFloors: selectedGroupNames } : w)
         );
       } else {
         Alert.alert('Error', response.error || 'Could not update floor access.');
@@ -407,12 +424,14 @@ export default function ManageAccessScreen() {
 
               {!tableGroupsLoading && !tableGroupsError && tableGroups.map((group) => {
                 const waiterId = activeWaiter ? String(activeWaiter.UserId) : '';
-                const isChecked = (floorAccessMap[waiterId] ?? []).includes(group.GroupName);
+                const isChecked = (floorAccessMap[waiterId] ?? []).some(
+                  (id) => String(id) === String(group.GroupId)
+                );
                 return (
                   <TouchableOpacity
-                    key={group.GroupName}
+                    key={String(group.GroupId)}
                     style={modalStyles.optionRow}
-                    onPress={() => toggleFloorAccess(group.GroupName)}
+                    onPress={() => toggleFloorAccess(group.GroupId)}
                     activeOpacity={0.7}
                   >
                     <View style={[modalStyles.checkbox, isChecked && modalStyles.checkboxChecked]}>

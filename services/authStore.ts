@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
+import { FRESH_LOGIN_FLAG_KEY } from './itemStore';
 import { AUTH_SESSION_KEYS, storage } from './storage';
 
 type AuthUser = {
@@ -137,11 +138,8 @@ export const useAuthStore = create<AuthStore>((set) => ({
 
 storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
 
-   AsyncStorage.setItem('token', nextToken).catch(() => {});
-    AsyncStorage.setItem('username', String(nextUser.userName)).catch(() => {});
-    AsyncStorage.setItem('userId', String(nextUser.userId)).catch(() => {});
-    AsyncStorage.setItem('groupId', String(nextUser.groupId)).catch(() => {});
-    AsyncStorage.setItem('assignedFloors', JSON.stringify(nextUser.assignedFloors)).catch(() => {});
+    // Signal itemStore to do a fresh full sync on next hydrateItems call
+    storage.set(FRESH_LOGIN_FLAG_KEY, '1');
 
     set({
       token: nextToken,
@@ -159,7 +157,7 @@ storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
       storage.set(AUTH_SESSION_KEYS.userId, '');
       storage.set(AUTH_SESSION_KEYS.groupId, '');
       storage.set('assignedFloors', '');
-      await AsyncStorage.multiRemove(['token', 'username', 'userId', 'groupId', 'assignedFloors']);
+      storage.set(FRESH_LOGIN_FLAG_KEY, '0');
     } catch (error) {
       console.log('[AuthStore] clearSession failed', error);
     } finally {
@@ -191,7 +189,7 @@ storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
       }
 
       storage.set('assignedFloors', '');
-      await AsyncStorage.multiRemove(['token', 'username', 'userId', 'groupId', 'assignedFloors']);
+      storage.set(FRESH_LOGIN_FLAG_KEY, '0');
     } catch (error) {
       console.log('[AuthStore] forceLogout failed', error);
     } finally {

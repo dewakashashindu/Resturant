@@ -81,15 +81,15 @@ export default function TakeAwayScreen() {
 
   const hPad          = isTablet ? 32 : 16;
   const headerMT      = Platform.OS === 'android' ? (isTablet ? 24 : 16) : 10;
-  const headerTitleFs = isTablet ? 28 : 24;
-  const backIconSize  = isTablet ? 44 : 44; 
+  const headerTitleFs = isTablet ? 32 : 24;
+  const backIconSize  = isTablet ? 56 : 44; 
 
   const cardW         = isTablet ? width * 0.85 : width - hPad * 2;
   const innerPad      = isTablet ? 28 : 20;
   const gap           = isTablet ? 20 : 14;
 
   const inputH        = isTablet ? 60 : isSmall ? 48 : 54;
-  const inputFs       = isTablet ? 16 : isSmall ? 13 : 14;
+  const inputFs       = isTablet ? 18 : isSmall ? 13 : 14;
 
   const confirmBtnH   = isTablet ? 60 : 54;
   const confirmBtnFs  = isTablet ? 20 : 18;

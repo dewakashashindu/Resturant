@@ -8,6 +8,8 @@ const ITEM_LAST_SYNC_KEY = 'menu_items_last_sync_v1';
 const ITEM_LAST_SYNC_DATE_KEY = 'menu_items_last_sync_date_v1';
 const CACHED_CATEGORIES_KEY = 'cached_categories';
 const CACHED_ITEMS_KEY = 'cached_items';
+// Set to '1' on login → forces a fresh full sync on next hydrateItems call
+export const FRESH_LOGIN_FLAG_KEY = 'menu_fresh_login_flag';
 
 type RawItem = Record<string, any>;
 type MenuSnapshot = {
@@ -136,12 +138,20 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
       const storedSyncDate = readStoredSyncDate();
       const todayDate = getTodayDate();
 
-      if (storedSyncDate !== todayDate) {
-        // Cache is from a previous day → full refresh needed
-        console.log('[ItemStore] hydrateItems: cache stale, full refresh', {
+      // Fresh login flag — set by authStore.setSession() on every login
+      const isFreshLogin = storage.getString(FRESH_LOGIN_FLAG_KEY) === '1';
+
+      const needsFullRefresh = storedSyncDate !== todayDate || isFreshLogin;
+
+      if (needsFullRefresh) {
+        console.log('[ItemStore] hydrateItems: full refresh needed', {
+          reason: isFreshLogin ? 'fresh_login' : 'stale_date',
           storedSyncDate,
           todayDate,
         });
+
+        // Clear the flag before the API call so a crash doesn't loop forever
+        storage.set(FRESH_LOGIN_FLAG_KEY, '0');
 
         const refreshed = await get().prefetchMenuBootstrapData();
         if (!refreshed) {
@@ -159,7 +169,7 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
         return;
       }
 
-      // Cache is fresh for today — load from MMKV, no API call
+      // Cache is fresh for today and no new login — load from MMKV, no API call
       console.log('[ItemStore] hydrateItems: cache is fresh', {
         lastSyncTime: snapshot.lastSyncTime,
         cachedItems: snapshot.items.length,

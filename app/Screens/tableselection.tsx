@@ -83,10 +83,10 @@ export default function TableSelectionScreen() {
   useEffect(() => {
     const loadFloors = async () => {
       try {
-        const response = await fetch(`${getApiBase()}/api/floors`);
-        const data = await response.json();
+        const result = await apiClient.getFloors();
+        const data = result.data;
 
-        if (response.ok) {
+        if (result.ok) {
           const records: any[] = Array.isArray(data)
             ? data
             : Array.isArray(data?.floors)
@@ -132,14 +132,10 @@ export default function TableSelectionScreen() {
   const loadCounts = async (floor?: string) => {
     setLoadingCounts(true);
     try {
-      const countsUrl = floor
-        ? `${getApiBase()}/api/tables/counts?floor=${encodeURIComponent(floor)}`
-        : `${getApiBase()}/api/tables/counts`;
+      const result = await apiClient.getTableCounts(floor);
+      const data = result.data;
 
-      const response = await fetch(countsUrl);
-      const data = await response.json();
-
-      if (response.ok) {
+      if (result.ok) {
         setAvailableCount(data.VaccantCount ?? 0);
         setOccupiedCount(data.OccupiedCount ?? 0);
         setReservedCount(data.ReservedCount ?? 0);

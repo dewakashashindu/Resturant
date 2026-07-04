@@ -69,9 +69,9 @@ const ColorCard = ({ label, color, icon, onPress }: ColorCardProps) => {
   const isSmall = height < 700;
 
   const cardW = (width - 32 - 24) / 2;
-  const cardH = cardW * (isTablet ? 0.9 : 0.6);
-  const imgSize = isTablet ? 56 : 46;
-  const labelFs = isTablet ? 15 : isSmall ? 11 : 13;
+  const cardH = cardW * (isTablet ? 0.6 : 0.6);
+  const imgSize = isTablet ? 66 : 46;
+  const labelFs = isTablet ? 20 : isSmall ? 11 : 13;
 
   return (
     <TouchableOpacity
@@ -355,9 +355,9 @@ const ItemCard = ({ label, price, icon, onAdd, quantity, remarks, onIncrement, o
 
   const cardW = (width - 32 - 24) / 2;
   const imgSize = cardW - 4;
-  const labelFs = isTablet ? 15 : isSmall ? 12 : 14;
-  const priceFs = isTablet ? 13 : isSmall ? 10 : 11;
-  const addFs = isTablet ? 12 : isSmall ? 10 : 11;
+  const labelFs = isTablet ? 20 : isSmall ? 12 : 14;
+  const priceFs = isTablet ? 20 : isSmall ? 10 : 11;
+  const addFs = isTablet ? 20 : isSmall ? 10 : 11;
 
   return (
     <View style={[styles.itemCard, { width: cardW }]}>
@@ -602,7 +602,7 @@ export default function ItemSelection() {
   const badgePadV = isTablet ? 12 : isSmall ? 5 : 6;
   const sectionFont = isTablet ? 20 : isSmall ? 10 : 12;
   const gridGap = isTablet ? 16 : isSmall ? 10 : 12;
-  const breadFs = isTablet ? 14 : isSmall ? 11 : 12;
+  const breadFs = isTablet ? 16 : isSmall ? 11 : 12;
 
   const headerTitle = viewMode === 'categories' ? 'Item Selection' : menuLabels[menuLabels.length - 1] ?? activeCategory?.label ?? 'Menu';
   const sectionLabel = viewMode === 'categories' ? `CATEGORIES — ${categoriesList.length}` : `${menuLabels[menuLabels.length - 1]?.toUpperCase() ?? activeCategory?.label.toUpperCase() ?? 'MENU'} — ${menuRows.length} ITEMS`;
