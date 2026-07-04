@@ -4,7 +4,7 @@
     "slug": "Restarurant",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/appicon.png",
+    "icon": "./assets/images/appiconw.png",
     "scheme": "resturant",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -12,7 +12,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/appicon.png"
+        "foregroundImage": "./assets/images/appiconw.png"
       },
       "package": "com.dewaka_shashindu.Restarurant"
     },
@@ -21,7 +21,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/appicon.png",
+          "image": "./assets/images/appiconw.png",
           "imageWidth": 500,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
