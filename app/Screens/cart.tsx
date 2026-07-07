@@ -1,10 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { default as React, useEffect, useState } from 'react';
+import { default as React, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Image,
   Modal,
   ScrollView,
@@ -21,18 +20,26 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { apiClient, getCachedOrderDescriptions } from '../../services/api';
 import { useAuthStore } from '../../services/authStore';
 import { CartItem, useCartStore } from '../../services/cartStore';
+import useItemStore from '../../services/itemStore';
 import { useOrderStore } from '../../services/orderStore';
+
+type CartDisplayItem = CartItem & {
+  isExisting?: boolean;
+};
 
 export default function CartScreen() {
   const router = useRouter();
-  const { tableName, tableId, localPax, foreignPax, floor, status } = useLocalSearchParams<{
+  const { tableName, tableId, localPax, foreignPax, floor, status, fromBilling, invoiceNo: routeInvoiceNo } = useLocalSearchParams<{
     tableName?: string;
     tableId?: string;
     localPax?: string;
     foreignPax?: string;
     floor?: string;
     status?: string;
+    fromBilling?: string;
+    invoiceNo?: string;
   }>();
+  const isFromBilling = fromBilling === '1';
   const orderType = useCartStore((state) => state.orderType);
   const customerInfo = useCartStore((state) => state.customerInfo);
   const { width, height } = useWindowDimensions();
@@ -69,6 +76,110 @@ export default function CartScreen() {
   const cartItems = useCartStore((state) => state.cartItems);
   const updateQuantityInCart = useCartStore((state) => state.updateQuantity);
   const clearCartInStore = useCartStore((state) => state.clearCart);
+  const lastConfirmedOrder = useOrderStore((s) => s.lastConfirmedOrder);
+
+  const existingBillItems = useMemo<CartDisplayItem[]>(() => {
+    if (!isFromBilling || !lastConfirmedOrder?.items?.length) return [];
+
+    return lastConfirmedOrder.items.map((item) => ({
+      menuItemCode: item.menuItemCode,
+      menuItmDes: item.menuItmDes ?? '',
+      salesPrice: Number(item.salesPrice ?? 0),
+      quantity: Math.max(0, Number(item.quantity ?? 0)),
+      itemRemarks: item.itemRemarks ?? '',
+      isExisting: true,
+    }));
+  }, [isFromBilling, lastConfirmedOrder]);
+
+  const editableCartItems = useMemo<CartDisplayItem[]>(() => {
+    if (!isFromBilling || !lastConfirmedOrder?.items?.length) {
+      return cartItems.map((item) => ({ ...item, isExisting: false }));
+    }
+
+    const existingQtyByCode = new Map<string, number>();
+    for (const item of lastConfirmedOrder.items) {
+      existingQtyByCode.set(
+        item.menuItemCode,
+        (existingQtyByCode.get(item.menuItemCode) ?? 0) + Number(item.quantity ?? 0),
+      );
+    }
+
+    return cartItems
+      .map((item) => {
+        const existingQty = existingQtyByCode.get(item.menuItemCode) ?? 0;
+        const deltaQty = Math.max(0, Number(item.quantity ?? 0) - existingQty);
+        if (deltaQty <= 0) return null;
+        return {
+          ...item,
+          quantity: deltaQty,
+          isExisting: false,
+        };
+      })
+      .filter((item) => item !== null) as CartDisplayItem[];
+  }, [cartItems, isFromBilling, lastConfirmedOrder]);
+
+  const displayCartItems = useMemo<CartDisplayItem[]>(
+    () => (isFromBilling ? [...existingBillItems, ...editableCartItems] : editableCartItems),
+    [editableCartItems, existingBillItems, isFromBilling],
+  );
+
+  const newCartItemsForConfirm = useMemo(
+    () => displayCartItems.filter((item) => !item.isExisting),
+    [displayCartItems],
+  );
+
+  const currentInvoiceNo = routeInvoiceNo
+    ? String(routeInvoiceNo)
+    : lastConfirmedOrder?.invoiceNo
+      ? String(lastConfirmedOrder.invoiceNo)
+      : null;
+
+  // ── Item store — used to look up Category per cart item ──────────────────
+  const storeItems = useItemStore((state) => state.items);
+
+  // Build a quick lookup: menuItemCode → Category (F/B/S/O)
+  const categoryByCode = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const item of storeItems) {
+      const code = String(item.MenuItemCode ?? item.ItemCode ?? '').trim();
+      const cat  = String(item.Category ?? '').trim();
+      if (code && cat) map[code] = cat;
+    }
+    return map;
+  }, [storeItems]);
+
+  // Human-readable label for each category code
+  const CATEGORY_LABELS: Record<string, string> = {
+    F: 'Foods',
+    B: 'Beverages',
+    S: 'Siga',
+    O: 'Others',
+  };
+
+  // Priority order for sections (matches server ORDER BY)
+  const CATEGORY_ORDER = ['F', 'B', 'S', 'O'];
+
+  type CartSection = { categoryCode: string; label: string; items: CartDisplayItem[] };
+
+  // Group cartItems by Category; unknown items go to 'Others' bucket
+  const cartSections = useMemo((): CartSection[] => {
+    const buckets: Record<string, CartDisplayItem[]> = {};
+    for (const item of displayCartItems) {
+      const cat = categoryByCode[item.menuItemCode] ?? 'O';
+      if (!buckets[cat]) buckets[cat] = [];
+      buckets[cat].push(item);
+    }
+    // Sort sections by known order, then alphabetically for any unknown codes
+    const knownOrder = CATEGORY_ORDER.filter((c) => buckets[c]);
+    const unknownOrder = Object.keys(buckets)
+      .filter((c) => !CATEGORY_ORDER.includes(c))
+      .sort();
+    return [...knownOrder, ...unknownOrder].map((cat) => ({
+      categoryCode: cat,
+      label: CATEGORY_LABELS[cat] ?? cat,
+      items: buckets[cat],
+    }));
+  }, [displayCartItems, categoryByCode]);
 
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [remarkVisible, setRemarkVisible] = useState(false);
@@ -87,7 +198,6 @@ export default function CartScreen() {
   const displayTable = tableName ?? tableId ?? 'GF 1';
   const displayLocalPax = localPax ?? '0';
   const displayForeignPax = foreignPax ?? '0';
-const lastConfirmedOrder = useOrderStore((s) => s.lastConfirmedOrder);
   const tableInfo = [
     { label: 'Table', value: displayTable },
     { label: 'Floor', value: floor ?? '—' },
@@ -97,8 +207,8 @@ const lastConfirmedOrder = useOrderStore((s) => s.lastConfirmedOrder);
   ];
 
   // Counts only unique types of items
-  const totalItemsCount = cartItems.length;
-const currentUser = useAuthStore((state) => state.user);
+  const totalItemsCount = displayCartItems.length;
+  const currentUser = useAuthStore((state) => state.user);
   useEffect(() => {
     // Instantly load the same globally synced preset list into the Cart view modal.
     setRemarkOptions(getCachedOrderDescriptions());
@@ -210,9 +320,10 @@ const currentUser = useAuthStore((state) => state.user);
     setIsViewingRemarkPresets(false);
   };
 
-  const total = cartItems.reduce((sum, item) => sum + item.salesPrice * item.quantity, 0);
+  const total = displayCartItems.reduce((sum, item) => sum + item.salesPrice * item.quantity, 0);
 
   const removeItem = (item: CartItem) => {
+    if ((item as CartDisplayItem).isExisting) return;
     updateQuantityInCart(item.menuItemCode, -item.quantity);
     setRemarksByCode(items => {
       const next = { ...items };
@@ -221,103 +332,123 @@ const currentUser = useAuthStore((state) => state.user);
     });
   };
 
-  const handleConfirm = async () => {
-    if (!cartItems || cartItems.length === 0) {
-      Alert.alert('Cart is empty', 'Please add items before confirming.');
-      return;
-    }
-    let finalTableNo = lastConfirmedOrder?.tableNo 
+const handleConfirm = async () => {
+  
+  if (!displayCartItems || displayCartItems.length === 0) {
+    Alert.alert('Cart is empty', 'Please add items before confirming.');
+    return;
+  }
+
+  const isFromBilling = fromBilling === '1';
+  const confirmItems = isFromBilling ? newCartItemsForConfirm : displayCartItems;
+
+  if (isFromBilling && confirmItems.length === 0) {
+    // Items add කළේ නෑ — API call නොකර කෙලින්ම billing ෙකට ආපහු යනවා.
+    router.push({
+      pathname: '/Screens/BillingScreen',
+      params: {
+        tableName:  tableName ?? displayTable,
+        tableNo:    String(lastConfirmedOrder?.tableNo ?? tableName ?? ''),
+        invoiceNo:  String(currentInvoiceNo ?? ''),
+        localPax:   displayLocalPax,
+        foreignPax: displayForeignPax,
+        floor:      floor ?? '',
+        status:     status ?? '',
+      },
+    });
+    return;
+  }
+
+  let finalTableNo = lastConfirmedOrder?.tableNo 
     ? lastConfirmedOrder.tableNo 
     : (orderType === 'TA' ? 'TA-PENDING' : (tableName ?? displayTable));
 
-   
-    const payload = {
-      orderType: orderType || 'DI', 
-      tableNo: finalTableNo,            
-     userId: currentUser?.userId ? String(currentUser.userId) : '1',
-      tableGrpId: tableId ?? '',
-      lPax: Number(localPax ?? 0),
-      fPax: Number(foreignPax ?? 0),
-      items: cartItems.map((i) => ({
-        menuItemCode: i.menuItemCode,
-        quantity: i.quantity,
-        salesPrice: i.salesPrice,
-        itemRemarks: i.itemRemarks || remarksByCode[i.menuItemCode] || '',
-      })),
-      
-      
-      customerDetails: orderType === 'TA' ? {
-        regTel: customerInfo?.contactNumber || '',
-        cusName: customerInfo?.customerName || '',
-        rmks: customerInfo?.remark || ''
-      } : null
-    };
+  const payload = {
+    orderType: orderType || 'DI',
+    tableNo: finalTableNo,
+    userId: currentUser?.userId ? String(currentUser.userId) : '1',
+    tableGrpId: tableId ?? '',
+    lPax: Number(localPax ?? 0),
+    fPax: Number(foreignPax ?? 0),
+    existingInvoiceNo: isFromBilling ? currentInvoiceNo : null,
 
-try {
-      setConfirming(true);
-
-      //  Check if we already have a REAL generated number (not 'TA-PENDING')
-      let generatedTableNo = lastConfirmedOrder?.tableNo;
-      
-      // If the stored number is just the placeholder 'TA-PENDING', we treat it as "not generated yet"
-      const isPending = !generatedTableNo || generatedTableNo === 'TA-PENDING';
-
-      //  Only call the API if we don't have a final TA number yet
-      if (isPending) {
-        const res = await apiClient.confirmCart(payload);
-        console.log('confirmCart response', res);
-
-        if (res.ok || (res.data && res.data.ok)) {
-          //  GET THE ACTUAL NUMBER FROM THE SERVER
-          generatedTableNo = res.data?.data?.tableNo; 
-        } else {
-          console.error('confirmCart error', res.data);
-          const serverMsg = res.data && (res.data.message || JSON.stringify(res.data));
-          Alert.alert('Error', serverMsg || 'Failed to save order');
-          setConfirming(false);
-          return;
-        }
-      } else {
-        console.log('Reusing already generated tableNo:', generatedTableNo);
-      }
-
-      //  Update the Store with the ACTUAL number from the server
-      useOrderStore.getState().setLastConfirmedOrder({
-        ...payload,
-        tableNo: generatedTableNo ?? '', // Now this will be "TA-1266" instead of "TA-PENDING"
-        items: payload.items.map((it) => ({
-          ...it,
-          salesPrice: cartItems.find(c => c.menuItemCode === it.menuItemCode)?.salesPrice ?? 0,
-          menuItmDes: cartItems.find(c => c.menuItemCode === it.menuItemCode)?.menuItmDes ?? '',
-        })),
-        createdAt: lastConfirmedOrder?.createdAt ?? new Date().toISOString(),
-      });
-
-      // Navigate to Billing
-      router.push({
-        pathname: '/Screens/BillingScreen',
-        params: {
-          tableName: tableName ?? displayTable,
-          tableNo: generatedTableNo, 
-          // ... rest of your params
-          localPax: displayLocalPax,
-          foreignPax: displayForeignPax,
-          floor: floor ?? '',
-          status: status ?? '',
-          orderType: orderType || 'DINING', 
-          contactNumber: customerInfo?.contactNumber || '',
-          customerName: customerInfo?.customerName || '',
-          remark: customerInfo?.remark || '',
-        },
-      });
-
-    } catch (error) {
-      console.error('confirmCart exception', error);
-      Alert.alert('Error', 'Failed to save order');
-    } finally {
-      setConfirming(false);
-    }
+    items: confirmItems.map((i) => ({
+      menuItemCode: i.menuItemCode,
+      quantity: i.quantity,
+      salesPrice: i.salesPrice,
+      itemRemarks: i.itemRemarks || remarksByCode[i.menuItemCode] || '',
+    })),
+    customerDetails: orderType === 'TA' ? {
+      regTel: customerInfo?.contactNumber || '',
+      cusName: customerInfo?.customerName || '',
+      rmks: customerInfo?.remark || ''
+    } : null
   };
+
+  try {
+    setConfirming(true);
+
+    let generatedTableNo = lastConfirmedOrder?.tableNo;
+    let finalInvoiceNo = currentInvoiceNo; 
+
+    const isPending = !generatedTableNo || generatedTableNo === 'TA-PENDING';
+
+    if (isPending || isFromBilling) {
+      const res = await apiClient.confirmCart(payload);
+      console.log('confirmCart response', res);
+
+      if (res.ok || (res.data && res.data.ok)) {
+        generatedTableNo = res.data?.data?.tableNo || generatedTableNo;
+        finalInvoiceNo = res.data?.data?.invoiceNo || res.data?.invoiceNo || currentInvoiceNo;
+      } else {
+        const serverMsg = res.data && (res.data.message || JSON.stringify(res.data));
+        Alert.alert('Error', serverMsg || 'Failed to save order');
+        setConfirming(false);
+        return;
+      }
+    }
+
+    const currentNewItems = payload.items.map((it) => ({
+      ...it,
+      salesPrice: confirmItems.find(c => c.menuItemCode === it.menuItemCode)?.salesPrice ?? 0,
+      menuItmDes: confirmItems.find(c => c.menuItemCode === it.menuItemCode)?.menuItmDes ?? '',
+    }));
+
+    const finalItemsList = isFromBilling 
+      ? [...(lastConfirmedOrder?.items || []), ...currentNewItems]
+      : currentNewItems;
+
+    // TypeScript එක බ්ලොක් නොකරන්න (as any) කැස්ට් එක දාලා සේව් කරනවා
+    (useOrderStore.getState() as any).setLastConfirmedOrder({
+      ...payload,
+      tableNo: generatedTableNo ?? '', 
+      items: finalItemsList,
+      createdAt: lastConfirmedOrder?.createdAt ?? new Date().toISOString(),
+      invoiceNo: finalInvoiceNo, 
+    });
+
+    // ඊළඟ ස්ක්‍රීන් එකට නිවැරදි පැරාම්ස් ටික යවනවා
+    router.push({
+      pathname: '/Screens/BillingScreen',
+      params: {
+        tableName: tableName ?? displayTable,
+        tableNo: generatedTableNo,
+        invoiceNo: finalInvoiceNo || '', 
+        localPax: displayLocalPax,
+        foreignPax: displayForeignPax,
+        floor: floor ?? '',
+        status: status ?? '',
+        fromBilling: isFromBilling ? '1' : undefined,
+      },
+    });
+
+  } catch (error) {
+    console.error('confirmCart exception', error);
+    Alert.alert('Error', 'Failed to save order');
+  } finally {
+    setConfirming(false);
+  }
+};
 
 
   const decrementItem = (item: CartItem) => {
@@ -332,53 +463,88 @@ try {
     updateQuantityInCart(item.menuItemCode, 1);
   };
 
-  const renderItem = ({ item }: { item: CartItem }) => {
+  const renderItem = ({ item }: { item: CartDisplayItem }) => {
     // Calculate total price for this specific item based on quantity
     const itemTotal = item.salesPrice * item.quantity;
     const remarkText = (item.itemRemarks || remarksByCode[item.menuItemCode] || '').trim();
+    const isReadOnly = Boolean(item.isExisting);
 
     return (
-      <View style={styles.itemContainer}>
+      <View style={[styles.itemContainer, isReadOnly && styles.itemContainerReadOnly]}>
         <View style={styles.itemHeader}>
-          <Text style={[styles.itemName, { fontSize: itemTitleFs }]}>{item.menuItmDes}</Text>
-          <TouchableOpacity onPress={() => removeItem(item)}>
+          <Text
+            style={[
+              styles.itemName,
+              { fontSize: itemTitleFs },
+              isReadOnly && styles.itemNameReadOnly,
+            ]}
+          >
+            {item.menuItmDes}
+          </Text>
+          <TouchableOpacity onPress={() => removeItem(item)} disabled={isReadOnly}>
             <Ionicons name="trash-outline" size={isTablet ? 28 : 22} color="rgba(0,0,0,0.5)" />
           </TouchableOpacity>
         </View>
 
         {/* Updated Price Layout: Single Price x Qty = Total Price */}
-        <Text style={[styles.itemPrice, { fontSize: priceFs }]}>
+        <Text style={[styles.itemPrice, { fontSize: priceFs }, isReadOnly && styles.itemPriceReadOnly]}>
           Lkr {item.salesPrice.toFixed(2)} × {item.quantity} = Lkr {itemTotal.toFixed(2)}
         </Text>
 
         {!!remarkText && (
-          <TouchableOpacity style={styles.itemRemarkBlock} activeOpacity={0.8} onPress={() => openRemarkModal(item)}>
-            <Text style={[styles.remarkPreview, { fontSize: remarkFs - 1 }]} numberOfLines={2}>
+          <TouchableOpacity
+            style={styles.itemRemarkBlock}
+            activeOpacity={0.8}
+            onPress={() => (!isReadOnly ? openRemarkModal(item) : undefined)}
+            disabled={isReadOnly}
+          >
+            <Text
+              style={[
+                styles.remarkPreview,
+                { fontSize: remarkFs - 1 },
+                isReadOnly && styles.remarkPreviewReadOnly,
+              ]}
+              numberOfLines={2}
+            >
               {remarkText}
             </Text>
           </TouchableOpacity>
         )}
 
         <View style={styles.itemFooter}>
-          <TouchableOpacity style={styles.remarkBtn} onPress={() => openRemarkModal(item)}>
-            <Text style={[styles.remarkText, { fontSize: remarkFs }]}>
+          <TouchableOpacity
+            style={styles.remarkBtn}
+            onPress={() => (!isReadOnly ? openRemarkModal(item) : undefined)}
+            disabled={isReadOnly}
+          >
+            <Text style={[styles.remarkText, { fontSize: remarkFs }, isReadOnly && styles.remarkTextReadOnly]}>
               {remarkText ? 'Edit Order Remark' : 'Add Order Remark'}
             </Text>
           </TouchableOpacity>
 
           <View style={styles.quantityContainer}>
             <TouchableOpacity
-              style={[styles.qtyBtn, { width: qtyBtnSize, height: qtyBtnSize, borderRadius: qtyBtnSize / 2 }]}
+              style={[
+                styles.qtyBtn,
+                { width: qtyBtnSize, height: qtyBtnSize, borderRadius: qtyBtnSize / 2 },
+                isReadOnly && styles.qtyBtnDisabled,
+              ]}
+              disabled={isReadOnly}
               onPress={() => decrementItem(item)}
             >
-              <Text style={styles.qtyText}>-</Text>
+              <Text style={[styles.qtyText, isReadOnly && styles.qtyTextDisabled]}>-</Text>
             </TouchableOpacity>
-            <Text style={[styles.qtyValue, { fontSize: qtyFs }]}>{item.quantity}</Text>
+            <Text style={[styles.qtyValue, { fontSize: qtyFs }, isReadOnly && styles.qtyValueReadOnly]}>{item.quantity}</Text>
             <TouchableOpacity
-              style={[styles.qtyBtn, { width: qtyBtnSize, height: qtyBtnSize, borderRadius: qtyBtnSize / 2 }]}
+              style={[
+                styles.qtyBtn,
+                { width: qtyBtnSize, height: qtyBtnSize, borderRadius: qtyBtnSize / 2 },
+                isReadOnly && styles.qtyBtnDisabled,
+              ]}
+              disabled={isReadOnly}
               onPress={() => incrementItem(item)}
             >
-              <Text style={styles.qtyText}>+</Text>
+              <Text style={[styles.qtyText, isReadOnly && styles.qtyTextDisabled]}>+</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -603,44 +769,62 @@ try {
         </TouchableOpacity>
       </View>
 
-      {/* LIST */}
-      <FlatList
-        data={cartItems}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.menuItemCode}
+      {/* LIST — grouped by category */}
+      <ScrollView
         style={{ flex: 1 }}
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.listContent,
           { paddingHorizontal: hPad, paddingBottom: listBottomPad + insets.bottom },
         ]}
-        ListEmptyComponent={
+      >
+        {displayCartItems.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>Your cart is empty</Text>
           </View>
-        }
-        ListFooterComponent={
-          <View style={[styles.addMoreWrap, { paddingHorizontal: hPad }]}> 
-            <TouchableOpacity
-              style={styles.addMoreBtn}
-              activeOpacity={0.85}
-              onPress={() =>
-                router.push({
-                  pathname: '/Screens/selectitems',
-                  params: {
-                    tableName: tableName ?? displayTable,
-                    localPax: displayLocalPax,
-                    foreignPax: displayForeignPax,
-                    floor: floor ?? '',
-                    status: status ?? '',
-                  },
-                })
-              }
-            >
-              <Text style={styles.addMoreText}>Add More</Text>
-            </TouchableOpacity>
-          </View>
-        }
-      />
+        ) : (
+          <>
+            {cartSections.map((section) => (
+              <View key={section.categoryCode}>
+                {/* Category section header */}
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionHeaderText}>{section.label}</Text>
+                  <View style={styles.sectionHeaderLine} />
+                </View>
+                {section.items.map((item) => (
+                  <React.Fragment key={item.menuItemCode}>
+                    {renderItem({ item })}
+                  </React.Fragment>
+                ))}
+              </View>
+            ))}
+
+            {/* Add More button */}
+            <View style={styles.addMoreWrap}>
+              <TouchableOpacity
+                style={styles.addMoreBtn}
+                activeOpacity={0.85}
+                onPress={() =>
+                  router.push({
+                    pathname: '/Screens/selectitems',
+                    params: {
+                      tableName: tableName ?? displayTable,
+                      localPax: displayLocalPax,
+                      foreignPax: displayForeignPax,
+                      floor: floor ?? '',
+                      status: status ?? '',
+                      invoiceNo: currentInvoiceNo ?? '',
+                      fromBilling: isFromBilling ? '1' : undefined,
+                    },
+                  })
+                }
+              >
+                <Text style={styles.addMoreText}>Add More</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+      </ScrollView>
 
       {/* FOOTER */}
       <View style={[styles.footer, { padding: footerPad }]}>
@@ -722,18 +906,26 @@ const styles = StyleSheet.create({
   addMoreBtn:         { height: 52, borderRadius: 12, borderWidth: 1.5, borderColor: '#002748', backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   addMoreText:        { color: '#002748', fontSize: 16, fontWeight: '700' },
   itemContainer:      { marginTop: 24 },
+  itemContainerReadOnly: { opacity: 0.55 },
   itemHeader:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   itemName:           { fontWeight: '500', color: 'black', flex: 1, flexShrink: 1, minWidth: 0, marginRight: 8 },
+  itemNameReadOnly:    { color: '#6B7280' },
   itemPrice:          { color: 'black', fontWeight: '400', marginTop: 4 },
+  itemPriceReadOnly:   { color: '#6B7280' },
   itemRemarkBlock:    { marginTop: 6, alignSelf: 'stretch' },
   itemFooter:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, width: '100%' },
   remarkBtn:          { flexShrink: 1 },
   remarkText:         { color: '#64748B', fontWeight: '600' },
+  remarkTextReadOnly: { color: '#9CA3AF' },
   remarkPreview:      { color: '#64748B', fontSize: 12, maxWidth: '100%', textAlign: 'left' },
+  remarkPreviewReadOnly: { color: '#9CA3AF' },
   quantityContainer:  { flexDirection: 'row', alignItems: 'center', gap: 15 },
   qtyBtn:             { borderWidth: 1, borderColor: 'black', alignItems: 'center', justifyContent: 'center' },
+  qtyBtnDisabled:     { borderColor: '#CBD5E1', backgroundColor: '#F8FAFC' },
   qtyText:            { fontSize: 18, fontWeight: '500' },
+  qtyTextDisabled:    { color: '#94A3B8' },
   qtyValue:           { fontWeight: '500', minWidth: 20, textAlign: 'center' },
+  qtyValueReadOnly:   { color: '#94A3B8' },
   divider:            { height: 1, backgroundColor: 'rgba(0,0,0,0.1)', marginTop: 20 },
   footer:             { padding: 16, borderTopWidth: 5, borderTopColor: 'rgba(0,0,0,0.05)' },
   totalRow:           { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
@@ -769,4 +961,26 @@ const styles = StyleSheet.create({
   presetsListContent: { paddingVertical: 2 },
   presetsRow:         { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F4F4F4' },
   presetsRowText:     { color: '#003366', fontWeight: '600' },
+
+  // ── Category section headers ───────────────────────────────────────────────
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 22,
+    marginBottom: 4,
+  },
+  sectionHeaderText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#186cb1',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginRight: 10,
+    flexShrink: 0,
+  },
+  sectionHeaderLine: {
+    flex: 1,
+    height: 3,
+    backgroundColor: 'rgba(0,39,72,0.12)',
+  },
 });

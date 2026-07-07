@@ -274,13 +274,15 @@ export default function LoginScreen() {
         setSession({
           token: result.data.token,
           user: {
-            userName:       loggedInUserName,
+            userName:       result.data.user?.userName || loggedInUserName,
             userId:         loggedInUserId,
             groupId:        loggedInGroupId,
             assignedFloors:
               result.data.assignedFloors      ||
               result.data.user?.assignedFloors ||
               [],
+            picture:  result.data.user?.picture  || null,
+            locCode:  result.data.user?.locCode  || null,
           },
         });
 

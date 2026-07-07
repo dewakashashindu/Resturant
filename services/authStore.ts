@@ -7,8 +7,10 @@ import { AUTH_SESSION_KEYS, storage } from './storage';
 type AuthUser = {
   userName: string;
   userId: string | number;
-  groupId: string | number; 
+  groupId: string | number;
   assignedFloors?: string[];
+  picture?: string | null;   // base64 string from DB
+  locCode?: string | null;
 };
 
 type AuthStore = {
@@ -22,6 +24,7 @@ type AuthStore = {
   forceLogout: () => Promise<void>;
   setUser: (user: AuthUser) => void;
   clearUser: () => void;
+  updatePicture: (base64: string | null) => void;
 };
 
 const normalize = (value: unknown) => String(value ?? '').trim();
@@ -41,11 +44,17 @@ export const useAuthStore = create<AuthStore>((set) => ({
       const mmkvUserId = normalize(storage.getString(AUTH_SESSION_KEYS.userId));
       const mmkvGroupId = normalize(storage.getString(AUTH_SESSION_KEYS.groupId)); 
       const mmkvFloorsStr = storage.getString('assignedFloors');
+      const mmkvPicture = storage.getString(AUTH_SESSION_KEYS.picture) || null;
+      const mmkvLocCode = storage.getString(AUTH_SESSION_KEYS.locCode) || null;
+      const mmkvUserName = storage.getString(AUTH_SESSION_KEYS.userName) || null;
 
       let token = mmkvToken;
       let username = mmkvUsername;
       let userId = mmkvUserId;
-      let groupId = mmkvGroupId; 
+      let groupId = mmkvGroupId;
+      let picture = mmkvPicture;
+      let locCode = mmkvLocCode;
+      let userName = mmkvUserName;
 
       let assignedFloors: string[] = [];
 
@@ -100,10 +109,12 @@ export const useAuthStore = create<AuthStore>((set) => ({
         token: token || null,
         user: token
           ? {
-              userName: username || 'User',
+              userName: userName || username || 'User',
               userId: userId || username || 'User',
-              groupId: groupId || '1', 
+              groupId: groupId || '1',
               assignedFloors: assignedFloors,
+              picture: picture || null,
+              locCode: locCode || null,
             }
           : null,
         isAuthenticated: Boolean(token),
@@ -124,10 +135,12 @@ export const useAuthStore = create<AuthStore>((set) => ({
   setSession: ({ token, user }) => {
     const nextToken = normalize(token);
     const nextUser = {
-    userName: normalize((user as any).userName || (user as any).username) || 'User',
+      userName: normalize((user as any).userName || (user as any).username) || 'User',
       userId: (user as any).userId || (user as any).UserId,
       groupId: (user as any).groupId || (user as any).GroupId,
       assignedFloors: (user as any).assignedFloors || [],
+      picture: (user as any).picture || null,
+      locCode: (user as any).locCode || null,
     };
 
     storage.set(AUTH_SESSION_KEYS.token, nextToken);
@@ -135,6 +148,9 @@ export const useAuthStore = create<AuthStore>((set) => ({
     storage.set(AUTH_SESSION_KEYS.username, String(nextUser.userName));
     storage.set(AUTH_SESSION_KEYS.userId, String(nextUser.userId));
     storage.set(AUTH_SESSION_KEYS.groupId, String(nextUser.groupId));
+    storage.set(AUTH_SESSION_KEYS.userName, String(nextUser.userName));
+    if (nextUser.picture) storage.set(AUTH_SESSION_KEYS.picture, nextUser.picture);
+    if (nextUser.locCode) storage.set(AUTH_SESSION_KEYS.locCode, String(nextUser.locCode));
 
 storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
 
@@ -157,6 +173,9 @@ storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
       storage.set(AUTH_SESSION_KEYS.userId, '');
       storage.set(AUTH_SESSION_KEYS.groupId, '');
       storage.set('assignedFloors', '');
+      storage.set(AUTH_SESSION_KEYS.picture, '');
+      storage.set(AUTH_SESSION_KEYS.locCode, '');
+      storage.set(AUTH_SESSION_KEYS.userName, '');
       storage.set(FRESH_LOGIN_FLAG_KEY, '0');
     } catch (error) {
       console.log('[AuthStore] clearSession failed', error);
@@ -204,4 +223,15 @@ storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
 
   setUser: (user) => set({ user }),
   clearUser: () => set({ user: null }),
+
+  updatePicture: (base64) => {
+    if (base64) {
+      storage.set(AUTH_SESSION_KEYS.picture, base64);
+    } else {
+      storage.set(AUTH_SESSION_KEYS.picture, '');
+    }
+    set((state) => ({
+      user: state.user ? { ...state.user, picture: base64 } : null,
+    }));
+  },
 }));

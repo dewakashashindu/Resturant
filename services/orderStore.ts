@@ -16,6 +16,7 @@ export type ConfirmedOrder = {
   fPax?: number;
   items: ConfirmedOrderItem[];
   createdAt?: string;
+  invoiceNo?: string;
 };
 
 type OrderStore = {

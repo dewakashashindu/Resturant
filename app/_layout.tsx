@@ -12,13 +12,13 @@ import { syncGlobalOrderDescriptions } from '../services/api';
 import { useAuthStore } from '../services/authStore';
 import useItemStore from '../services/itemStore';
 
-
 import { AppProvider } from '../AppContext';
 
-// Keep the splash screen visible while we fetch resources
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
-const AUTO_LOGOUT_DELAY_MS = 1 * 60 * 1000;
+// Background ගිය timestamp save/read කරන key
+const BG_TIMESTAMP_KEY = 'app_background_timestamp';
+const AUTO_LOGOUT_DELAY_MS = 1 * 60 * 1000; // 1 minute
 
 export const unstable_settings = {
   anchor: 'auth/login',
@@ -41,10 +41,10 @@ function AuthGate() {
   const clearSession = useAuthStore((state) => state.clearSession);
   const hydrateItems = useItemStore((state) => state.hydrateItems);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
-  const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isAuthenticated = Boolean(token);
 
+  // App start වෙද්දී — background ගිය time check කරලා logout වෙන්නද බලනවා
   useEffect(() => {
     void syncGlobalOrderDescriptions();
     void hydrateItems().catch((error) => {
@@ -54,15 +54,28 @@ function AuthGate() {
       .catch((error) => {
         console.log('[AuthGate] hydrateAuth failed', error);
       })
-      .finally(() => {
+      .finally(async () => {
+        // App open වෙද්දී — background timestamp check
+        try {
+          const { storage } = await import('../services/storage');
+          const savedTs = storage.getString(BG_TIMESTAMP_KEY);
+          if (savedTs) {
+            const elapsed = Date.now() - Number(savedTs);
+            console.log('[AuthGate] Time since background:', Math.round(elapsed / 1000), 's');
+            if (elapsed >= AUTO_LOGOUT_DELAY_MS) {
+              console.log('[AuthGate] Auto-logout triggered on app open');
+              await clearSession();
+            }
+            storage.set(BG_TIMESTAMP_KEY, '');
+          }
+        } catch (err) {
+          console.log('[AuthGate] background timestamp check failed', err);
+        }
         void SplashScreen.hideAsync().catch(() => {});
       });
+  }, [hydrateAuth, hydrateItems, clearSession]);
 
-    return () => {
-      // no-op cleanup
-    };
-  }, [hydrateAuth, hydrateItems]);
-
+  // Redirect — isAuthenticated change වෙද්දී
   useEffect(() => {
     if (!isHydrated || !rootNavigationState?.key) return;
 
@@ -76,38 +89,55 @@ function AuthGate() {
     };
   }, [isAuthenticated, isHydrated, router, rootNavigationState?.key]);
 
+  // AppState listener — background ගිය time MMKV ගේ save කරනවා
+  // App kill කළාත් timestamp persist වෙනවා → next open ගේ check කරනවා
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
+    const subscription = AppState.addEventListener('change', async (nextAppState) => {
       const previousAppState = appStateRef.current;
       appStateRef.current = nextAppState;
 
+      const wentBackground =
+        (nextAppState === 'background' || nextAppState === 'inactive') &&
+        previousAppState === 'active';
+
       const resumed =
-        (previousAppState === 'background' || previousAppState === 'inactive')
-        && nextAppState === 'active';
-
-      const wentBackground = nextAppState === 'background' || nextAppState === 'inactive';
-
-      if (logoutTimerRef.current) {
-        clearTimeout(logoutTimerRef.current);
-        logoutTimerRef.current = null;
-      }
+        (previousAppState === 'background' || previousAppState === 'inactive') &&
+        nextAppState === 'active';
 
       if (wentBackground) {
-        logoutTimerRef.current = setTimeout(() => {
-          void clearSession().catch((error) => {
-            console.log('[AuthGate] clearSession failed during auto-logout', error);
-          });
-        }, AUTO_LOGOUT_DELAY_MS);
+        // Background ගිය exact time save කරනවා
+        try {
+          const { storage } = await import('../services/storage');
+          storage.set(BG_TIMESTAMP_KEY, String(Date.now()));
+          console.log('[AuthGate] Background timestamp saved');
+        } catch (err) {
+          console.log('[AuthGate] Failed to save background timestamp', err);
+        }
       }
 
-      if (!resumed) return;
+      if (resumed) {
+        // Foreground ආවම — background timestamp check කරලා logout කරන්නද බලනවා
+        try {
+          const { storage } = await import('../services/storage');
+          const savedTs = storage.getString(BG_TIMESTAMP_KEY);
+          if (savedTs) {
+            const elapsed = Date.now() - Number(savedTs);
+            console.log('[AuthGate] Resumed after', Math.round(elapsed / 1000), 's');
+            if (elapsed >= AUTO_LOGOUT_DELAY_MS) {
+              console.log('[AuthGate] Auto-logout triggered on resume');
+              storage.set(BG_TIMESTAMP_KEY, '');
+              await clearSession();
+            } else {
+              storage.set(BG_TIMESTAMP_KEY, '');
+            }
+          }
+        } catch (err) {
+          console.log('[AuthGate] Failed to check background timestamp on resume', err);
+        }
+      }
     });
 
     return () => {
-      if (logoutTimerRef.current) {
-        clearTimeout(logoutTimerRef.current);
-        logoutTimerRef.current = null;
-      }
       subscription.remove();
     };
   }, [clearSession]);

@@ -25,8 +25,8 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization'],
 };
 
-app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.get('/test', (_req, res) => {
   res.json({
@@ -134,7 +134,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     const result = await pool.request()
       .input('username', sql.VarChar, username)
-      .query('SELECT UserId, LoginName, Password, GroupId FROM Tbl_UserDetails WHERE LoginName = @username');
+      .query('SELECT UserId, LoginName, Password, GroupId, UserName, Picture, LOCCODE FROM Tbl_UserDetails WHERE LoginName = @username');
 
     const user = result.recordset[0];
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
@@ -165,14 +165,25 @@ app.post('/api/auth/login', async (req, res) => {
     console.log("LOGGED IN USER ID FROM OFFICIAL TBL:", user.UserId);
     console.log("ASSIGNED FLOORS FROM DB:", assignedFloors);
 
+    // Convert Picture buffer to base64 string if present
+    let pictureBase64 = null;
+    if (user.Picture) {
+      pictureBase64 = Buffer.isBuffer(user.Picture)
+        ? user.Picture.toString('base64')
+        : user.Picture;
+    }
+
     return res.json({
       message: 'Login successful',
       token,
-      user: { 
+      user: {
         username: user.LoginName,
         userId: user.UserId,
-        groupId: user.GroupId, 
-        assignedFloors 
+        groupId: user.GroupId,
+        assignedFloors,
+        userName: user.UserName || user.LoginName,
+        picture: pictureBase64,
+        locCode: user.LOCCODE,
       },
       groupId: user.GroupId,
       assignedFloors: assignedFloors
@@ -187,6 +198,52 @@ app.post('/api/auth/login', async (req, res) => {
 
 
 
+
+// ── Profile Picture: GET ──────────────────────────────────────────────────────
+// Returns the current picture for a user (by userId + locCode) as base64
+app.get('/api/auth/profile-picture', async (req, res) => {
+  const { userId, locCode } = req.query;
+  if (!userId || !locCode) return res.status(400).json({ ok: false, message: 'userId and locCode required' });
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('UserId', sql.Char(10), String(userId).trim())
+      .input('LOCCODE', sql.Char(10), String(locCode).trim())
+      .query('SELECT Picture FROM Tbl_UserDetails WHERE RTRIM(UserId) = RTRIM(@UserId) AND RTRIM(LOCCODE) = RTRIM(@LOCCODE)');
+    const row = result.recordset[0];
+    if (!row) return res.status(404).json({ ok: false, message: 'User not found' });
+    let pictureBase64 = null;
+    if (row.Picture) {
+      pictureBase64 = Buffer.isBuffer(row.Picture)
+        ? row.Picture.toString('base64')
+        : row.Picture;
+    }
+    return res.json({ ok: true, picture: pictureBase64 });
+  } catch (error) {
+    console.error('[Profile Picture GET]', error);
+    return res.status(500).json({ ok: false, message: 'Server error', error: error.message });
+  }
+});
+
+// ── Profile Picture: UPDATE ───────────────────────────────────────────────────
+// Accepts base64 picture string; saves as binary in Tbl_UserDetails
+app.post('/api/auth/update-picture', async (req, res) => {
+  const { userId, locCode, picture } = req.body;
+  if (!userId || !locCode || !picture) return res.status(400).json({ ok: false, message: 'userId, locCode and picture required' });
+  try {
+    const pool = await poolPromise;
+    const picBuffer = Buffer.from(picture, 'base64');
+    await pool.request()
+      .input('UserId', sql.Char(10), String(userId).trim())
+      .input('LOCCODE', sql.Char(10), String(locCode).trim())
+      .input('Picture', sql.Image, picBuffer)
+      .query('UPDATE Tbl_UserDetails SET Picture = @Picture WHERE RTRIM(UserId) = RTRIM(@UserId) AND RTRIM(LOCCODE) = RTRIM(@LOCCODE)');
+    return res.json({ ok: true, message: 'Picture updated successfully' });
+  } catch (error) {
+    console.error('[Profile Picture UPDATE]', error);
+    return res.status(500).json({ ok: false, message: 'Server error', error: error.message });
+  }
+});
 
 // Username existence check — called on blur from the login screen.
 // Returns 200 { exists: true } if the username is in Tbl_UserDetails,
@@ -809,17 +866,31 @@ app.get('/api/menu/level', async (req, res) => {
   }
 });
 
-// Menu Items
+// Menu Items — always a full sync.
+// The app caches results in MMKV and only calls this endpoint once per day
+// (first login after midnight) or when the user manually triggers a sync from
+// the Settings screen. No incremental/since filter is needed.
 app.get('/api/menu/items', async (req, res) => {
   try {
-    let since = req.query.since;
-    console.log('[Backend] GET /api/menu/items since=', since);
+    console.log('[Backend] GET /api/menu/items (full sync)');
 
     const pool = await poolPromise;
-    
 
+    // Select only the columns the app uses — keeps the payload small and avoids
+    // pulling unused blob / text columns from the view on every request.
     const result = await pool.request().query(`
-      SELECT *
+      SELECT
+        MenuItemCode,
+        MenuItmDes,
+        SalesPrice,
+        Category,
+        Level1, Level2, Level3, Level4, Level5, Level6, Level7,
+        L1Des, L2Des, L3Des, L4Des, L5Des, L6Des, L7Des,
+        L1LitingOrder,
+        DisplayInFront,
+        MenuAssiEnable,
+        MenuItemEnable,
+        LISTINGORDER
       FROM Vw_MenuAssignment WITH (NOLOCK)
       WHERE DisplayInFront = '1'
         AND MenuAssiEnable = '1'
@@ -827,20 +898,19 @@ app.get('/api/menu/items', async (req, res) => {
     `);
 
     const rows = result && result.recordset ? result.recordset : [];
-    console.log('[Backend] /api/menu/items sql returned rows=', rows.length);
-    
-  
-    return res.json({ 
-      items: rows, 
-      lastSyncTime: new Date().toISOString(), 
-      ok: true 
+    console.log('[Backend] /api/menu/items returned rows=', rows.length);
+
+    return res.json({
+      items: rows,
+      lastSyncTime: new Date().toISOString(),
+      ok: true,
     });
 
   } catch (error) {
     console.log('[Backend] /api/menu/items error', error && error.message ? error.message : error);
-    return res.status(500).json({ 
-      ok: false, 
-      error: error && error.message ? error.message : String(error) 
+    return res.status(500).json({
+      ok: false,
+      error: error && error.message ? error.message : String(error),
     });
   }
 });
@@ -919,36 +989,48 @@ const sendSqlError = (res, error, fallbackMessage, validationStatus = 400) => {
   return res.status(500).json({ ok: false, message, errorNumber: number });
 };
 
+const normalizeVaccantStatus = (status) => {
+  const normalized = String(status ?? '').trim().toUpperCase();
+  if (normalized === 'Y' || normalized === 'N') return normalized;
+  return null;
+};
+
+const setTableVaccantState = async (context, tableId, status) => {
+  const normalizedTableId = pickString(tableId, 50);
+  const normalizedStatus = normalizeVaccantStatus(status);
+
+  if (!normalizedTableId) {
+    throw new Error('tableId is required.');
+  }
+  if (!normalizedStatus) {
+    throw new Error("status must be either 'Y' or 'N'.");
+  }
+
+  const request = context && typeof context.request === 'function'
+    ? context.request()
+    : new sql.Request(context);
+
+  request.input('TableId', sql.NVarChar(50), normalizedTableId);
+  request.input('Vaccant', sql.Char(1), normalizedStatus);
+
+  const result = await request.query(`
+    UPDATE dbo.Tbl_Tables
+    SET Vaccant = @Vaccant
+    WHERE RTRIM(LTRIM(CAST(TableNo AS NVARCHAR(50)))) = RTRIM(LTRIM(@TableId))
+  `);
+
+  if (!result.rowsAffected || !result.rowsAffected[0]) {
+    throw new Error(`No table found for tableId '${normalizedTableId}'.`);
+  }
+
+  return { tableId: normalizedTableId, status: normalizedStatus };
+};
+
 const SQL_SRI_LANKA_NOW = 'DATEADD(MINUTE, 330, GETUTCDATE())';
 
 const confirmCartHandler = async (req, res) => {
   try {
-    // Unique invoice number generated once per add-order request.
-    // Only used for brand-new rows (fresh INSERTs) — rows that already exist
-    // for this table keep whatever InvoiceNo they were originally opened
-    // under, since they belong to the same still-open bill.
-const sriLankaNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-const datePart = sriLankaNow.toISOString().slice(0, 10).replace(/-/g, '');
-
-const pool = await poolPromise;
-
-const seqResult = await pool.request().query(`
-  UPDATE dbo.Tbl_Serials
-  SET 
-    SeriNo = CASE 
-      WHEN SeriDate = CAST(DATEADD(MINUTE, 330, GETUTCDATE()) AS DATE)
-      THEN CAST(CAST(SeriNo AS INT) + 1 AS CHAR(10))
-      ELSE '1'
-    END,
-    SeriDate = CAST(DATEADD(MINUTE, 330, GETUTCDATE()) AS DATE)
-  OUTPUT CAST(INSERTED.SeriNo AS INT) AS SeriNo
-  WHERE SeriCode = 'INV'
-`);
-
-const seq = Number(seqResult.recordset[0].SeriNo);
-const invoiceNo = `INV-${datePart}-${String(seq).padStart(3, '0')}`;
-// e.g. INV-20260701-001
-
+    const pool = await poolPromise;
     const body = Array.isArray(req.body) ? { items: req.body } : (req.body || {});
     const items = Array.isArray(body.items) ? body.items : [];
 
@@ -963,16 +1045,15 @@ const invoiceNo = `INV-${datePart}-${String(seq).padStart(3, '0')}`;
     const lPax = pickNumber(body.lPax ?? body.LPax ?? 0, 0);
     const fPax = pickNumber(body.fPax ?? body.FPax ?? 0, 0);
 
-    if (orderTypeVal === 'TA') {
-      const serialResult = await pool.request()
-        .query("SELECT SeriNo FROM Tbl_Serials WHERE SeriCode = 'TA'");
-      
+    let invoiceNo = pickString(body.existingInvoiceNo ?? body.invoiceNo ?? body.InvoiceNo, 50);
+    // ──────────────────────────────────────────────────────────────────────────
+
+    if (orderTypeVal === 'TA' && !invoiceNo) {
+      const serialResult = await pool.request().query("SELECT SeriNo FROM Tbl_Serials WHERE SeriCode = 'TA'");
       if (serialResult.recordset.length > 0) {
         const currentSerial = parseInt(serialResult.recordset[0].SeriNo);
         tableNo = `TA-${currentSerial}`; 
-        await pool.request()
-          .query(`UPDATE Tbl_Serials SET SeriNo = ${currentSerial + 1} WHERE SeriCode = 'TA'`);
-        console.log(`[TA-SERIAL] Generated serial: ${tableNo}`);
+        await pool.request().query(`UPDATE Tbl_Serials SET SeriNo = ${currentSerial + 1} WHERE SeriCode = 'TA'`);
       }
     }
 
@@ -980,6 +1061,7 @@ const invoiceNo = `INV-${datePart}-${String(seq).padStart(3, '0')}`;
       return res.status(400).json({ ok: false, message: 'TableNo is required' });
     }
 
+    
     const normalizedItemsMap = new Map();
     for (const rawItem of items) {
       const itemCode = pickString(rawItem.menuItemCode ?? rawItem.ItemCode ?? rawItem.itemCode, 50);
@@ -987,12 +1069,8 @@ const invoiceNo = `INV-${datePart}-${String(seq).padStart(3, '0')}`;
       const salesPrice = pickNumber(rawItem.salesPrice ?? rawItem.SalesPrice ?? rawItem.price ?? 0, 0);
       const itemRemarks = pickString(rawItem.itemRemarks ?? rawItem.ItemRemarks ?? '', 500);
 
-      if (!itemCode) {
-        return res.status(400).json({ ok: false, message: 'ItemCode is required for each cart item' });
-      }
-      if (qty <= 0) {
-        return res.status(400).json({ ok: false, message: `Quantity must be greater than zero for item ${itemCode}` });
-      }
+      if (!itemCode) return res.status(400).json({ ok: false, message: 'ItemCode is required' });
+      if (qty <= 0) return res.status(400).json({ ok: false, message: 'Quantity must be > 0' });
 
       const current = normalizedItemsMap.get(itemCode);
       if (current) {
@@ -1000,12 +1078,7 @@ const invoiceNo = `INV-${datePart}-${String(seq).padStart(3, '0')}`;
         current.SalesPrice = salesPrice;
         current.ItemRemarks = itemRemarks;
       } else {
-        normalizedItemsMap.set(itemCode, {
-          ItemCode: itemCode,
-          QTY: qty,
-          SalesPrice: salesPrice,
-          ItemRemarks: itemRemarks,
-        });
+        normalizedItemsMap.set(itemCode, { ItemCode: itemCode, QTY: qty, SalesPrice: salesPrice, ItemRemarks: itemRemarks });
       }
     }
 
@@ -1015,114 +1088,124 @@ const invoiceNo = `INV-${datePart}-${String(seq).padStart(3, '0')}`;
     try {
       await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
+      if (!invoiceNo) {
+        const activeInvoiceReq = new sql.Request(transaction);
+        activeInvoiceReq.input('TabelNo', sql.NVarChar(50), tableNo);
+        const activeInvoiceResult = await activeInvoiceReq.query(`
+          SELECT TOP 1 InvoiceNo
+          FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
+          WHERE TabelNo = @TabelNo AND (IsPaid = 0 OR IsPaid IS NULL)
+          ORDER BY TxnDateTime DESC
+        `);
+
+        invoiceNo = pickString(activeInvoiceResult.recordset?.[0]?.InvoiceNo, 50);
+      }
+
+      if (!invoiceNo) {
+        const sriLankaNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+        const datePart = sriLankaNow.toISOString().slice(0, 10).replace(/-/g, '');
+
+        const seqResult = await new sql.Request(transaction).query(`
+          UPDATE dbo.Tbl_Serials
+          SET SeriNo = CASE WHEN SeriDate = CAST(DATEADD(MINUTE, 330, GETUTCDATE()) AS DATE) THEN CAST(CAST(SeriNo AS INT) + 1 AS CHAR(10)) ELSE '1' END,
+              SeriDate = CAST(DATEADD(MINUTE, 330, GETUTCDATE()) AS DATE)
+          OUTPUT CAST(INSERTED.SeriNo AS INT) AS SeriNo
+          WHERE SeriCode = 'INV'
+        `);
+
+        const seq = Number(seqResult.recordset[0].SeriNo);
+        invoiceNo = `INV-${datePart}-${String(seq).padStart(3, '0')}`;
+      }
+
       let resolvedTableGrpId = tableGrpId;
       try {
         const tblGrpReq = new sql.Request(transaction);
         tblGrpReq.input('TableNo', sql.NVarChar(50), tableNo);
-        const tblGrpResult = await tblGrpReq.query(
-          'SELECT TableGroup FROM dbo.Tbl_Tables WHERE TableNo = @TableNo'
-        );
+        const tblGrpResult = await tblGrpReq.query('SELECT TableGroup FROM dbo.Tbl_Tables WHERE TableNo = @TableNo');
         if (tblGrpResult.recordset.length > 0 && tblGrpResult.recordset[0].TableGroup != null) {
           resolvedTableGrpId = pickString(tblGrpResult.recordset[0].TableGroup, 50);
         }
-      } catch (tblGrpErr) {
-        console.warn('[TableGroup Lookup] Failed, falling back to request value:', tblGrpErr?.message);
-      }
+      } catch (_) {}
 
       for (const item of normalizedItems) {
-        try {
-          const lookupReq = new sql.Request(transaction);
-          lookupReq.input('TabelNo', sql.NVarChar(50), tableNo); 
-          lookupReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+        const lookupReq = new sql.Request(transaction);
+        lookupReq.input('TabelNo', sql.NVarChar(50), tableNo); 
+        lookupReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
+        lookupReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
 
-          const existing = await lookupReq.query(`
-            SELECT QTY
-            FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
-            WHERE TabelNo = @TabelNo
-              AND ItemCode = @ItemCode
-              AND (IsPaid = 0 OR IsPaid IS NULL)
+        const existing = await lookupReq.query(`
+          SELECT QTY FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
+          WHERE TabelNo = @TabelNo AND InvoiceNo = @InvoiceNo AND ItemCode = @ItemCode AND (IsPaid = 0 OR IsPaid IS NULL)
+        `);
+
+        const existingQty = Number(existing.recordset?.[0]?.QTY ?? 0);
+        const rowExists = (existing.recordset?.length ?? 0) > 0;
+
+        if (rowExists) {
+          const updateReq = new sql.Request(transaction);
+          updateReq.input('TabelNo', sql.NVarChar(50), tableNo);
+          updateReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
+          updateReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+          updateReq.input('QTY', sql.Float, item.QTY);
+          updateReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
+          updateReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
+          updateReq.input('UserID', sql.NVarChar(50), userId);
+          updateReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId);
+          updateReq.input('LPax', sql.Float, lPax);
+          updateReq.input('FPax', sql.Float, fPax);
+          updateReq.input('OderType', sql.VarChar(5), orderTypeVal); 
+
+          await updateReq.query(`
+            UPDATE dbo.Tbl_HoldUpsCloud
+            SET QTY = @QTY, SalesPrice = @SalesPrice, ItemRemarks = @ItemRemarks, UserID = @UserID, TabelGrpID = @TabelGrpID, LPax = @LPax, FPax = @FPax, OderType = @OderType, InvoiceNo = @InvoiceNo, TxnDateTime = ${SQL_SRI_LANKA_NOW}
+            WHERE TabelNo = @TabelNo AND InvoiceNo = @InvoiceNo AND ItemCode = @ItemCode
           `);
+        } else {
+          const insertReq = new sql.Request(transaction);
+          insertReq.input('TabelNo', sql.NVarChar(50), tableNo);
+          insertReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+          insertReq.input('QTY', sql.Float, item.QTY);
+          insertReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
+          insertReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
+          insertReq.input('UserID', sql.NVarChar(50), userId);
+          insertReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId);
+          insertReq.input('LPax', sql.Float, lPax);
+          insertReq.input('FPax', sql.Float, fPax);
+          insertReq.input('OderType', sql.VarChar(5), orderTypeVal); 
+          insertReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo); 
+          insertReq.input('IsPaid', sql.Bit, 0);
 
-          const existingQty = Number(existing.recordset?.[0]?.QTY ?? 0);
-          const rowExists = (existing.recordset?.length ?? 0) > 0;
-
-
-          if (rowExists) {
-            const updateReq = new sql.Request(transaction);
-            updateReq.input('TabelNo', sql.NVarChar(50), tableNo);
-            updateReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
-            updateReq.input('QTY', sql.Float, item.QTY);
-            updateReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
-            updateReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
-            updateReq.input('UserID', sql.NVarChar(50), userId);
-            updateReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId);
-            updateReq.input('LPax', sql.Float, lPax);
-            updateReq.input('FPax', sql.Float, fPax);
-            updateReq.input('OderType', sql.VarChar(5), orderTypeVal); 
-
-            await updateReq.query(`
-              UPDATE dbo.Tbl_HoldUpsCloud
-              SET QTY = @QTY,
-                  SalesPrice = @SalesPrice,
-                  ItemRemarks = @ItemRemarks,
-                  UserID = @UserID,
-                  TabelGrpID = @TabelGrpID,
-                  LPax = @LPax,
-                  FPax = @FPax,
-                  OderType = @OderType, 
-                  TxnDateTime = ${SQL_SRI_LANKA_NOW}
-              WHERE TabelNo = @TabelNo
-                AND ItemCode = @ItemCode
-            `);
-          } else {
-            const insertReq = new sql.Request(transaction);
-            insertReq.input('TabelNo', sql.NVarChar(50), tableNo);
-            insertReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
-            insertReq.input('QTY', sql.Float, item.QTY);
-            insertReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
-            insertReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
-            insertReq.input('UserID', sql.NVarChar(50), userId);
-            insertReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId);
-            insertReq.input('LPax', sql.Float, lPax);
-            insertReq.input('FPax', sql.Float, fPax);
-            insertReq.input('OderType', sql.VarChar(5), orderTypeVal); 
-            insertReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
-            insertReq.input('IsPaid', sql.Bit, 0);
-
-            await insertReq.query(`
-              INSERT INTO dbo.Tbl_HoldUpsCloud
-                (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, OderType, InvoiceNo, IsPaid, TxnDateTime) 
-              VALUES
-                (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, @OderType, @InvoiceNo, @IsPaid, ${SQL_SRI_LANKA_NOW})
-            `);
-          }
-
-          const deltaQty = rowExists ? (item.QTY - existingQty) : item.QTY;
-          if (deltaQty !== 0) {
-            const tempReq = new sql.Request(transaction);
-            tempReq.input('TabelNo', sql.NVarChar(50), tableNo);
-            tempReq.input('UserID', sql.NVarChar(50), userId);
-            tempReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
-            tempReq.input('QTY', sql.Float, deltaQty);
-            tempReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
-            tempReq.input('VoidRemark', sql.NVarChar(500), '');
-            tempReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId || null);
-            tempReq.input('LPax', sql.Float, lPax);
-            tempReq.input('FPax', sql.Float, fPax);
-            tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
-            tempReq.input('OderType', sql.VarChar(5), orderTypeVal); // 👈 [FIXED]
-
-            await tempReq.query(`
-              INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-                (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, MgrID, OderType, AoR)
-              VALUES
-                (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, '0', @OderType, 'A')
-            `);
-          }
-        } catch (err) {
-          console.error(`[DB ERROR] Failed to save item: ${item.ItemCode} -> Error:`, err.message);
-          throw err;
+          await insertReq.query(`
+            INSERT INTO dbo.Tbl_HoldUpsCloud (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, OderType, InvoiceNo, IsPaid, TxnDateTime) 
+            VALUES (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, @OderType, @InvoiceNo, @IsPaid, ${SQL_SRI_LANKA_NOW})
+          `);
         }
+
+        
+        const deltaQty = rowExists ? (item.QTY - existingQty) : item.QTY;
+        if (deltaQty !== 0) {
+          const tempReq = new sql.Request(transaction);
+          tempReq.input('TabelNo', sql.NVarChar(50), tableNo);
+          tempReq.input('UserID', sql.NVarChar(50), userId);
+          tempReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+          tempReq.input('QTY', sql.Float, deltaQty);
+          tempReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
+          tempReq.input('VoidRemark', sql.NVarChar(500), '');
+          tempReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId || null);
+          tempReq.input('LPax', sql.Float, lPax);
+          tempReq.input('FPax', sql.Float, fPax);
+          tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
+          tempReq.input('OderType', sql.VarChar(5), orderTypeVal); 
+
+          await tempReq.query(`
+            INSERT INTO dbo.Tbl_HoldUpsCloudTemp (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, MgrID, OderType, AoR)
+            VALUES (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, '0', @OderType, 'A')
+          `);
+        }
+      }
+
+      if (orderTypeVal !== 'TA' && tableNo) {
+        await setTableVaccantState(transaction, tableNo, 'N');
       }
 
       await transaction.commit();
@@ -1136,7 +1219,7 @@ const invoiceNo = `INV-${datePart}-${String(seq).padStart(3, '0')}`;
       return sendSqlError(res, error, 'Failed to confirm cart');
     }
   } catch (error) {
-    return res.status(500).json({ ok: false, message: error.message || 'Failed to confirm cart' });
+    return res.status(500).json({ ok: false, message: error.message });
   }
 };
 
@@ -1386,32 +1469,47 @@ const billingRemoveItemHandler = async (req, res) => {
 
 const getActiveBillItemsHandler = async (req, res) => {
   try {
-    const tableNo = pickString(req.query?.tableNo ?? req.body?.tableNo ?? req.body?.TableNo, 50);
-    if (!tableNo) return res.status(400).json({ ok: false, message: 'TableNo is required.' });
+    const tableNo   = pickString(req.query?.tableNo   ?? req.body?.tableNo   ?? req.body?.TableNo,   50);
+    const invoiceNo = pickString(req.query?.invoiceNo ?? req.body?.invoiceNo ?? req.body?.InvoiceNo, 50);
 
-    const pool = await poolPromise;
-    const result = await pool.request()
-      .input('TabelNo', sql.NVarChar(50), tableNo)
-      .query(`
-        SELECT
-          h.TabelNo, h.ItemCode,
-          COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), h.ItemCode) AS MenuItmDes,
-          h.QTY, h.SalesPrice, COALESCE(h.ItemRemarks, '') AS ItemRemarks,
-          h.TabelGrpID, h.UserID, h.LPax, h.FPax, h.TxnDateTime, h.InvoiceNo, h.IsPaid
-        FROM dbo.Tbl_HoldUpsCloud h
-        LEFT JOIN Vw_MenuAssignment m ON m.MenuItemCode = h.ItemCode
-        WHERE h.TabelNo = @TabelNo
-          AND (h.IsPaid = 0 OR h.IsPaid IS NULL)
-        ORDER BY h.TxnDateTime, h.ItemCode
-      `);
+    if (!tableNo && !invoiceNo) {
+      return res.status(400).json({ ok: false, message: 'tableNo or invoiceNo is required.' });
+    }
+
+    const pool    = await poolPromise;
+    const request = pool.request();
+    let whereClause = '';
+
+    if (invoiceNo) {
+      // Exact invoice match — correct rows regardless of how many invoices
+      // exist for the same table number.
+      request.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
+      whereClause = 'WHERE h.InvoiceNo = @InvoiceNo AND (h.IsPaid = 0 OR h.IsPaid IS NULL)';
+    } else {
+      // Fallback: tableNo only (backward compat)
+      request.input('TabelNo', sql.NVarChar(50), tableNo);
+      whereClause = 'WHERE h.TabelNo = @TabelNo AND (h.IsPaid = 0 OR h.IsPaid IS NULL)';
+    }
+
+    const result = await request.query(`
+      SELECT
+        h.TabelNo, h.ItemCode,
+        COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), h.ItemCode) AS MenuItmDes,
+        h.QTY, h.SalesPrice, COALESCE(h.ItemRemarks, '') AS ItemRemarks,
+        h.TabelGrpID, h.UserID, h.LPax, h.FPax, h.TxnDateTime, h.InvoiceNo, h.IsPaid
+      FROM dbo.Tbl_HoldUpsCloud h
+      LEFT JOIN Vw_MenuAssignment m ON m.MenuItemCode = h.ItemCode
+      ${whereClause}
+      ORDER BY h.TxnDateTime, h.ItemCode
+    `);
 
     const first = result.recordset[0];
 
     return res.json({
       ok: true,
       data: {
-        tableNo,
-        invoiceNo: first?.InvoiceNo ?? null,
+        tableNo: first?.TabelNo ?? tableNo,
+        invoiceNo: first?.InvoiceNo ?? invoiceNo ?? null,
         lPax: Number(first?.LPax ?? 0),
         fPax: Number(first?.FPax ?? 0),
         tableGrpId: first?.TabelGrpID ?? '',
@@ -1435,25 +1533,55 @@ const getActiveBillItemsHandler = async (req, res) => {
 
 const getUnpaidBillsHandler = async (req, res) => {
   try {
-    const pool = await poolPromise;
-    const result = await pool.request().query(`
+    // groupId '003' = Manager → sees ALL unpaid bills.
+    // All others → only their own bills (UserID = their userId).
+    let callerUserId  = null;
+    let callerGroupId = null;
+    try {
+      const authHeader = (req.get && req.get('authorization')) || req.headers.authorization || '';
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const decoded = jwt.verify(authHeader.slice(7).trim(), JWT_SECRET_KEY);
+        if (decoded && typeof decoded === 'object') {
+          callerUserId  = pickString(decoded.userId,  50) || null;
+          callerGroupId = pickString(decoded.groupId, 20) || null;
+        }
+      }
+    } catch (_) { /* unauthenticated */ }
+
+    const isManager = callerGroupId === '003';
+
+    const pool    = await poolPromise;
+    const request = pool.request();
+
+    let whereClause = 'WHERE IsPaid = 0';
+    if (!isManager) {
+      if (!callerUserId) return res.json({ ok: true, data: [] });
+      request.input('CallerUserId', sql.NVarChar(50), callerUserId);
+      whereClause += ' AND UserID = @CallerUserId';
+    }
+
+    const result = await request.query(`
       SELECT
         InvoiceNo,
         TabelNo,
+        UserID,
         MAX(TxnDateTime) AS OrderTime,
         SUM(QTY * SalesPrice) AS TotalAmount
       FROM dbo.Tbl_HoldUpsCloud
-      WHERE IsPaid = 0
-      GROUP BY InvoiceNo, TabelNo
+      ${whereClause}
+      GROUP BY InvoiceNo, TabelNo, UserID
       ORDER BY MAX(TxnDateTime) DESC
     `);
+
+    console.log('[Backend] /api/unpaid-bills caller=', callerUserId, 'groupId=', callerGroupId, 'isManager=', isManager, 'rows=', result.recordset.length);
 
     return res.json({
       ok: true,
       data: result.recordset.map((row) => ({
-        invoiceNo: row.InvoiceNo,
-        tableNo: row.TabelNo,
-        orderTime: row.OrderTime,
+        invoiceNo:   row.InvoiceNo,
+        tableNo:     row.TabelNo,
+        userId:      row.UserID,
+        orderTime:   row.OrderTime,
         totalAmount: Number(row.TotalAmount ?? 0),
       })),
     });
@@ -1531,28 +1659,88 @@ const getBillItemsHandler = async (req, res) => {
 const payBillHandler = async (req, res) => {
   try {
     const invoiceNo = pickString(req.body?.invoiceNo ?? req.body?.InvoiceNo, 50);
+    const requestedTableNo = pickString(req.body?.tableNo ?? req.body?.TableNo ?? req.body?.TabelNo, 50);
     if (!invoiceNo) {
       return res.status(400).json({ ok: false, message: 'invoiceNo is required.' });
     }
 
     const pool = await poolPromise;
-    const result = await pool.request()
-      .input('InvoiceNo', sql.NVarChar(50), invoiceNo)
-      .query('UPDATE dbo.Tbl_HoldUpsCloud SET IsPaid = 1 WHERE InvoiceNo = @InvoiceNo');
+    const transaction = new sql.Transaction(pool);
 
-    if (!result.rowsAffected || !result.rowsAffected[0]) {
-      return res.status(404).json({ ok: false, message: 'No bill found for that invoice number.' });
+    try {
+      await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
+      const lookupReq = new sql.Request(transaction);
+      lookupReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
+      const billLookup = await lookupReq.query(`
+        SELECT TOP 1 TabelNo
+        FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK)
+        WHERE InvoiceNo = @InvoiceNo
+      `);
+
+      const billTableNo = pickString(requestedTableNo || billLookup.recordset?.[0]?.TabelNo, 50);
+      if (billLookup.recordset.length === 0) {
+        await transaction.rollback();
+        return res.status(404).json({ ok: false, message: 'No bill found for that invoice number.' });
+      }
+
+      const result = await new sql.Request(transaction)
+        .input('InvoiceNo', sql.NVarChar(50), invoiceNo)
+        .query('UPDATE dbo.Tbl_HoldUpsCloud SET IsPaid = 1 WHERE InvoiceNo = @InvoiceNo');
+
+      if (!result.rowsAffected || !result.rowsAffected[0]) {
+        throw new Error('No bill found for that invoice number.');
+      }
+
+      if (billTableNo) {
+        await setTableVaccantState(transaction, billTableNo, 'Y');
+      }
+
+      await transaction.commit();
+      return res.json({ ok: true, message: 'Bill marked as paid', data: { invoiceNo, tableNo: billTableNo || null } });
+    } catch (error) {
+      try { await transaction.rollback(); } catch (_) {}
+      return res.status(500).json({ ok: false, message: error.message || 'Failed to pay bill.' });
     }
-
-    return res.json({ ok: true, message: 'Bill marked as paid', data: { invoiceNo } });
   } catch (error) {
     return res.status(500).json({ ok: false, message: error.message || 'Failed to pay bill.' });
+  }
+};
+
+const updateTableStatusHandler = async (req, res) => {
+  const body = req.body || {};
+  const tableId = pickString(body.tableId ?? body.tableNo ?? body.TableNo ?? body.TableId, 50);
+  const status = normalizeVaccantStatus(body.status ?? body.Vaccant);
+
+  if (!tableId) {
+    return res.status(400).json({ ok: false, message: 'tableId is required.' });
+  }
+  if (!status) {
+    return res.status(400).json({ ok: false, message: "status must be either 'Y' or 'N'." });
+  }
+
+  try {
+    const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
+
+    try {
+      await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+      await setTableVaccantState(transaction, tableId, status);
+      await transaction.commit();
+      return res.json({ ok: true, message: 'Table status updated successfully.', data: { tableId, status } });
+    } catch (error) {
+      try { await transaction.rollback(); } catch (_) {}
+      return res.status(500).json({ ok: false, message: error.message || 'Failed to update table status.' });
+    }
+  } catch (error) {
+    return res.status(500).json({ ok: false, message: error.message || 'Failed to update table status.' });
   }
 };
 
 app.get('/api/unpaid-bills', getUnpaidBillsHandler);
 app.get('/api/bill-items', getBillItemsHandler);
 app.post('/api/pay-bill', payBillHandler);
+app.post('/api/tables/status', updateTableStatusHandler);
 
 app.get('/api/customer/:phone', async (req, res) => {
   try {
@@ -1720,36 +1908,155 @@ app.get('/api/table-groups', async (req, res) => {
 
 // floor access management
 app.post('/api/user-floor-access/save', async (req, res) => {
-  const { UserId, TableGroupIds, AssignedBy } = req.body;
+  const body = req.body || {};
+  const targetUserId = pickString(body.UserId ?? body.userId, 50);
+  const assignedBy = pickString(body.AssignedBy ?? body.assignedBy ?? getBearerUserId(req, 'SYSTEM'), 50) || 'SYSTEM';
+  const incomingGroupIds = Array.isArray(body.TableGroupIds) ? body.TableGroupIds : [];
+  const tableGroupIds = [...new Set(incomingGroupIds.map((id) => pickString(id, 50)).filter(Boolean))];
 
-  if (!UserId || !Array.isArray(TableGroupIds)) {
-    return res.status(400).json({ success: false, message: 'Invalid payload. UserId and TableGroupIds array are required.' });
+  if (!targetUserId || tableGroupIds.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'UserId and TableGroupIds array are required.',
+    });
   }
+
+  const isNumericSqlType = (dataType) =>
+    ['int', 'bigint', 'smallint', 'tinyint', 'numeric', 'decimal', 'money', 'smallmoney'].includes(String(dataType || '').toLowerCase());
+
+  const makeColumnInput = (request, inputName, dataType, value) => {
+    const normalizedType = String(dataType || '').toLowerCase();
+    if (normalizedType === 'bigint') return request.input(inputName, sql.BigInt, value);
+    if (normalizedType === 'int') return request.input(inputName, sql.Int, value);
+    if (normalizedType === 'smallint') return request.input(inputName, sql.SmallInt, value);
+    if (normalizedType === 'tinyint') return request.input(inputName, sql.TinyInt, value);
+    if (normalizedType === 'bit') return request.input(inputName, sql.Bit, Boolean(value));
+    if (normalizedType === 'money' || normalizedType === 'smallmoney') return request.input(inputName, sql.Money, value);
+    if (normalizedType === 'numeric' || normalizedType === 'decimal') return request.input(inputName, sql.Decimal(18, 0), value);
+    return request.input(inputName, sql.NVarChar(50), String(value));
+  };
 
   try {
     const pool = await poolPromise;
+    const transaction = new sql.Transaction(pool);
 
-    // Delete existing access for this user
-    await pool.request()
-      .input('UserId', sql.VarChar(50), String(UserId))
-      .query('DELETE FROM Tbl_TableGroupAccess WHERE UserId = @UserId');
+    await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
-    // Insert each selected TableGroupId (FloorName is populated from
-    // Tbl_TableGroup.GroupName since the column still exists and disallows NULLs)
-    for (const groupId of TableGroupIds) {
-      await pool.request()
-        .input('UserId',       sql.VarChar(50), String(UserId))
-        .input('TableGroupId', sql.VarChar(50), String(groupId))
-        .input('AssignedBy',   sql.VarChar(50), String(AssignedBy || ''))
-        .query(`
-          INSERT INTO Tbl_TableGroupAccess (UserId, TableGroupId, FloorName, AssignedBy)
-          SELECT @UserId, @TableGroupId, g.GroupName, @AssignedBy
-          FROM Tbl_TableGroup g
-          WHERE g.GroupId = @TableGroupId
+    try {
+      const metaReq = new sql.Request(transaction);
+      const metaResult = await metaReq.query(`
+        SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = 'dbo'
+          AND (
+            (TABLE_NAME = 'Tbl_TableGroupAccess' AND COLUMN_NAME IN ('UserId', 'TableGroupId', 'AssignedBy'))
+            OR (TABLE_NAME = 'Tbl_UserDetails' AND COLUMN_NAME = 'UserId')
+            OR (TABLE_NAME = 'Tbl_TableGroup' AND COLUMN_NAME = 'GroupId')
+          )
+      `);
+
+      const columnTypes = {};
+      for (const row of metaResult.recordset) {
+        columnTypes[`${row.TABLE_NAME}.${row.COLUMN_NAME}`] = String(row.DATA_TYPE || '').toLowerCase();
+      }
+
+      const accessUserIdType = columnTypes['Tbl_TableGroupAccess.UserId'] || 'nvarchar';
+      const accessGroupIdType = columnTypes['Tbl_TableGroupAccess.TableGroupId'] || 'nvarchar';
+      const accessAssignedByType = columnTypes['Tbl_TableGroupAccess.AssignedBy'] || 'nvarchar';
+
+      const targetUserIdIsNumeric = /^-?\d+$/.test(targetUserId);
+      if (isNumericSqlType(accessUserIdType) && !targetUserIdIsNumeric) {
+        throw new Error(`UserId column expects a numeric value, but received '${targetUserId}'.`);
+      }
+
+      const numericGroupIds = tableGroupIds.filter((groupId) => /^-?\d+$/.test(groupId));
+      if (isNumericSqlType(accessGroupIdType) && numericGroupIds.length !== tableGroupIds.length) {
+        throw new Error('One or more TableGroupIds are not numeric while the database column expects numeric values.');
+      }
+
+      const userExistsReq = new sql.Request(transaction);
+      userExistsReq.input('UserId', sql.NVarChar(50), targetUserId);
+      const userExistsResult = await userExistsReq.query(`
+        SELECT TOP 1 1 AS found
+        FROM dbo.Tbl_UserDetails WITH (UPDLOCK, HOLDLOCK)
+        WHERE RTRIM(LTRIM(CAST(UserId AS NVARCHAR(50)))) = RTRIM(LTRIM(@UserId))
+      `);
+
+      if (userExistsResult.recordset.length === 0) {
+        throw new Error(`Target user not found: ${targetUserId}`);
+      }
+
+      const validatedGroups = [];
+      for (const groupId of tableGroupIds) {
+        const groupReq = new sql.Request(transaction);
+        groupReq.input('GroupId', sql.NVarChar(50), groupId);
+        const groupResult = await groupReq.query(`
+          SELECT TOP 1 GroupId, GroupName
+          FROM dbo.Tbl_TableGroup WITH (UPDLOCK, HOLDLOCK)
+          WHERE RTRIM(LTRIM(CAST(GroupId AS NVARCHAR(50)))) = RTRIM(LTRIM(@GroupId))
         `);
-    }
 
-    return res.json({ success: true, message: 'Floor access updated successfully!' });
+        if (groupResult.recordset.length === 0) {
+          throw new Error(`Invalid floor group id: ${groupId}`);
+        }
+
+        validatedGroups.push({
+          GroupId: String(groupResult.recordset[0].GroupId).trim(),
+          GroupName: String(groupResult.recordset[0].GroupName ?? '').trim(),
+        });
+      }
+
+      const deleteReq = new sql.Request(transaction);
+      makeColumnInput(deleteReq, 'UserId', accessUserIdType, targetUserIdIsNumeric ? Number(targetUserId) : targetUserId);
+      await deleteReq.query(`
+        DELETE FROM dbo.Tbl_TableGroupAccess
+        WHERE RTRIM(LTRIM(CAST(UserId AS NVARCHAR(50)))) = RTRIM(LTRIM(@UserId))
+      `);
+
+      for (const group of validatedGroups) {
+        const insertReq = new sql.Request(transaction);
+        makeColumnInput(insertReq, 'UserId', accessUserIdType, targetUserIdIsNumeric ? Number(targetUserId) : targetUserId);
+        makeColumnInput(insertReq, 'TableGroupId', accessGroupIdType, /^-?\d+$/.test(group.GroupId) ? Number(group.GroupId) : group.GroupId);
+        makeColumnInput(insertReq, 'FloorName', 'nvarchar', group.GroupName);
+        makeColumnInput(insertReq, 'AssignedBy', accessAssignedByType, assignedBy);
+
+        await insertReq.query(`
+          INSERT INTO dbo.Tbl_TableGroupAccess (UserId, TableGroupId, FloorName, AssignedBy)
+          VALUES (@UserId, @TableGroupId, @FloorName, @AssignedBy)
+        `);
+      }
+
+      await transaction.commit();
+
+      return res.json({
+        success: true,
+        message: 'Floor access updated successfully!',
+        data: {
+          UserId: targetUserId,
+          TableGroupIds: validatedGroups.map((group) => group.GroupId),
+        },
+      });
+    } catch (error) {
+      try { await transaction.rollback(); } catch (_) {}
+      console.error('Error saving floor access:', error);
+
+      const message = error.message || 'Server error saving floor access';
+      if (message.startsWith('Target user not found')) {
+        return res.status(404).json({ success: false, message });
+      }
+      if (
+        message.startsWith('Invalid floor group id')
+        || message.includes('expects a numeric value')
+        || message.includes('not numeric while the database column expects numeric values')
+      ) {
+        return res.status(400).json({ success: false, message });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message,
+      });
+    }
   } catch (error) {
     console.error('Error saving floor access:', error);
     return res.status(500).json({ success: false, message: 'Server error saving floor access', error: error.message });

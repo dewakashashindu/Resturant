@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,40 +15,54 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   useWindowDimensions,
-  View
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
 import { CartItem, useCartStore } from '../../services/cartStore';
+import useItemStore from '../../services/itemStore';
 import { useOrderStore } from '../../services/orderStore';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
 type VoidPresetItem = {
   VoidRmkId?: string | number;
   VoidDescription?: string;
 };
 
+// ─── Static data (outside component — never recreated) ────────────────────────
+const VOID_REMARK_PRESETS = [
+  'No Spicy',
+  'Extra Spicy',
+  'Less Spicy',
+  'No Onion',
+  'No Garlic',
+  'Take Away',
+];
+
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function BillingScreen() {
   const router = useRouter();
-const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams<{
-  tableName?: string;
-  tableNo?: string; 
-  localPax?: string;
-  foreignPax?: string;
-  floor?: string;
-}>();
-  
+  const { tableName, tableNo, localPax, foreignPax, floor, invoiceNo: routeInvoiceNo } =
+    useLocalSearchParams<{
+      tableName?: string;
+      tableNo?: string;
+      localPax?: string;
+      foreignPax?: string;
+      floor?: string;
+      invoiceNo?: string;
+      fromBilling?: string;
+    }>();
+
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const s = getDynamicStyles(width, height, insets.bottom);
 
-  // 2. Read live data and actions straight from Zustand store
+  // ── Zustand store ──────────────────────────────────────────────────────────
   const cartItems = useCartStore((state) => state.cartItems);
   const updateQuantityInCart = useCartStore((state) => state.updateQuantity);
   const setCartItemsInStore = useCartStore((state) => state.setCartItems);
-  const saveCurrentOrderToHold = useCartStore((state) => state.saveCurrentOrderToHold);
-  const clearHeldOrderForTable = useCartStore((state) => state.clearHeldOrderForTable);
 
-  // If we have a lastConfirmedOrder (set by Cart on confirm), prefer that snapshot
-  const lastConfirmedOrder = useOrderStore((s) => s.lastConfirmedOrder);
+  const lastConfirmedOrder = useOrderStore((state) => state.lastConfirmedOrder);
   const displayedItems = lastConfirmedOrder
     ? lastConfirmedOrder.items.map((it) => ({
         menuItemCode: it.menuItemCode,
@@ -59,6 +73,48 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
       }))
     : cartItems;
 
+  // ── Item store — used for category grouping ────────────────────────────────
+  const storeItems = useItemStore((state) => state.items);
+
+  const categoryByCode = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const item of storeItems) {
+      const code = String(item.MenuItemCode ?? item.ItemCode ?? '').trim();
+      const cat  = String(item.Category ?? '').trim();
+      if (code && cat) map[code] = cat;
+    }
+    return map;
+  }, [storeItems]);
+
+  const BILLING_CATEGORY_LABELS: Record<string, string> = {
+    F: 'Foods',
+    B: 'Beverages',
+    S: 'Siga',
+    O: 'Others',
+  };
+  const BILLING_CATEGORY_ORDER = ['F', 'B', 'S', 'O'];
+
+  type BillingSection = { categoryCode: string; label: string; items: typeof displayedItems };
+
+  const billingSections = useMemo((): BillingSection[] => {
+    const buckets: Record<string, typeof displayedItems> = {};
+    for (const item of displayedItems) {
+      const cat = categoryByCode[item.menuItemCode] ?? 'O';
+      if (!buckets[cat]) buckets[cat] = [];
+      buckets[cat].push(item);
+    }
+    const knownOrder = BILLING_CATEGORY_ORDER.filter((c) => buckets[c]);
+    const unknownOrder = Object.keys(buckets)
+      .filter((c) => !BILLING_CATEGORY_ORDER.includes(c))
+      .sort();
+    return [...knownOrder, ...unknownOrder].map((cat) => ({
+      categoryCode: cat,
+      label: BILLING_CATEGORY_LABELS[cat] ?? cat,
+      items: buckets[cat],
+    }));
+  }, [displayedItems, categoryByCode]);
+
+  // ── State ──────────────────────────────────────────────────────────────────
   const [isVoidModalVisible, setIsVoidModalVisible] = useState(false);
   const [activeVoidItem, setActiveVoidItem] = useState<CartItem | null>(null);
   const [pendingVoidItemId, setPendingVoidItemId] = useState<string | null>(null);
@@ -82,7 +138,6 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
   const [dbFPax, setDbFPax] = useState<number | null>(null);
   const [isLoadingBillFromDb, setIsLoadingBillFromDb] = useState(false);
 
-  // ── Billing Remark Modal (same cart-style popup) ──────────────────────────
   const [billingRemarkVisible, setBillingRemarkVisible] = useState(false);
   const [billingRemarkItemId, setBillingRemarkItemId] = useState<string | null>(null);
   const [billingRemarkItemName, setBillingRemarkItemName] = useState('');
@@ -92,12 +147,28 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
   const [billingIsViewingPresets, setBillingIsViewingPresets] = useState(false);
   const [billingRemarkOptions, setBillingRemarkOptions] = useState<string[]>([]);
   const [billingLoadingPresets, setBillingLoadingPresets] = useState(false);
-  // ─────────────────────────────────────────────────────────────────────────
 
+  // ── Refs ───────────────────────────────────────────────────────────────────
   const originalQuantitiesRef = useRef<Record<string, number>>({});
   const originalTableNoRef = useRef('');
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Derived values ─────────────────────────────────────────────────────────
+  const isTablet = width >= 600;
+  const isSmall = height < 700;
+
+  const activeTableNo = String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim();
+  const grossTotal = displayedItems.reduce((sum, item: any) => {
+    return sum + (Number(item.salesPrice ?? 0) || 0) * (Number(item.quantity ?? 0) || 0);
+  }, 0);
+  const footerButtonLabel = billingHasChanges ? 'Confirm Changes' : 'Print';
+  const footerButtonBackgroundColor = billingHasChanges ? '#D97706' : '#8D9ED4';
+
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', day: '2-digit', year: 'numeric' });
+
+  // ── Callbacks & Handlers ───────────────────────────────────────────────────
   const upsertVoidMetadata = useCallback((menuItemCode: string, remark: string, manager: string) => {
     setVoidMetadata((current) => ({
       ...current,
@@ -107,29 +178,6 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
       },
     }));
   }, []);
-
-  useEffect(() => {
-    if (!isPresetListView) return;
-
-    let isMounted = true;
-    void (async () => {
-      try {
-        const response = await apiClient.getVoidPresets();
-        if (!isMounted) return;
-        if (response.ok && Array.isArray(response.data)) {
-          setVoidPresetItems(response.data);
-        } else {
-          setVoidPresetItems([]);
-        }
-      } catch (error) {
-        if (isMounted) setVoidPresetItems([]);
-      }
-    })();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isPresetListView]);
 
   const deleteVoidMetadata = useCallback((menuItemCode: string) => {
     setVoidMetadata((current) => {
@@ -154,12 +202,13 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     setManagerPasswordError('');
   }, []);
 
-  // ── Billing Remark Modal Handlers ────────────────────────────────────────
   const openBillingRemarkModal = useCallback((item: any) => {
     setBillingRemarkItemId(item.menuItemCode);
     setBillingRemarkItemName(item.menuItmDes ?? '');
     const existing = String(item.itemRemarks ?? '').trim();
-    const parts = existing ? existing.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+    const parts = existing
+      ? existing.split(',').map((s: string) => s.trim()).filter(Boolean)
+      : [];
     setBillingModalTags(parts);
     setBillingRemarkDraft('');
     setBillingEditingTagIndex(null);
@@ -212,14 +261,11 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     }
     const compiled = finalTags.join(', ');
 
-    // Persist into confirmed order snapshot or live cart
     if (lastConfirmedOrder) {
       useOrderStore.getState().setLastConfirmedOrder({
         ...lastConfirmedOrder,
         items: lastConfirmedOrder.items.map((it) =>
-          it.menuItemCode === billingRemarkItemId
-            ? { ...it, itemRemarks: compiled }
-            : it
+          it.menuItemCode === billingRemarkItemId ? { ...it, itemRemarks: compiled } : it
         ),
       });
     } else {
@@ -242,7 +288,9 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
       const response = await apiClient.getVoidPresets();
       if (response.ok && Array.isArray(response.data)) {
         setBillingRemarkOptions(
-          response.data.map((d: any) => String(d.VoidDescription ?? '').trim()).filter(Boolean)
+          response.data
+            .map((d: any) => String(d.VoidDescription ?? '').trim())
+            .filter(Boolean)
         );
       } else {
         setBillingRemarkOptions([]);
@@ -253,14 +301,12 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
       setBillingLoadingPresets(false);
     }
   }, []);
-  // ─────────────────────────────────────────────────────────────────────────
 
   const showToast = useCallback((message: string) => {
     if (toastTimerRef.current) {
       clearTimeout(toastTimerRef.current);
       toastTimerRef.current = null;
     }
-
     setToastMessage(message);
     toastTimerRef.current = setTimeout(() => {
       setToastMessage(null);
@@ -268,141 +314,10 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     }, 1800);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) {
-        clearTimeout(toastTimerRef.current);
-      }
-    };
-  }, []);
-
-  
-  useEffect(() => {
-    const targetTableNo = String(tableName ?? tableNo ?? '').trim();
-    if (!targetTableNo) return;
-    if (lastConfirmedOrder || cartItems.length > 0) return;
-
-    let isMounted = true;
-    setIsLoadingBillFromDb(true);
-    void (async () => {
-      try {
-        const response = await apiClient.getActiveBillItems(targetTableNo);
-        if (!isMounted) return;
-        if (!response.ok || !response.data?.data) {
-          return;
-        }
-        const data = response.data.data;
-        setCartItemsInStore(Array.isArray(data.items) ? data.items : []);
-        setDbInvoiceNo(data.invoiceNo ?? null);
-        setDbLPax(typeof data.lPax === 'number' ? data.lPax : null);
-        setDbFPax(typeof data.fPax === 'number' ? data.fPax : null);
-      } catch (error) {
-        // Non-fatal: leave the screen empty and let the existing UI show "no items".
-      } finally {
-        if (isMounted) setIsLoadingBillFromDb(false);
-      }
-    })();
-
-    return () => {
-      isMounted = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableName, tableNo]);
-
-  const clearPendingChanges = () => {
+  const clearPendingChanges = useCallback(() => {
     setPendingAdditions({});
     setBillingHasChanges(false);
-  };
-
-  const buildHeldOrderSnapshot = useCallback(() => {
-    const tableNo = String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim();
-    const tableGrpId = String(lastConfirmedOrder?.tableGrpId ?? '').trim();
-    const userId = String(lastConfirmedOrder?.userId ?? 'SYSTEM').trim();
-    const lPax = Number(lastConfirmedOrder?.lPax ?? Number(localPax ?? dbLPax ?? 0)) || 0;
-    const fPax = Number(lastConfirmedOrder?.fPax ?? Number(foreignPax ?? dbFPax ?? 0)) || 0;
-    const computedGrossTotal = displayedItems.reduce((sum: number, item: any) => {
-      const price = Number(item.salesPrice ?? 0) || 0;
-      const qty = Number(item.quantity ?? 0) || 0;
-      return sum + price * qty;
-    }, 0);
-
-    return {
-      tableNo,
-      tableGrpId,
-      userId,
-      lPax,
-      fPax,
-      grossTotal: computedGrossTotal,
-      items: displayedItems.map((item: any) => ({
-        menuItemCode: String(item.menuItemCode ?? '').trim(),
-        menuItmDes: String(item.menuItmDes ?? '').trim(),
-        salesPrice: Number(item.salesPrice ?? 0) || 0,
-        quantity: Number(item.quantity ?? 0) || 0,
-        itemRemarks: String(item.itemRemarks ?? '').trim(),
-      })),
-      itemRemarksByCode: displayedItems.reduce<Record<string, string>>((acc, item: any) => {
-        acc[String(item.menuItemCode ?? '').trim()] = String(item.itemRemarks ?? '').trim();
-        return acc;
-      }, {}),
-      voidMetadata,
-      pendingAdditions,
-      billingHasChanges,
-    };
-  }, [billingHasChanges, displayedItems, foreignPax, dbFPax, dbLPax, lastConfirmedOrder?.fPax, lastConfirmedOrder?.lPax, lastConfirmedOrder?.tableGrpId, lastConfirmedOrder?.tableNo, lastConfirmedOrder?.userId, localPax, pendingAdditions, tableName, voidMetadata]);
-
-  const handleNewOrder = useCallback(() => {
-    if (!displayedItems.length) {
-      showToast('No active order to save');
-      return;
-    }
-
-    const tableNumber = String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim();
-    if (!tableNumber) {
-      Alert.alert('Table required', 'Please select or enter a table number before saving the order.');
-      return;
-    }
-
-    const saved = saveCurrentOrderToHold(tableNumber, {
-      ...buildHeldOrderSnapshot(),
-      savedAt: new Date().toISOString(),
-    });
-
-    if (!saved) {
-      Alert.alert('Save failed', 'Unable to save the current order right now.');
-      return;
-    }
-
-    clearPendingChanges();
-    setVoidMetadata({});
-    resetVoidState();
-    originalQuantitiesRef.current = {};
-    originalTableNoRef.current = '';
-    setBillingHasChanges(false);
-    showToast('Order saved successfully');
-    router.replace('/Screens/operation');
-  }, [buildHeldOrderSnapshot, clearPendingChanges, displayedItems.length, resetVoidState, saveCurrentOrderToHold, showToast]);
-
-  const activeTableNo = String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim();
-
-  useEffect(() => {
-    if (!activeTableNo) {
-      originalQuantitiesRef.current = {};
-      originalTableNoRef.current = '';
-      return;
-    }
-
-    const hasBaseline = originalTableNoRef.current === activeTableNo && Object.keys(originalQuantitiesRef.current).length > 0;
-    if (hasBaseline) return;
-
-    const sourceItems = lastConfirmedOrder?.items?.length ? lastConfirmedOrder.items : cartItems;
-    if (!sourceItems.length) return;
-
-    originalQuantitiesRef.current = sourceItems.reduce<Record<string, number>>((acc, item) => {
-      acc[item.menuItemCode] = Number(item.quantity ?? 0) || 0;
-      return acc;
-    }, {});
-    originalTableNoRef.current = activeTableNo;
-  }, [activeTableNo, cartItems, lastConfirmedOrder?.items]);
+  }, []);
 
   const getBaselineQuantity = useCallback((menuItemCode: string) => {
     return Number(originalQuantitiesRef.current[menuItemCode] ?? 0) || 0;
@@ -414,181 +329,106 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
       acc[item.menuItemCode] = Number(item.quantity ?? 0) || 0;
       return acc;
     }, {});
-
-    const allCodes = new Set<string>([
-      ...Object.keys(baseline),
-      ...Object.keys(currentMap),
-    ]);
-
+    const allCodes = new Set<string>([...Object.keys(baseline), ...Object.keys(currentMap)]);
     for (const code of allCodes) {
-      const baseQty = Number(baseline[code] ?? 0) || 0;
-      const currentQty = Number(currentMap[code] ?? 0) || 0;
-      if (baseQty !== currentQty) return true;
+      if ((Number(baseline[code] ?? 0) || 0) !== (Number(currentMap[code] ?? 0) || 0)) return true;
     }
-
     return false;
   }, [displayedItems]);
 
-  useEffect(() => {
-    setBillingHasChanges(hasQuantityChangesFromBaseline());
-  }, [hasQuantityChangesFromBaseline]);
-
   const rollbackItemToBaseline = useCallback((menuItemCode: string) => {
     const baselineQty = getBaselineQuantity(menuItemCode);
-
     if (lastConfirmedOrder) {
-      const exists = lastConfirmedOrder.items.some((item) => item.menuItemCode === menuItemCode);
-      if (!exists) return;
-
-      const rolledBack = {
+      if (!lastConfirmedOrder.items.some((item) => item.menuItemCode === menuItemCode)) return;
+      useOrderStore.getState().setLastConfirmedOrder({
         ...lastConfirmedOrder,
         items: lastConfirmedOrder.items
-          .map((item) =>
-            item.menuItemCode === menuItemCode ? { ...item, quantity: baselineQty } : item
-          )
+          .map((item) => item.menuItemCode === menuItemCode ? { ...item, quantity: baselineQty } : item)
           .filter((item) => Number(item.quantity ?? 0) > 0),
-      };
-      useOrderStore.getState().setLastConfirmedOrder(rolledBack);
+      });
       return;
     }
-
-    const exists = cartItems.some((item) => item.menuItemCode === menuItemCode);
-    if (!exists) return;
-
-    const rolledBack = cartItems
-      .map((item) =>
-        item.menuItemCode === menuItemCode ? { ...item, quantity: baselineQty } : item
-      )
-      .filter((item) => Number(item.quantity ?? 0) > 0);
-    setCartItemsInStore(rolledBack);
+    if (!cartItems.some((item) => item.menuItemCode === menuItemCode)) return;
+    setCartItemsInStore(
+      cartItems
+        .map((item) => item.menuItemCode === menuItemCode ? { ...item, quantity: baselineQty } : item)
+        .filter((item) => Number(item.quantity ?? 0) > 0)
+    );
     deleteVoidMetadata(menuItemCode);
   }, [cartItems, deleteVoidMetadata, getBaselineQuantity, lastConfirmedOrder, setCartItemsInStore]);
 
   const rollbackAllToBaseline = useCallback(() => {
     const baseline = originalQuantitiesRef.current;
-
     if (lastConfirmedOrder) {
-      const rolledBack = {
+      useOrderStore.getState().setLastConfirmedOrder({
         ...lastConfirmedOrder,
         items: lastConfirmedOrder.items
-          .map((item) => ({
-            ...item,
-            quantity: Number(baseline[item.menuItemCode] ?? 0) || 0,
-          }))
+          .map((item) => ({ ...item, quantity: Number(baseline[item.menuItemCode] ?? 0) || 0 }))
           .filter((item) => Number(item.quantity ?? 0) > 0),
-      };
-      useOrderStore.getState().setLastConfirmedOrder(rolledBack);
+      });
     } else {
-      const rolledBack = cartItems
-        .map((item) => ({
-          ...item,
-          quantity: Number(baseline[item.menuItemCode] ?? 0) || 0,
-        }))
-        .filter((item) => Number(item.quantity ?? 0) > 0);
-      setCartItemsInStore(rolledBack);
+      setCartItemsInStore(
+        cartItems
+          .map((item) => ({ ...item, quantity: Number(baseline[item.menuItemCode] ?? 0) || 0 }))
+          .filter((item) => Number(item.quantity ?? 0) > 0)
+      );
     }
-
     clearPendingChanges();
     setVoidMetadata({});
     resetVoidState();
-  }, [cartItems, lastConfirmedOrder, resetVoidState, setCartItemsInStore]);
+  }, [cartItems, clearPendingChanges, lastConfirmedOrder, resetVoidState, setCartItemsInStore]);
 
   const adjustPendingAddition = (menuItemCode: string, delta: number) => {
     setPendingAdditions((current) => {
       const next = { ...current };
       const nextValue = Math.max(0, (next[menuItemCode] ?? 0) + delta);
-
-      if (nextValue > 0) {
-        next[menuItemCode] = nextValue;
-      } else {
-        delete next[menuItemCode];
-      }
+      if (nextValue > 0) next[menuItemCode] = nextValue;
+      else delete next[menuItemCode];
       return next;
     });
   };
 
-  const voidRemarkPresets = [
-    'No Spicy',
-    'Extra Spicy',
-    'Less Spicy',
-    'No Onion',
-    'No Garlic',
-    'Take Away',
-  ];
+  const handleNewOrder = useCallback(() => {
+    // DB-driven flow: no MMKV hold needed. Just clear local state and go back
+    // so the user can start a fresh order. The DB still holds the current bill.
+    clearPendingChanges();
+    setVoidMetadata({});
+    resetVoidState();
+    originalQuantitiesRef.current = {};
+    originalTableNoRef.current = '';
+    setBillingHasChanges(false);
+    setCartItemsInStore([]);
+    useOrderStore.getState().clearLastConfirmedOrder();
+    router.replace('/Screens/operation');
+  }, [clearPendingChanges, resetVoidState, router, setCartItemsInStore]);
 
-  const isTablet = width >= 600;
-  const isSmall = height < 700;
-
-  const hPad = isTablet ? 40 : 16;
-  const headerH = isTablet ? 220 : isSmall ? 80 : 150;
-  const backIconSize = isTablet ? 56 : isSmall ? 14 : 34;
-  const backBtnSize = isTablet ? 40 : isSmall ? 30 : 44;
-  const titleFs = isTablet ? 32 : isSmall ? 20 : 24;
-  const logoW = isTablet ? 200 : isSmall ? 120 : 159;
-  const logoH = isTablet ? 100 : isSmall ? 44 : 60;
-  const tableFs = isTablet ? 24 : isSmall ? 13 : 16;
-  const dateFs = isTablet ? 16 : isSmall ? 11 : 14;
-  const itemFs = isTablet ? 20 : isSmall ? 13 : 16;
-  const totalFs = isTablet ? 24 : isSmall ? 14 : 16;
-  const btnH = isTablet ? 60 : isSmall ? 42 : 48;
-  const btnFs = isTablet ? 24 : isSmall ? 14 : 16;
-  const qtySize = isTablet ? 20 : isSmall ? 14 : 16;
-  const qtyBtnSize = isTablet ? 28 : isSmall ? 20 : 24;
-
-  // Simplified back handler: do not fetch or mutate store here.
   const goBack = useCallback(() => {
-    if (hasQuantityChangesFromBaseline()) {
-      rollbackAllToBaseline();
-    }
+    if (hasQuantityChangesFromBaseline()) rollbackAllToBaseline();
     router.back();
   }, [hasQuantityChangesFromBaseline, rollbackAllToBaseline, router]);
-
-  useEffect(() => {
-    const handler = () => {
-      goBack();
-      return true; // indicate we've handled the back press
-    };
-
-    const subscription = BackHandler.addEventListener('hardwareBackPress', handler);
-    return () => subscription.remove();
-  }, [goBack]);
 
   const openVoidModal = (menuItemCode: string, editOnly = false) => {
     const item = displayedItems.find((entry: any) => entry.menuItemCode === menuItemCode) ?? null;
     if (!item) return;
-
     const existingMeta = voidMetadata[menuItemCode] ?? { remark: '', manager: '' };
     const prefilledRemark = existingMeta.remark || (editOnly ? (item.itemRemarks ?? '') : '');
-    const prefilledManager = existingMeta.manager || '';
-
     setActiveVoidItem(item);
-    // If opening for editing an existing remark, do not default to removing quantity
-    if (editOnly) {
-      setVoidQuantity(0);
-      setVoidRemark(prefilledRemark);
-    } else {
-      setVoidQuantity(1);
-      setVoidRemark(prefilledRemark);
-    }
-    setManagerName(prefilledManager);
+    setVoidQuantity(editOnly ? 0 : 1);
+    setVoidRemark(prefilledRemark);
+    setManagerName(existingMeta.manager || '');
     setManagerPassword('');
     setIsManagerAuthView(false);
     setIsVoidModalVisible(true);
   };
 
-  // Handles when '-' is pressed on an item row
   const handleVoidPreview = (menuItemCode: string) => {
     const item = displayedItems.find((entry: any) => entry.menuItemCode === menuItemCode) ?? null;
     if (!item) return;
-    // If already staging a void for the same item, increment the staged void quantity
     if (pendingVoidItemId === menuItemCode && activeVoidItem && activeVoidItem.quantity) {
-      const current = voidQuantity || 1;
-      const maxQ = activeVoidItem.quantity;
-      setVoidQuantity(Math.min(maxQ, current + 1));
+      setVoidQuantity(Math.min(activeVoidItem.quantity, (voidQuantity || 1) + 1));
       setBillingHasChanges(true);
       return;
     }
-
     setActiveVoidItem(item as CartItem);
     setPendingVoidItemId(menuItemCode);
     setVoidQuantity(1);
@@ -598,24 +438,16 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     setManagerPasswordError('');
   };
 
-  //  Triggered when the manager inputs details and clicks Confirm inside Void Modal
   const handleVoidConfirm = async () => {
     if (!activeVoidItem) return;
-
     if (isManagerAuthView) {
       const trimmedManagerUsername = String(managerName || '').trim();
       const trimmedManagerPassword = String(managerPassword || '').trim();
-
       const nextManagerIdError = trimmedManagerUsername ? '' : 'Manager username is required!';
       const nextManagerPasswordError = trimmedManagerPassword ? '' : 'Password is required!';
-
       setManagerIdError(nextManagerIdError);
       setManagerPasswordError(nextManagerPasswordError);
-
-      if (nextManagerIdError || nextManagerPasswordError) {
-        return;
-      }
-
+      if (nextManagerIdError || nextManagerPasswordError) return;
       if (managerVerifying) return;
       setManagerVerifying(true);
       try {
@@ -625,14 +457,12 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
           return;
         }
       } catch (error) {
-        console.log('[BillingScreen] verifyManager failed', error);
         setManagerPasswordError('Could not verify manager. Check connection and try again.');
         return;
       } finally {
         setManagerVerifying(false);
       }
     }
-
     const itemCode = activeVoidItem.menuItemCode;
     const baselineQty = getBaselineQuantity(itemCode);
     const currentItem = displayedItems.find((it: any) => it.menuItemCode === itemCode);
@@ -640,68 +470,33 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     const isTrueVoidReduction = currentQty < baselineQty;
     const trimmedRemark = String(voidRemark || '').trim();
     const trimmedManager = String(managerName || '').trim();
-
     if (isTrueVoidReduction && (!trimmedRemark || !trimmedManager)) {
       Alert.alert('Validation Error', 'Void Remark and Manager Username are required');
       return;
     }
-
-    // Persist per-item metadata to avoid global overwrite across multiple void lines.
-    if (trimmedRemark || trimmedManager) {
-      upsertVoidMetadata(itemCode, trimmedRemark, trimmedManager);
-    }
-
-    // For edit-only remark updates, reflect immediately in local snapshot for UX parity.
+    if (trimmedRemark || trimmedManager) upsertVoidMetadata(itemCode, trimmedRemark, trimmedManager);
     if (lastConfirmedOrder && !isTrueVoidReduction) {
-      const updated = {
+      useOrderStore.getState().setLastConfirmedOrder({
         ...lastConfirmedOrder,
         items: lastConfirmedOrder.items.map((it) =>
           it.menuItemCode === itemCode
             ? { ...it, itemRemarks: trimmedRemark || it.itemRemarks }
             : it
         ),
-      };
-      useOrderStore.getState().setLastConfirmedOrder(updated);
+      });
     }
-
     resetVoidState();
   };
 
-  // Update quantity either in the confirmed snapshot or in the live cart store
   const updateDisplayedQuantity = (menuItemCode: string, delta: number) => {
     if (lastConfirmedOrder) {
       const currentItem = lastConfirmedOrder.items.find((it) => it.menuItemCode === menuItemCode);
       if (!currentItem) return;
-
       const originalQuantity = originalQuantitiesRef.current[menuItemCode] ?? (Number(currentItem.quantity ?? 0) || 0);
       const nextQuantity = Math.max(0, Number(currentItem.quantity ?? 0) + delta);
       const shouldOpenVoidRemark = delta < 0 && nextQuantity < originalQuantity;
-
-      const tableNo = lastConfirmedOrder.tableNo;
-      const tableGrpId = lastConfirmedOrder.tableGrpId ?? '';
-      const lPax = Number(lastConfirmedOrder.lPax ?? Number(localPax ?? 0));
-      const fPax = Number(lastConfirmedOrder.fPax ?? Number(foreignPax ?? 0));
-
-      if (delta > 0) {
-        useOrderStore.getState().setLastConfirmedOrder((current) => {
-          if (!current) return current;
-
-          return {
-            ...current,
-            items: current.items.map((it) =>
-              it.menuItemCode === menuItemCode
-                ? { ...it, quantity: Math.max(0, Math.floor(it.quantity + delta)) }
-                : it
-            ),
-          };
-        });
-        adjustPendingAddition(menuItemCode, delta);
-        return;
-      }
-
       useOrderStore.getState().setLastConfirmedOrder((current) => {
         if (!current) return current;
-
         return {
           ...current,
           items: current.items.map((it) =>
@@ -712,19 +507,16 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
         };
       });
       adjustPendingAddition(menuItemCode, delta);
-      // Only treat it as a void when the quantity drops below the original DB baseline.
-      const updatedItem = useOrderStore.getState().lastConfirmedOrder?.items.find((it) => it.menuItemCode === menuItemCode);
+      const updatedItem = useOrderStore.getState().lastConfirmedOrder?.items.find(
+        (it) => it.menuItemCode === menuItemCode
+      );
       if (shouldOpenVoidRemark && updatedItem) {
         setPendingVoidItemId(menuItemCode);
         setActiveVoidItem(updatedItem as CartItem);
       } else if (pendingVoidItemId === menuItemCode) {
-        setPendingVoidItemId(null);
-        setActiveVoidItem(null);
-        setVoidQuantity(1);
-        setVoidRemark('');
+        setPendingVoidItemId(null); setActiveVoidItem(null); setVoidQuantity(1); setVoidRemark('');
       }
     } else {
-      // live-cart: update store and show remark action when decrementing
       const cartItem = cartItems.find((c) => c.menuItemCode === menuItemCode) ?? null;
       const originalQuantity = originalQuantitiesRef.current[menuItemCode] ?? (Number(cartItem?.quantity ?? 0) || 0);
       const nextQuantity = Math.max(0, Number(cartItem?.quantity ?? 0) + delta);
@@ -735,10 +527,7 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
         setPendingVoidItemId(menuItemCode);
         setActiveVoidItem(cartItem);
       } else if (pendingVoidItemId === menuItemCode) {
-        setPendingVoidItemId(null);
-        setActiveVoidItem(null);
-        setVoidQuantity(1);
-        setVoidRemark('');
+        setPendingVoidItemId(null); setActiveVoidItem(null); setVoidQuantity(1); setVoidRemark('');
       }
     }
   };
@@ -751,495 +540,468 @@ const { tableName, tableNo, localPax, foreignPax, floor } = useLocalSearchParams
     resetVoidState();
   };
 
-  //Calculate gross total from the same items rendered on the billing screen
-  const grossTotal = displayedItems.reduce((sum, item: any) => {
-    const price = Number(item.salesPrice ?? 0) || 0;
-    const qty = Number(item.quantity ?? 0) || 0;
-    return sum + price * qty;
-  }, 0);
-
-  const footerButtonLabel = billingHasChanges ? 'Confirm Changes' : 'Print';
-  const footerButtonBackgroundColor = billingHasChanges ? '#D97706' : '#8D9ED4';
-
   const handleFooterAction = () => {
     if (billingHasChanges) {
       void (async () => {
         try {
           const voidCandidates = displayedItems.filter((item: any) => {
-            const baselineQty = getBaselineQuantity(item.menuItemCode);
-            const currentQty = Number(item.quantity ?? 0) || 0;
-            return currentQty < baselineQty;
+            return (Number(item.quantity ?? 0) || 0) < getBaselineQuantity(item.menuItemCode);
           });
-
           const voidCandidateMissingMeta = voidCandidates.some((candidate: any) => {
             const itemMeta = voidMetadata[candidate.menuItemCode] || { remark: '', manager: '' };
             return !String(itemMeta.remark).trim() || !String(itemMeta.manager).trim();
           });
-
           if (voidCandidateMissingMeta) {
             Alert.alert('Validation Error', 'Void Remark and Manager Approval are required');
             return;
           }
-
           const pendingEntries = Object.entries(pendingAdditions).filter(([, qty]) => qty > 0);
           if (pendingEntries.length === 0 && voidCandidates.length === 0) {
             clearPendingChanges();
             Alert.alert('Confirmed', 'No pending changes to save.');
             return;
           }
-
-          const tableNo = lastConfirmedOrder?.tableNo ?? String(tableName ?? '').trim();
+          const tNo = lastConfirmedOrder?.tableNo ?? String(tableName ?? '').trim();
           const tableGrpId = lastConfirmedOrder?.tableGrpId ?? '';
           const lPax = Number(lastConfirmedOrder?.lPax ?? Number(localPax ?? dbLPax ?? 0));
           const fPax = Number(lastConfirmedOrder?.fPax ?? Number(foreignPax ?? dbFPax ?? 0));
           const userId = lastConfirmedOrder?.userId ?? 'SYSTEM';
           const addBillingItem = apiClient.addBillingItem;
-
-          if (typeof addBillingItem !== 'function') {
-            throw new Error('Billing sync API is unavailable.');
-          }
-
+          if (typeof addBillingItem !== 'function') throw new Error('Billing sync API is unavailable.');
           const requests = pendingEntries.map(([menuItemCode, qty]) => {
             const currentItem = displayedItems.find((item: any) => item.menuItemCode === menuItemCode);
-            if (!currentItem) {
-              throw new Error(`Missing item details for ${menuItemCode}`);
-            }
-
+            if (!currentItem) throw new Error(`Missing item details for ${menuItemCode}`);
             return addBillingItem({
-              tableNo,
-              itemCode: menuItemCode,
-              qty,
+              tableNo: tNo, itemCode: menuItemCode, qty,
               salesPrice: Number(currentItem.salesPrice ?? 0) || 0,
               itemRemarks: currentItem.itemRemarks ?? '',
-              userId,
-              tableGrpId,
-              lPax,
-              fPax,
+              userId, tableGrpId, lPax, fPax,
               mgrId: String(voidMetadata[menuItemCode]?.manager ?? managerName).trim(),
             });
           });
-
           const voidRequests = voidCandidates.map((item: any) => {
             const baselineQty = getBaselineQuantity(item.menuItemCode);
             const currentQty = Number(item.quantity ?? 0) || 0;
             const qtyDifference = Math.max(0, baselineQty - currentQty);
             const itemMeta = voidMetadata[item.menuItemCode] || { remark: '', manager: '' };
-
-            if (qtyDifference <= 0) {
-              return Promise.resolve({ ok: true, data: {} });
-            }
-
+            if (qtyDifference <= 0) return Promise.resolve({ ok: true, data: {} });
             return apiClient.removeBillingItem({
-              tableNo,
-              itemCode: item.menuItemCode,
-              qtyDifference,
+              tableNo: tNo, itemCode: item.menuItemCode, qtyDifference,
               salesPrice: Number(item.salesPrice ?? 0) || 0,
               itemRemarks: '',
               voidRemark: String(itemMeta.remark).trim(),
-              userId,
-              tableGrpId,
-              lPax,
-              fPax,
+              userId, tableGrpId, lPax, fPax,
               mgrId: String(itemMeta.manager).trim(),
             });
           });
-
           const results = await Promise.all([...requests, ...voidRequests]);
           const failed = results.find((result) => !result.ok);
           if (failed) {
             const serverMsg = failed.data && (failed.data.message || JSON.stringify(failed.data));
             throw new Error(serverMsg || 'Failed to save billing changes');
           }
-
-          // After successful save, current quantities become the new baseline.
           originalQuantitiesRef.current = displayedItems.reduce<Record<string, number>>((acc, item: any) => {
             acc[item.menuItemCode] = Number(item.quantity ?? 0) || 0;
             return acc;
           }, {});
-
           clearPendingChanges();
           setVoidMetadata((current) => {
             const next = { ...current };
-            voidCandidates.forEach((candidate: any) => {
-              delete next[candidate.menuItemCode];
-            });
+            voidCandidates.forEach((candidate: any) => { delete next[candidate.menuItemCode]; });
             return next;
           });
           resetVoidState();
           Alert.alert('Confirmed', 'Billing changes saved successfully.');
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Failed to save billing changes';
-          Alert.alert('Save failed', message);
+          Alert.alert('Save failed', error instanceof Error ? error.message : 'Failed to save billing changes');
         }
       })();
       return;
     }
-
     (async () => {
       try {
-        if (hasQuantityChangesFromBaseline()) {
-          rollbackAllToBaseline();
-        }
-        const tableNo = lastConfirmedOrder?.tableNo ?? String(tableName ?? '').trim();
-
-        // Try to call a server-side finalize/print endpoint if available.
+        if (hasQuantityChangesFromBaseline()) rollbackAllToBaseline();
+        const tNo = lastConfirmedOrder?.tableNo ?? String(tableName ?? '').trim();
         let result: any = { ok: true, data: {} };
         if (typeof (apiClient as any).finalizeBill === 'function') {
-          result = await (apiClient as any).finalizeBill({ tableNo });
+          result = await (apiClient as any).finalizeBill({ tableNo: tNo });
         } else if (typeof (apiClient as any).printBill === 'function') {
-          result = await (apiClient as any).printBill({ tableNo });
+          result = await (apiClient as any).printBill({ tableNo: tNo });
         }
-
         if (!result.ok) {
           const serverMsg = result.data && (result.data.message || JSON.stringify(result.data));
           throw new Error(serverMsg || 'Failed to finalize/print bill');
         }
-
-        // Mark the bill as paid in the database (DB-driven billing) instead of
-        // just clearing a local MMKV "held order" snapshot.
         if (dbInvoiceNo) {
-          const payResult = await apiClient.payBill(dbInvoiceNo);
-          if (!payResult.ok) {
-            console.log('[BillingScreen] payBill failed', payResult.error);
-          }
-        } else {
-          // Fallback for the legacy local-cache flow if no DB invoice is known yet.
-          clearHeldOrderForTable(String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim());
+          const payResult = await apiClient.payBill({
+            invoiceNo: dbInvoiceNo,
+            tableNo: String(lastConfirmedOrder?.tableNo ?? tableName ?? tableNo ?? '').trim() || undefined,
+          });
+          if (!payResult.ok) console.log('[BillingScreen] payBill failed', payResult.error);
         }
-        // On successful finalize/payment, clear the global cart so the next customer starts fresh.
         useOrderStore.getState().clearLastConfirmedOrder();
-
         Alert.alert('Done', 'Payment completed and cart cleared.');
-        // Navigate back to the main screen (adjust as desired)
         router.push('/');
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to finalize/print bill';
-        Alert.alert('Finalize failed', message);
+        Alert.alert('Finalize failed', error instanceof Error ? error.message : 'Failed to finalize/print bill');
       }
     })();
   };
 
-  const now = new Date();
-  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', day: '2-digit', year: 'numeric' });
+  // ── Effects ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isPresetListView) return;
+    let isMounted = true;
+    void (async () => {
+      try {
+        const response = await apiClient.getVoidPresets();
+        if (!isMounted) return;
+        setVoidPresetItems(response.ok && Array.isArray(response.data) ? response.data : []);
+      } catch { if (isMounted) setVoidPresetItems([]); }
+    })();
+    return () => { isMounted = false; };
+  }, [isPresetListView]);
 
-return (
-    
-    <View style={styles.container}>
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const targetTableNo  = String(tableName ?? tableNo ?? '').trim();
+    const targetInvoiceNo = String(routeInvoiceNo ?? '').trim() || undefined;
+    // Always fetch from DB when arriving via the bill list.
+    // Do NOT skip because cartItems is non-empty — the previous bill's items
+    // may still be in the cart (Zustand in-memory), so clear first then fetch.
+    if (!targetTableNo || lastConfirmedOrder) return;
+    let isMounted = true;
+    setIsLoadingBillFromDb(true);
+    setCartItemsInStore([]);   // clear stale items immediately
+    void (async () => {
+      try {
+        const response = await apiClient.getActiveBillItems(targetTableNo, targetInvoiceNo);
+        if (!isMounted || !response.ok || !response.data?.data) return;
+        const data = response.data.data;
+        setCartItemsInStore(Array.isArray(data.items) ? data.items : []);
+        setDbInvoiceNo(targetInvoiceNo ?? data.invoiceNo ?? null);
+        setDbLPax(typeof data.lPax === 'number' ? data.lPax : null);
+        setDbFPax(typeof data.fPax === 'number' ? data.fPax : null);
+      } catch { /* Non-fatal */ } finally {
+        if (isMounted) setIsLoadingBillFromDb(false);
+      }
+    })();
+    return () => { isMounted = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableName, tableNo, routeInvoiceNo]);
+
+  useEffect(() => {
+    if (!activeTableNo) { originalQuantitiesRef.current = {}; originalTableNoRef.current = ''; return; }
+    const hasBaseline = originalTableNoRef.current === activeTableNo && Object.keys(originalQuantitiesRef.current).length > 0;
+    if (hasBaseline) return;
+    const sourceItems = lastConfirmedOrder?.items?.length ? lastConfirmedOrder.items : cartItems;
+    if (!sourceItems.length) return;
+    originalQuantitiesRef.current = sourceItems.reduce<Record<string, number>>((acc, item) => {
+      acc[item.menuItemCode] = Number(item.quantity ?? 0) || 0;
+      return acc;
+    }, {});
+    originalTableNoRef.current = activeTableNo;
+  }, [activeTableNo, cartItems, lastConfirmedOrder?.items]);
+
+  useEffect(() => {
+    setBillingHasChanges(hasQuantityChangesFromBaseline());
+  }, [hasQuantityChangesFromBaseline]);
+
+  useEffect(() => {
+    const handler = () => { goBack(); return true; };
+    const subscription = BackHandler.addEventListener('hardwareBackPress', handler);
+    return () => subscription.remove();
+  }, [goBack]);
+
+  // ── JSX ────────────────────────────────────────────────────────────────────
+  return (
+    <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#002748" />
 
-     
-      <View 
-        style={[
-          styles.header, 
-          { 
-            height: headerH + insets.top, 
-            paddingTop: insets.top, 
-            paddingHorizontal: hPad 
-          }
-        ]}
-      >
-       
-        <View style={[styles.headerTopRow, { flex: 1, alignItems: 'center' }]}>
-          <TouchableOpacity
-            style={[styles.backButton, { width: backBtnSize, height: backBtnSize, borderRadius: backBtnSize / 2 }]}
-            onPress={goBack}
-            disabled={isHydratingBill}
-          >
+      {/* HEADER */}
+      <View style={[s.header, { paddingTop: insets.top }]}>
+        <View style={s.headerTopRow}>
+          <TouchableOpacity style={s.backButton} onPress={goBack} disabled={isHydratingBill}>
             <Image
               source={require('../../assets/icons/blackback.png')}
-              style={{ width: backIconSize + 8, height: backIconSize + 8, tintColor: '#FFF' }}
+              style={s.backIcon}
               resizeMode="contain"
             />
           </TouchableOpacity>
 
-          <Text style={[styles.headerTitle, { fontSize: titleFs }]}>Billing</Text>
+          <Text style={s.headerTitle}>Billing</Text>
 
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={handleNewOrder}
-            style={styles.newOrderButton}
-          >
+          <TouchableOpacity activeOpacity={0.85} onPress={handleNewOrder} style={s.newOrderButton}>
             <Ionicons name="add" size={14} color="#002748" />
-            <Text style={styles.newOrderButtonText}>New Order</Text>
+            <Text style={s.newOrderButtonText}>New Order</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      
+      {/* TOAST BANNER */}
       {toastMessage && (
-        <View 
-          style={[
-            styles.toastBanner, 
-            { top: insets.top + headerH - 10 } 
-          ]} 
-          pointerEvents="none"
-        >
-          <Text style={styles.toastBannerText}>{toastMessage}</Text>
+        <View style={s.toastBanner} pointerEvents="none">
+          <Text style={s.toastBannerText}>{toastMessage}</Text>
         </View>
       )}
 
-      {/* TABLE INFO CONTAINER */}
-      <View style={[styles.fixedInfo, { paddingHorizontal: hPad }]}>
-        <View style={styles.logoContainer}>
-          <Image
-            source={require('../../assets/images/CAPTURE 1.png')}
-            style={{ width: logoW, height: logoH }}
-            resizeMode="contain"
-          />
+      {/* TABLE INFO */}
+      <View style={s.fixedInfo}>
+        <View style={s.logoContainer}>
+          <Image source={require('../../assets/images/CAPTURE 1.png')} style={s.logo} resizeMode="contain" />
         </View>
-
-        <Text style={[styles.tableNumber, { fontSize: tableFs }]}>
-  Table Number - {tableName || tableNo || 'GF 05'}
-</Text>
-        <Text style={[styles.dateText, { fontSize: dateFs }]}>{timeStr}{'  '}{dateStr}</Text>
+        <Text style={s.tableNumber}>Table Number - {tableName || tableNo || 'GF 05'}</Text>
+        <Text style={s.dateText}>{timeStr}{'  '}{dateStr}</Text>
       </View>
 
-      {/* SCROLLABLE ITEMS LIST */}
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingHorizontal: hPad, paddingBottom: insets.bottom }]}>
-        {displayedItems.map((item: any, index: number) => (
-          <View key={item.menuItemCode} style={styles.billItemBlock}>
-            {/*
-              Layout:
-              Row 1 (top): item name wraps up to 2 lines (left) | price + qty (right, fixed)
-              Row 2       : remark text (left-aligned, up to 2 lines), tappable
-            */}
-            <View style={styles.itemRow}>
-              {/* Left: name — wraps to 2 lines, never truncated */}
-              <Text
-                style={[styles.itemName, { fontSize: itemFs }]}
-                numberOfLines={2}
-              >
-                {item.menuItmDes}
-              </Text>
+      {/* ITEMS LIST */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[s.content, { paddingBottom: insets.bottom }]}
+      >
+        {billingSections.map((section) => (
+  <React.Fragment key={section.categoryCode}>
+    {/* Category section header */}
+    <View style={s.billingSectionHeader}>
+      <Text style={s.billingSectionHeaderText}>{section.label}</Text>
+      <View style={s.billingSectionHeaderLine} />
+    </View>
 
-              {/* Right: price + qty — fixed, never shrinks */}
-              <View style={styles.itemRightBlock}>
-                <Text style={[styles.itemPrice, { fontSize: itemFs }]}>
-                  Lkr {(Number(item.salesPrice ?? 0) * Number(item.quantity ?? 0)).toFixed(2)}
-                </Text>
-                <View style={styles.qtyPill}>
-                  <TouchableOpacity
-                    onPress={() => updateDisplayedQuantity(item.menuItemCode, -1)}
-                    onLongPress={() => openVoidModal(item.menuItemCode)}
-                    style={[styles.qtyBtn, { width: qtyBtnSize, height: qtyBtnSize }]}
-                    delayLongPress={300}
-                  >
-                    <Ionicons name="remove" size={isTablet ? 16 : 12} color="#000" />
-                  </TouchableOpacity>
-                  <Text style={[styles.qtyText, { fontSize: qtySize }]}>{item.quantity}</Text>
-                  <TouchableOpacity
-                    onPress={() => updateDisplayedQuantity(item.menuItemCode, 1)}
-                    style={[styles.qtyBtn, { width: qtyBtnSize, height: qtyBtnSize }]}
-                  >
-                    <Ionicons name="add" size={isTablet ? 16 : 12} color="#000" />
-                  </TouchableOpacity>
-                </View>
-              </View>
+    {section.items.map((item: any, index: number) => (
+      
+      <View key={`${item.menuItemCode}-${index}`} style={s.billItemBlock}>
+        <View style={s.itemRow}>
+          <Text style={s.itemName} numberOfLines={2}>{item.menuItmDes}</Text>
+          <View style={s.itemRightBlock}>
+            <Text style={s.itemPrice}>
+              Lkr {(Number(item.salesPrice ?? 0) * Number(item.quantity ?? 0)).toFixed(2)}
+            </Text>
+            <View style={s.qtyPill}>
+              <TouchableOpacity
+                onPress={() => updateDisplayedQuantity(item.menuItemCode, -1)}
+                onLongPress={() => openVoidModal(item.menuItemCode)}
+                style={s.qtyBtn}
+                delayLongPress={300}
+              >
+                <Ionicons name="remove" size={isTablet ? 16 : 12} color="#000" />
+              </TouchableOpacity>
+              <Text style={s.qtyText}>{item.quantity}</Text>
+              <TouchableOpacity
+                onPress={() => updateDisplayedQuantity(item.menuItemCode, 1)}
+                style={s.qtyBtn}
+              >
+                <Ionicons name="add" size={isTablet ? 16 : 12} color="#000" />
+              </TouchableOpacity>
             </View>
-
-            {/* Void remark action button */}
-            {pendingVoidItemId === item.menuItemCode && (
-              <TouchableOpacity
-                activeOpacity={0.85}
-                style={styles.inlineVoidActionBtn}
-                onPress={() => openVoidModal(item.menuItemCode)}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Text style={styles.inlineVoidActionText}>Add Void Remark</Text>
-                </View>
-              </TouchableOpacity>
-            )}
-
-            {/* Remark — left-aligned, up to 2 lines, tappable to edit */}
-            {('itemRemarks' in item) && item.itemRemarks ? (
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => openBillingRemarkModal(item)}
-                style={styles.billingRemarkRow}
-              >
-                <Text style={[styles.billingRemarkText, { fontSize: itemFs - 2 }]} numberOfLines={2}>
-                  {item.itemRemarks}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-
-            {index < displayedItems.length - 1 ? <View style={styles.itemDivider} /> : null}
           </View>
-        ))}
-
-        {/* Add More button */}
-        <View style={styles.addMoreWrap}>
-          <TouchableOpacity
-            style={styles.addMoreBtn}
-            activeOpacity={0.85}
-            onPress={() =>
-              router.push({
-                pathname: '/Screens/selectitems',
-                params: {
-                  tableName: tableName ?? String(lastConfirmedOrder?.tableNo ?? ''),
-                  localPax: String(lastConfirmedOrder?.lPax ?? localPax ?? '0'),
-                  foreignPax: String(lastConfirmedOrder?.fPax ?? foreignPax ?? '0'),
-                  floor: floor ?? '',
-                },
-              })
-            }
-          >
-            <Text style={styles.addMoreText}>+ Add More</Text>
-          </TouchableOpacity>
         </View>
+
+        {pendingVoidItemId === item.menuItemCode && (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={s.inlineVoidActionBtn}
+            onPress={() => openVoidModal(item.menuItemCode)}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={s.inlineVoidActionText}>Add Void Remark</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {'itemRemarks' in item && item.itemRemarks ? (
+          <TouchableOpacity activeOpacity={0.8} onPress={() => openBillingRemarkModal(item)} style={s.billingRemarkRow}>
+            <Text style={s.billingRemarkText} numberOfLines={2}>{item.itemRemarks}</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {index < section.items.length - 1 ? <View style={s.itemDivider} /> : null}
+      </View>
+    ))}
+  </React.Fragment>
+))}
+
+        {/* ADD MORE */}
+       <View style={s.addMoreWrap}>
+  <TouchableOpacity
+    style={s.addMoreBtn}
+    activeOpacity={0.85}
+    onPress={() => {
+      // ── Sync cartItems → orderStore if lastConfirmedOrder is null ──────────
+      // This happens when arriving from an occupied table tap (DB load path).
+      // Cart screen needs lastConfirmedOrder to split existing vs new items.
+      if (!lastConfirmedOrder && cartItems.length > 0) {
+        const activeTable  = String(tableName ?? tableNo ?? '').trim();
+        const activeInvoice = String(routeInvoiceNo ?? dbInvoiceNo ?? '').trim();
+        useOrderStore.getState().setLastConfirmedOrder({
+          orderType: 'DI',
+          tableNo:    activeTable,
+          userId:     'SYSTEM',
+          tableGrpId: '',
+          lPax:       dbLPax  ?? Number(localPax  ?? 0),
+          fPax:       dbFPax  ?? Number(foreignPax ?? 0),
+          invoiceNo:  activeInvoice || undefined,
+          createdAt:  new Date().toISOString(),
+          items: cartItems.map((item) => ({
+            menuItemCode: item.menuItemCode,
+            menuItmDes:   item.menuItmDes  ?? '',
+            salesPrice:   item.salesPrice  ?? 0,
+            quantity:     item.quantity,
+            itemRemarks:  item.itemRemarks ?? '',
+          })),
+        } as any);
+      }
+
+      router.push({
+        pathname: '/Screens/selectitems',
+        params: {
+          tableName:   String(tableName  ?? lastConfirmedOrder?.tableNo ?? ''),
+          tableNo:     String(tableNo    ?? lastConfirmedOrder?.tableNo ?? ''),
+          invoiceNo:   String(routeInvoiceNo ?? dbInvoiceNo ?? lastConfirmedOrder?.invoiceNo ?? ''),
+          localPax:    String(lastConfirmedOrder?.lPax ?? localPax  ?? '0'),
+          foreignPax:  String(lastConfirmedOrder?.fPax ?? foreignPax ?? '0'),
+          floor:       String(floor ?? ''),
+          fromBilling: '1',
+          status:      'Active',
+        },
+      });
+    }}
+  >
+    <Text style={s.addMoreText}>+ Add More</Text>
+  </TouchableOpacity>
+</View>
       </ScrollView>
 
-      {/* FOOTER CONTROLS */}
-      <View style={[styles.footer, { paddingHorizontal: hPad, paddingBottom: (isSmall ? 12 : 20) + insets.bottom }]}>
-        <View style={styles.topDivider} />
-        <View style={styles.totalRow}>
-          <Text style={[styles.totalLabel, { fontSize: totalFs }]}>Gross Total (Lkr)</Text>
-          <Text style={[styles.totalValue, { fontSize: totalFs }]}>{grossTotal.toFixed(2)}</Text>
+      {/* FOOTER */}
+      <View style={s.footer}>
+        <View style={s.topDivider} />
+        <View style={s.totalRow}>
+          <Text style={s.totalLabel}>Gross Total (Lkr)</Text>
+          <Text style={s.totalValue}>{grossTotal.toFixed(2)}</Text>
         </View>
-
         <TouchableOpacity
-          style={[styles.printBtn, { height: btnH, backgroundColor: footerButtonBackgroundColor }]}
+          style={[s.printBtn, { backgroundColor: footerButtonBackgroundColor }]}
           activeOpacity={0.85}
           onPress={handleFooterAction}
         >
-          <Text style={[styles.printText, { fontSize: btnFs }]}>{footerButtonLabel}</Text>
+          <Text style={s.printText}>{footerButtonLabel}</Text>
         </TouchableOpacity>
       </View>
 
-      {/* VOID VERIFICATION BOTTOM SHEET MODAL */}
+      {/* VOID MODAL */}
       <Modal visible={isVoidModalVisible} animationType="fade" transparent onRequestClose={handleVoidCancel}>
         <TouchableWithoutFeedback onPress={handleVoidCancel}>
-          <View style={styles.voidModalOverlay}>
+          <View style={s.voidModalOverlay}>
             <TouchableWithoutFeedback>
-              <View style={styles.voidCard}>
+              <View style={s.voidCard}>
                 {isManagerAuthView ? (
-                  <View style={styles.managerAuthCardBody}>
-                    <View style={styles.managerAuthHeaderRow}>
-                      <Text style={styles.managerAuthTitle}>Manager Authentication</Text>
+                  <View style={s.managerAuthCardBody}>
+                    <View style={s.managerAuthHeaderRow}>
+                      <Text style={s.managerAuthTitle}>Manager Authentication</Text>
                       <TouchableOpacity onPress={() => setIsManagerAuthView(false)} activeOpacity={0.8}>
                         <Ionicons name="close" size={22} color="#0F172A" />
                       </TouchableOpacity>
                     </View>
 
-                    <View style={styles.managerAuthFieldGroup}>
-                      <Text style={styles.managerAuthLabel}>Manager Username:</Text>
-                      <View style={[styles.managerAuthInputBox, managerIdError ? styles.managerAuthInputBoxError : null]}>
-                          <TextInput
-                          style={styles.managerAuthInput}
-                              placeholder="Enter Manager Username"
+                    <View style={s.managerAuthFieldGroup}>
+                      <Text style={s.managerAuthLabel}>Manager Username:</Text>
+                      <View style={[s.managerAuthInputBox, managerIdError ? s.managerAuthInputBoxError : null]}>
+                        <TextInput
+                          style={s.managerAuthInput}
+                          placeholder="Enter Manager Username"
                           placeholderTextColor="rgba(0, 0, 0, 0.25)"
                           value={managerName}
-                          onChangeText={(text) => {
-                            setManagerName(text);
-                            if (managerIdError) setManagerIdError('');
-                          }}
+                          onChangeText={(text) => { setManagerName(text); if (managerIdError) setManagerIdError(''); }}
                           onFocus={() => setIsManagerAuthView(true)}
                         />
                       </View>
-                      {!!managerIdError && <Text style={styles.managerAuthErrorText}>{managerIdError}</Text>}
+                      {!!managerIdError && <Text style={s.managerAuthErrorText}>{managerIdError}</Text>}
                     </View>
 
-                    <View style={styles.managerAuthFieldGroup}>
-                      <Text style={styles.managerAuthLabel}>Manager Password:</Text>
-                      <View style={[styles.managerAuthInputBox, managerPasswordError ? styles.managerAuthInputBoxError : null]}>
-                          <TextInput
-                          style={styles.managerAuthInput}
+                    <View style={s.managerAuthFieldGroup}>
+                      <Text style={s.managerAuthLabel}>Manager Password:</Text>
+                      <View style={[s.managerAuthInputBox, managerPasswordError ? s.managerAuthInputBoxError : null]}>
+                        <TextInput
+                          style={s.managerAuthInput}
                           placeholder="Enter Password"
                           placeholderTextColor="rgba(0, 0, 0, 0.25)"
                           value={managerPassword}
-                          onChangeText={(text) => {
-                            setManagerPassword(text);
-                            if (managerPasswordError) setManagerPasswordError('');
-                          }}
+                          onChangeText={(text) => { setManagerPassword(text); if (managerPasswordError) setManagerPasswordError(''); }}
                           secureTextEntry
                         />
                       </View>
-                      {!!managerPasswordError && <Text style={styles.managerAuthErrorText}>{managerPasswordError}</Text>}
+                      {!!managerPasswordError && <Text style={s.managerAuthErrorText}>{managerPasswordError}</Text>}
                     </View>
 
-                    <View style={styles.managerAuthFooter}>
+                    <View style={s.managerAuthFooter}>
                       <TouchableOpacity
-                        style={[styles.confirmActionButtonPrimary, managerVerifying ? { opacity: 0.6 } : null]}
+                        style={[s.confirmActionButtonPrimary, managerVerifying ? { opacity: 0.6 } : null]}
                         onPress={handleVoidConfirm}
                         activeOpacity={0.85}
                         disabled={managerVerifying}
                       >
-                        <View style={styles.confirmIconWrap}>
+                        <View style={s.confirmIconWrap}>
                           <Ionicons name="checkmark" size={18} color="#FFF" />
                         </View>
-                        <Text style={styles.confirmButtonLabelInlineText}>
+                        <Text style={s.confirmButtonLabelInlineText}>
                           {managerVerifying ? 'Verifying...' : 'Confirm'}
                         </Text>
                       </TouchableOpacity>
                     </View>
                   </View>
                 ) : isPresetListView ? (
-                  <View style={styles.presetListCardBody}>
-                    <View style={styles.presetListHeaderRow}>
-                      <TouchableOpacity
-                        style={styles.presetBackButton}
-                        activeOpacity={0.8}
-                        onPress={() => setIsPresetListView(false)}
-                      >
+                  <View style={s.presetListCardBody}>
+                    <View style={s.presetListHeaderRow}>
+                      <TouchableOpacity style={s.presetBackButton} activeOpacity={0.8} onPress={() => setIsPresetListView(false)}>
                         <Ionicons name="arrow-back" size={18} color="#0F172A" />
                       </TouchableOpacity>
-                      <Text style={styles.presetListTitle}>Select Preset Remark</Text>
-                      <View style={styles.presetBackButtonSpacer} />
+                      <Text style={s.presetListTitle}>Select Preset Remark</Text>
+                      <View style={s.presetBackButtonSpacer} />
                     </View>
-
-                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.presetListContent}>
+                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.presetListContent}>
                       {voidPresetItems.length > 0 ? (
                         voidPresetItems.map((item, index) => (
                           <TouchableOpacity
                             key={String(item.VoidRmkId ?? index)}
                             activeOpacity={0.82}
-                            style={styles.presetListRow}
-                            onPress={() => {
-                              const selectedText = String(item.VoidDescription ?? '').trim();
-                              setVoidRemark(selectedText);
-                              setIsPresetListView(false);
-                            }}
+                            style={s.presetListRow}
+                            onPress={() => { setVoidRemark(String(item.VoidDescription ?? '').trim()); setIsPresetListView(false); }}
                           >
-                            <Text style={styles.presetListRowText}>{String(item.VoidDescription ?? '').trim()}</Text>
+                            <Text style={s.presetListRowText}>{String(item.VoidDescription ?? '').trim()}</Text>
                             <Ionicons name="chevron-forward" size={18} color="#002748" />
                           </TouchableOpacity>
                         ))
                       ) : (
-                        <View style={styles.presetListEmptyWrap}>
-                          <Text style={styles.presetListEmptyText}>No preset remarks available.</Text>
+                        <View style={s.presetListEmptyWrap}>
+                          <Text style={s.presetListEmptyText}>No preset remarks available.</Text>
                         </View>
                       )}
                     </ScrollView>
                   </View>
                 ) : (
-                  <View style={styles.voidCardBody}>
-                    <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.voidCardContent} style={styles.voidCardScroll}>
-                      <View style={styles.metaSpecificationsStack}>
-                        <View style={styles.metaRowInline}>
-                          <Text style={styles.metaLabelStyle}>Void Item:</Text>
-                          <Text style={styles.metaValueStyle}>{activeVoidItem?.menuItmDes || 'N/A'}</Text>
+                  <View style={s.voidCardBody}>
+                    <ScrollView showsVerticalScrollIndicator contentContainerStyle={s.voidCardContent} style={s.voidCardScroll}>
+                      <View style={s.metaSpecificationsStack}>
+                        <View style={s.metaRowInline}>
+                          <Text style={s.metaLabelStyle}>Void Item:</Text>
+                          <Text style={s.metaValueStyle}>{activeVoidItem?.menuItmDes || 'N/A'}</Text>
                         </View>
-
-                        <View style={[styles.metaRowInline, { alignItems: 'center' }]}> 
-                          <Text style={styles.metaLabelStyle}>Remove Quantity:</Text>
+                        <View style={[s.metaRowInline, { alignItems: 'center' }]}>
+                          <Text style={s.metaLabelStyle}>Remove Quantity:</Text>
                           <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8 }}>
-                            <TouchableOpacity
-                              onPress={() => setVoidQuantity((q) => Math.max(1, (q || 1) - 1))}
-                              style={[styles.qtyBtn, { width: 34, height: 34, marginRight: 8 }]}
-                              activeOpacity={0.8}
-                            >
+                            <TouchableOpacity onPress={() => setVoidQuantity((q) => Math.max(1, (q || 1) - 1))} style={s.voidQtyBtn} activeOpacity={0.8}>
                               <Ionicons name="remove" size={16} color="#000" />
                             </TouchableOpacity>
-
-                            <Text style={[styles.metaValueStyle, { minWidth: 32, textAlign: 'center' }]}>{String(voidQuantity || 1).padStart(2, '0')}</Text>
-
+                            <Text style={[s.metaValueStyle, { minWidth: 32, textAlign: 'center' }]}>
+                              {String(voidQuantity || 1).padStart(2, '0')}
+                            </Text>
                             <TouchableOpacity
-                              onPress={() => {
-                                const maxQ = activeVoidItem?.quantity ?? 9999;
-                                setVoidQuantity((q) => Math.min(maxQ, (q || 1) + 1));
-                              }}
-                              style={[styles.qtyBtn, { width: 34, height: 34, marginLeft: 8 }]}
+                              onPress={() => setVoidQuantity((q) => Math.min(activeVoidItem?.quantity ?? 9999, (q || 1) + 1))}
+                              style={s.voidQtyBtn}
                               activeOpacity={0.8}
                             >
                               <Ionicons name="add" size={16} color="#000" />
@@ -1247,11 +1009,12 @@ return (
                           </View>
                         </View>
                       </View>
-                      <Text style={styles.inputFieldLabelOutside}>Void Remarks:</Text>
-                      <View style={styles.textareaWrapperContainer}>
-                        <View style={styles.textAreaInputBox}>
+
+                      <Text style={s.inputFieldLabelOutside}>Void Remarks:</Text>
+                      <View style={s.textareaWrapperContainer}>
+                        <View style={s.textAreaInputBox}>
                           <TextInput
-                            style={styles.textAreaTextInput}
+                            style={s.textAreaTextInput}
                             placeholder="Add Void Remark..."
                             placeholderTextColor="rgba(0, 0, 0, 0.25)"
                             multiline
@@ -1260,45 +1023,37 @@ return (
                             onChangeText={setVoidRemark}
                           />
                         </View>
-                        <TouchableOpacity
-                          activeOpacity={0.82}
-                          style={styles.presetToggleButton}
-                          onPress={() => setIsPresetListView(true)}
-                        >
-                          <Text style={styles.presetToggleButtonText}>Preset</Text>
+                        <TouchableOpacity activeOpacity={0.82} style={s.presetToggleButton} onPress={() => setIsPresetListView(true)}>
+                          <Text style={s.presetToggleButtonText}>Preset</Text>
                           <Ionicons name="albums" size={14} color="#fff" />
                         </TouchableOpacity>
                       </View>
 
-                      <Text style={styles.inputFieldLabelOutside}>Manager Name:</Text>
+                      <Text style={s.inputFieldLabelOutside}>Manager Name:</Text>
                       <TouchableOpacity activeOpacity={0.9} onPress={() => setIsManagerAuthView(true)}>
-                        <View style={styles.singleLineInputBoxWrapper}>
+                        <View style={s.singleLineInputBoxWrapper}>
                           <TextInput
-                            style={styles.singleLineInputField}
+                            style={s.singleLineInputField}
                             placeholder="Enter Manager Username"
                             placeholderTextColor="rgba(0, 0, 0, 0.25)"
                             value={managerName}
-                            onChangeText={(text) => {
-                              setManagerName(text);
-                              if (managerIdError) setManagerIdError('');
-                            }}
+                            onChangeText={(text) => { setManagerName(text); if (managerIdError) setManagerIdError(''); }}
                             onFocus={() => setIsManagerAuthView(true)}
                           />
                         </View>
                       </TouchableOpacity>
                     </ScrollView>
 
-                    <View style={styles.voidCardFooter}>
-                      <View style={styles.ctaButtonControlRowGroup}>
-                        <TouchableOpacity style={styles.confirmActionButtonPrimary} onPress={handleVoidConfirm} activeOpacity={0.85}>
-                          <View style={styles.confirmIconWrap}>
+                    <View style={s.voidCardFooter}>
+                      <View style={s.ctaButtonControlRowGroup}>
+                        <TouchableOpacity style={s.confirmActionButtonPrimary} onPress={handleVoidConfirm} activeOpacity={0.85}>
+                          <View style={s.confirmIconWrap}>
                             <Ionicons name="checkmark" size={18} color="#FFF" />
                           </View>
-                          <Text style={styles.confirmButtonLabelInlineText}>Confirm</Text>
+                          <Text style={s.confirmButtonLabelInlineText}>Confirm</Text>
                         </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.cancelActionButtonOutlineSecondary} onPress={handleVoidCancel} activeOpacity={0.85}>
-                          <Text style={styles.cancelButtonLabelInlineText}>Cancel</Text>
+                        <TouchableOpacity style={s.cancelActionButtonOutlineSecondary} onPress={handleVoidCancel} activeOpacity={0.85}>
+                          <Text style={s.cancelButtonLabelInlineText}>Cancel</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1310,101 +1065,87 @@ return (
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* BILLING REMARK MODAL (same cart-style popup) */}
-      <Modal
-        visible={billingRemarkVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setBillingRemarkVisible(false)}
-      >
+      {/* BILLING REMARK MODAL */}
+      <Modal visible={billingRemarkVisible} transparent animationType="fade" onRequestClose={() => setBillingRemarkVisible(false)}>
         <TouchableWithoutFeedback onPress={() => setBillingRemarkVisible(false)}>
-          <View style={styles.remarkModalOverlay}>
+          <View style={s.remarkModalOverlay}>
             <TouchableWithoutFeedback>
-              <View style={styles.remarkCard}>
+              <View style={s.remarkCard}>
                 {!billingIsViewingPresets ? (
                   <>
-                    <View style={styles.remarkCardHeader}>
-                      <Text style={styles.remarkCardHeaderTitle}>Order Remark</Text>
+                    <View style={s.remarkCardHeader}>
+                      <Text style={s.remarkCardHeaderTitle}>Order Remark</Text>
                       <TouchableOpacity onPress={() => setBillingRemarkVisible(false)} activeOpacity={0.8}>
                         <Ionicons name="close" size={22} color="#0F172A" />
                       </TouchableOpacity>
                     </View>
-
-                    <View style={styles.remarkCardBody}>
-                      <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.remarkCardContent} style={styles.remarkScrollArea}>
-                        <View style={styles.tagsWrap}>
+                    <View style={s.remarkCardBody}>
+                      <ScrollView showsVerticalScrollIndicator contentContainerStyle={s.remarkCardContent} style={s.remarkScrollArea}>
+                        <View style={s.tagsWrap}>
                           {billingModalTags.map((t, index) => (
-                            <View key={`${t}-${index}`} style={styles.tagBadge}>
-                              <TouchableOpacity onPress={() => billingEditTag(t, index)} style={styles.tagLabelBtn} activeOpacity={0.75}>
-                                <Text style={styles.tagText}>{t}</Text>
+                            <View key={`${t}-${index}`} style={s.tagBadge}>
+                              <TouchableOpacity onPress={() => billingEditTag(t, index)} style={s.tagLabelBtn} activeOpacity={0.75}>
+                                <Text style={s.tagText}>{t}</Text>
                               </TouchableOpacity>
-                              <TouchableOpacity onPress={() => billingRemoveTag(t)} style={styles.tagClose}>
+                              <TouchableOpacity onPress={() => billingRemoveTag(t)} style={s.tagClose}>
                                 <Ionicons name="close" size={14} color="#fff" />
                               </TouchableOpacity>
                             </View>
                           ))}
                         </View>
-
-                        <View style={styles.remarkInputRow}>
-                          <View style={styles.remarkInputShell}>
+                        <View style={s.remarkInputRow}>
+                          <View style={s.remarkInputShell}>
                             <TextInput
                               value={billingRemarkDraft}
                               onChangeText={setBillingRemarkDraft}
                               placeholder="Type custom remark"
                               placeholderTextColor="rgba(0,0,0,0.5)"
-                              style={styles.remarkInput}
+                              style={s.remarkInput}
                             />
                             <TouchableOpacity
-                              onPress={() => {
-                                setBillingIsViewingPresets(true);
-                                void loadBillingRemarkPresets();
-                              }}
-                              style={styles.remarkDropdownIconBtn}
+                              onPress={() => { setBillingIsViewingPresets(true); void loadBillingRemarkPresets(); }}
+                              style={s.remarkDropdownIconBtn}
                               activeOpacity={0.8}
                             >
                               <Ionicons name="chevron-down" size={20} color="#0062AA" />
                             </TouchableOpacity>
                           </View>
-
-                          <TouchableOpacity style={styles.addTagBtn} onPress={() => billingAddTag(billingRemarkDraft)}>
-                            <Text style={styles.addTagText}>Add Tag</Text>
+                          <TouchableOpacity style={s.addTagBtn} onPress={() => billingAddTag(billingRemarkDraft)}>
+                            <Text style={s.addTagText}>Add Tag</Text>
                           </TouchableOpacity>
                         </View>
                       </ScrollView>
-
-                      <TouchableOpacity style={styles.saveRemarkBtn} onPress={saveBillingRemarks} activeOpacity={0.85}>
-                        <Text style={styles.saveRemarkText}>Save Remarks</Text>
+                      <TouchableOpacity style={s.saveRemarkBtn} onPress={saveBillingRemarks} activeOpacity={0.85}>
+                        <Text style={s.saveRemarkText}>Save Remarks</Text>
                       </TouchableOpacity>
                     </View>
                   </>
                 ) : (
                   <>
-                    <View style={styles.remarkCardHeader}>
-                      <TouchableOpacity onPress={() => setBillingIsViewingPresets(false)} activeOpacity={0.8} style={styles.remarkHeaderIconBtn}>
+                    <View style={s.remarkCardHeader}>
+                      <TouchableOpacity onPress={() => setBillingIsViewingPresets(false)} activeOpacity={0.8} style={s.remarkHeaderIconBtn}>
                         <Ionicons name="arrow-back" size={22} color="#0F172A" />
                       </TouchableOpacity>
-                      <Text style={styles.remarkCardHeaderTitle}>Select Preset Remark</Text>
-                      <TouchableOpacity onPress={() => setBillingRemarkVisible(false)} activeOpacity={0.8} style={styles.remarkHeaderIconBtn}>
+                      <Text style={s.remarkCardHeaderTitle}>Select Preset Remark</Text>
+                      <TouchableOpacity onPress={() => setBillingRemarkVisible(false)} activeOpacity={0.8} style={s.remarkHeaderIconBtn}>
                         <Ionicons name="close" size={22} color="#0F172A" />
                       </TouchableOpacity>
                     </View>
-
-                    <View style={styles.presetsDivider} />
-
+                    <View style={s.presetsDivider} />
                     {billingLoadingPresets ? (
-                      <View style={styles.presetsLoaderWrap}>
+                      <View style={s.presetsLoaderWrap}>
                         <ActivityIndicator size="small" color="#002748" />
                       </View>
                     ) : (
-                      <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.presetsListContent}>
+                      <ScrollView showsVerticalScrollIndicator contentContainerStyle={s.presetsListContent}>
                         {billingRemarkOptions.length > 0 ? (
                           billingRemarkOptions.map((r) => (
-                            <TouchableOpacity key={r} style={styles.presetsRow} onPress={() => billingAddTag(r)}>
-                              <Text style={styles.presetsRowText}>{r}</Text>
+                            <TouchableOpacity key={r} style={s.presetsRow} onPress={() => billingAddTag(r)}>
+                              <Text style={s.presetsRowText}>{r}</Text>
                             </TouchableOpacity>
                           ))
                         ) : (
-                          <View style={styles.presetsLoaderWrap}>
+                          <View style={s.presetsLoaderWrap}>
                             <Text style={{ color: 'rgba(0,39,72,0.7)', fontSize: 13 }}>No presets available.</Text>
                           </View>
                         )}
@@ -1418,11 +1159,12 @@ return (
         </TouchableWithoutFeedback>
       </Modal>
 
+      {/* LOADING OVERLAY */}
       {isHydratingBill && (
-        <View style={styles.loadingOverlay} pointerEvents="auto">
-          <View style={styles.loadingCard}>
+        <View style={s.loadingOverlay} pointerEvents="auto">
+          <View style={s.loadingCard}>
             <ActivityIndicator size="large" color="#002748" />
-            <Text style={styles.loadingText}>Loading active bill...</Text>
+            <Text style={s.loadingText}>Loading active bill...</Text>
           </View>
         </View>
       )}
@@ -1430,630 +1172,993 @@ return (
   );
 }
 
- 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFF',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#002748',
-   
-  },
-  headerTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flex: 1,
-  },
-  backButton: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  newOrderButton: {
-    minWidth: 96,
-    height: 34,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.14,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  newOrderButtonText: {
-    color: '#002748',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  headerTitle: {
-    fontWeight: '500',
-    color: '#FFF',
-    textAlign: 'center',
-    flex: 1,
-  },
-  fixedInfo: {
-    backgroundColor: '#FFF',
-    paddingTop: 14,
-    paddingBottom: 6,
-  },
-  content: {
-    flexGrow: 1,
-    paddingTop: 10,
-    paddingBottom: 12,
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  tableNumber: {
-    fontWeight: '500',
-    color: '#000',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  dateText: {
-    fontWeight: '300',
-    color: '#000',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  topDivider: {
-    height: 1,
-    backgroundColor: 'rgba(0,0,0,0.15)',
-    marginBottom: 16,
-  },
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 2,
-  },
-  billItemBlock: {
-    marginBottom: 8,
-  },
-  addMoreWrap: {
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  addMoreBtn: {
-    height: 52,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#002748',
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addMoreText: {
-    color: '#002748',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  itemDivider: {
-    height: 1,
-    backgroundColor: 'rgba(0,0,0,0.10)',
-    marginTop: 10,
-  },
-  itemName: {
-    fontWeight: '400',
-    color: '#000',
-    flex: 1,
-    flexShrink: 1,
-    minWidth: 0,
-    marginRight: 8,
-  },
-  itemRightBlock: {
-    flexShrink: 0,
-    alignItems: 'flex-end',
-  },
-  itemPrice: {
-    fontWeight: '400',
-    color: '#000',
-    flexShrink: 0,
-    textAlign: 'right',
-    marginBottom: 4,
-  },
-  billingRemarkRow: {
-    alignSelf: 'flex-start',
-    marginTop: 2,
-    maxWidth: '100%',
-  },
-  billingRemarkText: {
-    color: '#555',
-    lineHeight: 18,
-    textAlign: 'left',
-  },
-  qtyPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  qtyText: {
-    fontWeight: '500',
-    color: '#000',
-    minWidth: 16,
-    textAlign: 'center',
-  },
-  qtyBtn: {
-    borderRadius: 4,
-    backgroundColor: 'rgba(0,0,0,0.08)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  inlineVoidActionBtn: {
-    alignSelf: 'flex-end',
-    marginTop: 6,
-    marginBottom: 8,
-    backgroundColor: '#8D9ED4',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-  },
-  inlineVoidActionText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  toastBanner: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    zIndex: 30,
-    alignItems: 'center',
-  },
-  toastBannerText: {
-    backgroundColor: 'rgba(0, 39, 72, 0.96)',
-    color: '#FFF',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 999,
-    overflow: 'hidden',
-    fontSize: 13,
-    fontWeight: '600',
-    shadowColor: '#000',
-    shadowOpacity: 0.16,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  totalLabel: {
-    fontWeight: '500',
-    color: '#000',
-  },
-  totalValue: {
-    fontWeight: '500',
-    color: '#000',
-  },
-  footer: {
-    backgroundColor: '#FFF',
-    paddingTop: 12,
-  },
-  printBtn: {
-    backgroundColor: '#8D9ED4',
-    borderRadius: 12,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 10,
-  },
-  printText: {
-    color: '#FFF',
-    fontWeight: '700',
-  },
-  modalOverlayScrim: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'flex-end',
-    marginBottom: 0,
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingCard: {
-    minWidth: 220,
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    backgroundColor: '#FFF',
-    alignItems: 'center',
-    gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
-  },
-  loadingText: {
-    color: '#002748',
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  voidModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  voidCard: {
-    width: '90%',
-    maxWidth: 560,
-    height: 560,
-    borderRadius: 20,
-    backgroundColor: '#FFF',
-    padding: 16,
-    overflow: 'hidden',
-    elevation: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.22,
-    shadowRadius: 16,
-  },
-  voidCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  voidCardHeaderTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0F172A',
-    flex: 1,
-    textAlign: 'center',
-  },
-  voidCardBody: {
-    flex: 1,
-  },
-  managerAuthCardBody: {
-    flex: 1,
-    paddingTop: 4,
-  },
-  managerAuthHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 18,
-  },
-  managerAuthTitle: {
-    flex: 1,
-    color: '#000',
-    fontSize: 24,
-    fontFamily: 'Roboto',
-    fontWeight: '600',
-  },
-  managerAuthFieldGroup: {
-    marginBottom: 14,
-  },
-  managerAuthLabel: {
-    opacity: 0.75,
-    color: 'rgba(0, 0, 0, 0.80)',
-    fontSize: 14,
-    fontFamily: 'Inter',
-    fontWeight: '500',
-    marginBottom: 6,
-  },
-  managerAuthInputBox: {
-    width: '100%',
-    height: 45,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#0062AA',
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-  },
-  managerAuthInputBoxError: {
-    borderColor: '#FF4D4D',
-  },
-  managerAuthInput: {
-    flex: 1,
-    color: 'black',
-    fontSize: 14,
-    fontFamily: 'Roboto',
-    fontWeight: '500',
-    padding: 0,
-    margin: 0,
-  },
-  managerAuthErrorText: {
-    marginTop: 6,
-    color: '#FF4D4D',
-    fontSize: 12,
-    fontFamily: 'Inter',
-    fontWeight: '500',
-  },
-  managerAuthFooter: {
-    marginTop: 8,
-    alignItems: 'center',
-  },
-  presetListCardBody: {
-    flex: 1,
-    paddingTop: 4,
-  },
-  presetListHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  presetBackButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0, 39, 72, 0.08)',
-  },
-  presetBackButtonSpacer: {
-    width: 34,
-    height: 34,
-  },
-  presetListTitle: {
-    flex: 1,
-    color: '#000',
-    fontSize: 22,
-    fontFamily: 'Roboto',
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  presetListContent: {
-    paddingBottom: 6,
-  },
-  presetListRow: {
-    minHeight: 48,
-    borderRadius: 12,
-    backgroundColor: '#F4F7FB',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 98, 170, 0.12)',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  presetListRowText: {
-    flex: 1,
-    color: '#002748',
-    fontSize: 14,
-    fontFamily: 'Roboto',
-    fontWeight: '500',
-  },
-  presetListEmptyWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 22,
-  },
-  presetListEmptyText: {
-    color: 'rgba(0, 39, 72, 0.7)',
-    fontSize: 13,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  // ── Cart-style remark popup (reused in billing) ──────────────────────────
-  remarkModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
-  remarkCard: { width: '90%', maxWidth: 560, height: 320, borderRadius: 20, backgroundColor: '#fff', padding: 16, overflow: 'hidden', elevation: 18, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 16 },
-  remarkCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  remarkCardHeaderTitle: { fontSize: 16, fontWeight: '800', color: '#0F172A', flex: 1, textAlign: 'center' },
-  remarkHeaderIconBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  remarkCardBody: { flex: 1 },
-  remarkScrollArea: { flex: 1 },
-  remarkCardContent: { paddingBottom: 4 },
-  presetsDivider: { height: 1, backgroundColor: '#E2E8F0', marginBottom: 8 },
-  presetsLoaderWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 18 },
-  remarkInput: { height: 48, paddingHorizontal: 12, fontSize: 16, color: '#000', textAlignVertical: 'center', flex: 1 },
-  saveRemarkBtn: { marginTop: 14, height: 48, borderRadius: 8, backgroundColor: '#8D9ED4', alignItems: 'center', justifyContent: 'center' },
-  saveRemarkText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
-  tagsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  tagBadge: { backgroundColor: '#0062AA', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, flexDirection: 'row', alignItems: 'center', marginRight: 8, marginBottom: 8 },
-  tagLabelBtn: { paddingRight: 4 },
-  tagText: { color: '#FFF', fontSize: 13, marginRight: 6 },
-  tagClose: { width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(0,0,0,0.2)', alignItems: 'center', justifyContent: 'center' },
-  remarkInputRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 },
-  remarkInputShell: { flex: 1, position: 'relative' },
-  remarkDropdownIconBtn: { position: 'absolute', right: 8, top: 0, bottom: 0, width: 36, alignItems: 'center', justifyContent: 'center' },
-  addTagBtn: { backgroundColor: '#002748', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
-  addTagText: { color: '#FFF', fontWeight: '700' },
-  presetsListContent: { paddingVertical: 2 },
-  presetsRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F4F4F4' },
-  presetsRowText: { color: '#003366', fontWeight: '600' },
-  // ─────────────────────────────────────────────────────────────────────────
-  voidCardScroll: {
-    flex: 1,
-  },
-  voidCardContent: {
-    flexGrow: 1,
-    paddingBottom: 8,
-  },
-  bottomSheetContainer: {
-    width: '100%',
-    backgroundColor: 'white',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    overflow: 'hidden',
-    marginBottom: 0,
-  },
-  modalTitleHeader: {
-    alignSelf: 'center',
-    color: 'black',
-    fontSize: 24,
-    fontFamily: 'Roboto',
-    fontWeight: '600',
-    marginBottom: 20,
-  },
-  metaSpecificationsStack: {
-    gap: 12,
-    marginBottom: 16,
-  },
-  metaRowInline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  metaLabelStyle: {
-    opacity: 0.75,
-    color: 'rgba(0, 0, 0, 0.80)',
-    fontSize: 14,
-    fontFamily: 'Inter',
-    fontWeight: '500',
-    width: 110,
-  },
-  metaValueStyle: {
-    color: 'black',
-    fontSize: 16,
-    fontFamily: 'Roboto',
-    fontWeight: '500',
-  },
-  inputFieldLabelOutside: {
-    opacity: 0.75,
-    color: 'rgba(0, 0, 0, 0.80)',
-    fontSize: 14,
-    fontFamily: 'Inter',
-    fontWeight: '500',
-    marginBottom: 6,
-    marginTop: 4,
-  },
-  textareaWrapperContainer: {
-    flexDirection: 'row',
-    width: '100%',
-    gap: 12,
-    alignItems: 'flex-start',
-    marginBottom: 14,
-  },
-  textAreaInputBox: {
-    flex: 1,
-    height: 104,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#0062AA',
-    padding: 12,
-    justifyContent: 'flex-start',
-  },
-  textAreaTextInput: {
-    flex: 1,
-    color: 'black',
-    fontSize: 13,
-    fontFamily: 'Roboto',
-    fontWeight: '500',
-    textAlignVertical: 'top',
-    padding: 0,
-    margin: 0,
-  },
-  ellipsisMoreBtn: {
-    width: 39,
-    height: 46,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'black',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  ellipsisTextInline: {
-    color: 'black',
-    fontSize: 16,
-    fontWeight: '500',
-    fontFamily: 'Roboto',
-    top: -4,
-  },
-  presetToggleButton: {
-    alignSelf: 'flex-start',
-    minWidth: 112,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#8D9ED4',
-    paddingHorizontal: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  presetToggleButtonText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontFamily: 'Roboto',
-    fontWeight: '600',
-  },
-  singleLineInputBoxWrapper: {
-    width: '100%',
-    marginBottom: 24,
-  },
-  singleLineInputField: {
-    width: '100%',
-    height: 45,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#0062AA',
-    paddingHorizontal: 12,
-    color: 'black',
-    fontSize: 14,
-    fontFamily: 'Roboto',
-    fontWeight: '500',
-  },
-  ctaButtonControlRowGroup: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginBottom: 0,
-  },
-  voidCardFooter: {
-    paddingTop: 12,
-  },
-  confirmActionButtonPrimary: {
-    width: '47%',
-    height: 54,
-    backgroundColor: '#8D9ED4',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexDirection: 'row',
-  },
-  confirmIconWrap: {
-    width: 24,
-    height: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-  },
-  confirmButtonLabelInlineText: {
-    color: 'white',
-    fontSize: 16,
-    fontFamily: 'Roboto',
-    fontWeight: '500',
-  },
-  cancelActionButtonOutlineSecondary: {
-    width: '47%',
-    height: 54,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#8D9ED4',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cancelButtonLabelInlineText: {
-    opacity: 0.5,
-    color: 'black',
-    fontSize: 16,
-    fontFamily: 'Roboto',
-    fontWeight: '500',
-  },
-});
+// ─── Dynamic Styles Factory ───────────────────────────────────────────────────
+function getDynamicStyles(width: number, height: number, bottomInset: number) {
+  const isTablet = width >= 600;
+  const isSmall  = height < 700;
+
+  const BASE_WIDTH = isTablet ? 768 : 375;
+  const scale = (size: number): number => (width / BASE_WIDTH) * size;
+
+  // ── 3-Tier Conditional Benchmarks ─────────────────────────────────────────
+
+  // Header
+  const headerH         = isTablet ? 220  : isSmall ? 80   : 150;
+  const hPad            = isTablet ? 40   : isSmall ? 12   : 16;
+  const backBtnSize     = isTablet ? 40   : isSmall ? 30   : 44;
+  const backIconSize    = isTablet ? 64   : isSmall ? 22   : 42;  // raw icon = size + 8
+  const titleFs         = isTablet ? 32   : isSmall ? 20   : 24;
+
+  // New Order button
+  const newOrderBtnH    = isTablet ? 42   : isSmall ? 28   : 34;
+  const newOrderBtnPadH = isTablet ? 16   : isSmall ? 10   : 12;
+  const newOrderBtnR    = isTablet ? 999  : 999;
+  const newOrderFs      = isTablet ? 15   : isSmall ? 11   : 12;
+
+  // Toast
+  const toastTop        = isTablet ? headerH - 10 : isSmall ? headerH - 10 : headerH - 10;
+  const toastLR         = isTablet ? 24   : isSmall ? 12   : 16;
+  const toastPadV       = isTablet ? 14   : isSmall ? 8    : 10;
+  const toastPadH       = isTablet ? 22   : isSmall ? 12   : 16;
+  const toastRadius     = isTablet ? 999  : 999;
+  const toastFs         = isTablet ? 15   : isSmall ? 11   : 13;
+
+  // Fixed info (logo / table / date)
+  const fixedInfoPadT   = isTablet ? 20   : isSmall ? 10   : 14;
+  const fixedInfoPadB   = isTablet ? 10   : isSmall ? 4    : 6;
+  const logoW           = isTablet ? 200  : isSmall ? 120  : 159;
+  const logoH           = isTablet ? 100  : isSmall ? 44   : 60;
+  const logoMB          = isTablet ? 16   : isSmall ? 8    : 12;
+  const tableFs         = isTablet ? 24   : isSmall ? 13   : 16;
+  const tableMB         = isTablet ? 6    : isSmall ? 2    : 4;
+  const dateFs          = isTablet ? 16   : isSmall ? 11   : 14;
+  const dateMB          = isTablet ? 20   : isSmall ? 10   : 16;
+
+  // Content list
+  const contentPadT     = isTablet ? 14   : isSmall ? 6    : 10;
+  const contentPadB     = isTablet ? 16   : isSmall ? 8    : 12;
+  const billItemMB      = isTablet ? 12   : isSmall ? 5    : 8;
+  const itemFs          = isTablet ? 20   : isSmall ? 13   : 14;
+  const itemRowMB       = isTablet ? 4    : isSmall ? 1    : 2;
+  const itemNameMR      = isTablet ? 12   : isSmall ? 6    : 8;
+  const itemPriceMB     = isTablet ? 6    : isSmall ? 2    : 4;
+  const itemDivMT       = isTablet ? 14   : isSmall ? 7    : 10;
+  const qtyBtnSize      = isTablet ? 28   : isSmall ? 20   : 24;
+  const qtyBtnRadius    = isTablet ? 6    : isSmall ? 3    : 4;
+  const qtyPillGap      = isTablet ? 6    : isSmall ? 3    : 4;
+  const qtyFs           = isTablet ? 20   : isSmall ? 14   : 16;
+  const qtyMinW         = isTablet ? 22   : isSmall ? 14   : 16;
+  const inlineVoidPadH  = isTablet ? 20   : isSmall ? 10   : 14;
+  const inlineVoidPadV  = isTablet ? 10   : isSmall ? 4    : 6;
+  const inlineVoidMT    = isTablet ? 10   : isSmall ? 4    : 6;
+  const inlineVoidMB    = isTablet ? 12   : isSmall ? 5    : 8;
+  const inlineVoidRadius= isTablet ? 12   : isSmall ? 6    : 8;
+  const inlineVoidFs    = isTablet ? 17   : isSmall ? 12   : 14;
+  const remarkTextFs    = isTablet ? 15   : isSmall ? 10   : 12; 
+  const remarkMT        = isTablet ? 4    : isSmall ? 1    : 2;
+
+  // Add more button
+  const addMoreMT       = isTablet ? 22   : isSmall ? 10   : 16;
+  const addMoreMB       = isTablet ? 12   : isSmall ? 5    : 8;
+  const addMoreH        = isTablet ? 64   : isSmall ? 42   : 52;
+  const addMoreRadius   = isTablet ? 16   : isSmall ? 10   : 12;
+  const addMoreBW       = isTablet ? 2    : 1.5;
+  const addMoreFs       = isTablet ? 20   : isSmall ? 13   : 16;
+
+  // Footer
+  const footerPadT      = isTablet ? 16   : isSmall ? 8    : 12;
+  const footerPadB      = isTablet ? 28   : isSmall ? 12   : 20;
+  const dividerMB       = isTablet ? 20   : isSmall ? 10   : 16;
+  const totalFs         = isTablet ? 24   : isSmall ? 14   : 16;
+  const totalMT         = isTablet ? 6    : isSmall ? 2    : 4;
+  const printBtnH       = isTablet ? 60   : isSmall ? 42   : 48;
+  const printBtnRadius  = isTablet ? 16   : isSmall ? 10   : 12;
+  const printBtnGap     = isTablet ? 14   : isSmall ? 6    : 10;
+  const printFs         = isTablet ? 24   : isSmall ? 14   : 16;
+
+  // Loading card
+  const loadingCardMinW = isTablet ? 280  : isSmall ? 180  : 220;
+  const loadingCardPadV = isTablet ? 28   : isSmall ? 16   : 20;
+  const loadingCardPadH = isTablet ? 32   : isSmall ? 18   : 24;
+  const loadingCardR    = isTablet ? 22   : isSmall ? 12   : 16;
+  const loadingCardGap  = isTablet ? 16   : isSmall ? 8    : 12;
+  const loadingTextFs   = isTablet ? 20   : isSmall ? 13   : 16;
+
+  // Void modal
+  const voidOverlayPadH = isTablet ? 28   : isSmall ? 14   : 20;
+  const voidCardRadius  = isTablet ? 28   : isSmall ? 16   : 20;
+  const voidCardPad     = isTablet ? 22   : isSmall ? 12   : 16;
+  const voidCardH       = isTablet ? 680  : isSmall ? 460  : 560;
+  const voidCardShadH   = isTablet ? 12   : isSmall ? 5    : 8;
+  const voidCardShadR   = isTablet ? 22   : isSmall ? 12   : 16;
+
+  // Manager auth
+  const managerTitleFs  = isTablet ? 30   : isSmall ? 19   : 24;
+  const managerLabelFs  = isTablet ? 17   : isSmall ? 12   : 14;
+  const managerLabelMB  = isTablet ? 8    : isSmall ? 4    : 6;
+  const managerFieldMB  = isTablet ? 18   : isSmall ? 10   : 14;
+  const managerInputH   = isTablet ? 56   : isSmall ? 38   : 45;
+  const managerInputR   = isTablet ? 12   : isSmall ? 6    : 8;
+  const managerInputPH  = isTablet ? 16   : isSmall ? 10   : 12;
+  const managerInputBW  = isTablet ? 2    : 2;
+  const managerInputFs  = isTablet ? 17   : isSmall ? 12   : 14;
+  const managerErrFs    = isTablet ? 14   : isSmall ? 10   : 12;
+  const managerErrMT    = isTablet ? 8    : isSmall ? 4    : 6;
+  const managerHdrMB    = isTablet ? 24   : isSmall ? 12   : 18;
+  const managerFootMT   = isTablet ? 12   : isSmall ? 5    : 8;
+
+  // Preset list
+  const presetTitleFs   = isTablet ? 28   : isSmall ? 17   : 22;
+  const presetBackBtnSz = isTablet ? 42   : isSmall ? 28   : 34;
+  const presetBackR     = isTablet ? 21   : isSmall ? 14   : 17;
+  const presetHdrMB     = isTablet ? 18   : isSmall ? 10   : 14;
+  const presetListPB    = isTablet ? 10   : isSmall ? 4    : 6;
+  const presetRowMinH   = isTablet ? 60   : isSmall ? 40   : 48;
+  const presetRowRadius = isTablet ? 16   : isSmall ? 10   : 12;
+  const presetRowPadH   = isTablet ? 18   : isSmall ? 10   : 14;
+  const presetRowPadV   = isTablet ? 16   : isSmall ? 9    : 12;
+  const presetRowMB     = isTablet ? 14   : isSmall ? 7    : 10;
+  const presetRowFs     = isTablet ? 17   : isSmall ? 12   : 14;
+  const presetRowGap    = isTablet ? 14   : isSmall ? 7    : 10;
+  const presetEmptyPadV = isTablet ? 30   : isSmall ? 15   : 22;
+  const presetEmptyFs   = isTablet ? 15   : isSmall ? 11   : 13;
+
+  // Void card body internals
+  const metaStackGap    = isTablet ? 16   : isSmall ? 8    : 12;
+  const metaStackMB     = isTablet ? 22   : isSmall ? 12   : 16;
+  const metaLabelW      = isTablet ? 140  : isSmall ? 90   : 110;
+  const metaLabelFs     = isTablet ? 17   : isSmall ? 12   : 14;
+  const metaValueFs     = isTablet ? 20   : isSmall ? 13   : 16;
+  const voidQtyBtnSz    = isTablet ? 40   : isSmall ? 28   : 34;
+  const voidQtyBtnR     = isTablet ? 8    : isSmall ? 5    : 6; // approximation
+  const voidQtyBtnMR    = isTablet ? 12   : isSmall ? 6    : 8;
+  const fieldLabelFs    = isTablet ? 17   : isSmall ? 12   : 14;
+  const fieldLabelMB    = isTablet ? 8    : isSmall ? 4    : 6;
+  const fieldLabelMT    = isTablet ? 6    : isSmall ? 2    : 4;
+  const textareaH       = isTablet ? 130  : isSmall ? 82   : 104;
+  const textareaRadius  = isTablet ? 12   : isSmall ? 6    : 8;
+  const textareaGap     = isTablet ? 16   : isSmall ? 8    : 12;
+  const textareaTextFs  = isTablet ? 16   : isSmall ? 11   : 13;
+  const textareaPad     = isTablet ? 16   : isSmall ? 8    : 12;
+  const textareaBW      = isTablet ? 2    : 2;
+  const presetToggleW   = isTablet ? 140  : isSmall ? 90   : 112;
+  const presetToggleH   = isTablet ? 46   : isSmall ? 28   : 36;
+  const presetToggleR   = isTablet ? 12   : isSmall ? 6    : 8;
+  const presetTogglePH  = isTablet ? 14   : isSmall ? 8    : 10;
+  const presetToggleFs  = isTablet ? 15   : isSmall ? 10   : 12;
+  const singleInputH    = isTablet ? 56   : isSmall ? 38   : 45;
+  const singleInputR    = isTablet ? 12   : isSmall ? 6    : 8;
+  const singleInputPH   = isTablet ? 16   : isSmall ? 10   : 12;
+  const singleInputMB   = isTablet ? 30   : isSmall ? 18   : 24;
+  const singleInputBW   = isTablet ? 2    : 2;
+  const singleInputFs   = isTablet ? 17   : isSmall ? 12   : 14;
+  const voidFooterPT    = isTablet ? 16   : isSmall ? 8    : 12;
+  const confirmBtnW     = '47%' as const;
+  const confirmBtnH     = isTablet ? 66   : isSmall ? 44   : 54;
+  const confirmBtnR     = isTablet ? 12   : isSmall ? 6    : 8;
+  const confirmBtnFs    = isTablet ? 20   : isSmall ? 13   : 16;
+  const confirmIconSz   = isTablet ? 30   : isSmall ? 20   : 24;
+  const confirmIconMR   = isTablet ? 12   : isSmall ? 5    : 8;
+  const cancelBtnBW     = isTablet ? 2    : 2;
+
+  // Remark modal
+  const remarkModalPadH = isTablet ? 28   : isSmall ? 14   : 20;
+  const remarkCardRadius= isTablet ? 28   : isSmall ? 16   : 20;
+  const remarkCardPad   = isTablet ? 22   : isSmall ? 12   : 16;
+  const remarkCardH     = isTablet ? 400  : isSmall ? 260  : 320;
+  const remarkHdrMB     = isTablet ? 12   : isSmall ? 5    : 8;
+  const remarkHdrTitleFs= isTablet ? 20   : isSmall ? 13   : 16;
+  const remarkHdrIconSz = isTablet ? 42   : isSmall ? 28   : 36;
+  const remarkInputH    = isTablet ? 60   : isSmall ? 38   : 48;
+  const remarkInputPH   = isTablet ? 16   : isSmall ? 8    : 12;
+  const remarkInputFs   = isTablet ? 20   : isSmall ? 13   : 16;
+  const saveRemarkBtnH  = isTablet ? 60   : isSmall ? 38   : 48;
+  const saveRemarkR     = isTablet ? 12   : isSmall ? 6    : 8;
+  const saveRemarkMT    = isTablet ? 18   : isSmall ? 10   : 14;
+  const saveRemarkFs    = isTablet ? 20   : isSmall ? 13   : 16;
+  const tagPadH         = isTablet ? 14   : isSmall ? 7    : 10;
+  const tagPadV         = isTablet ? 9    : isSmall ? 4    : 6;
+  const tagRadius       = isTablet ? 22   : isSmall ? 12   : 16;
+  const tagMR           = isTablet ? 12   : isSmall ? 6    : 8;
+  const tagMB           = isTablet ? 12   : isSmall ? 5    : 8;
+  const tagFs           = isTablet ? 16   : isSmall ? 10   : 13;
+  const tagCloseSz      = isTablet ? 24   : isSmall ? 14   : 18;
+  const tagCloseR       = isTablet ? 12   : isSmall ? 7    : 9;
+  const tagsWrapGap     = isTablet ? 12   : isSmall ? 5    : 8;
+  const tagsWrapMB      = isTablet ? 16   : isSmall ? 8    : 12;
+  const addTagPH        = isTablet ? 16   : isSmall ? 8    : 12;
+  const addTagPV        = isTablet ? 12   : isSmall ? 5    : 8;
+  const addTagRadius    = isTablet ? 12   : isSmall ? 6    : 8;
+  const addTagFs        = isTablet ? 15   : isSmall ? 12   : 14;
+  const remarkInputRowGap = isTablet ? 14 : isSmall ? 7    : 10;
+  const remarkInputRowMT  = isTablet ? 4  : isSmall ? 1    : 2;
+  const presetsRowPadV    = isTablet ? 16 : isSmall ? 8    : 12;
+  const presetsRowFs      = isTablet ? 17 : isSmall ? 12   : 14;
+  const presetsLoaderPadV = isTablet ? 26 : isSmall ? 12   : 18;
+
+  // ── StyleSheet ─────────────────────────────────────────────────────────────
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: '#FFF',
+    },
+
+    // ── Header ──────────────────────────────────────────────────────────────
+    header: {
+      height: scale(headerH) + 0, // insets.top added in JSX via paddingTop
+      paddingHorizontal: scale(hPad),
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: '#002748',
+    },
+    headerTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      flex: 1,
+    },
+    backButton: {
+      width: scale(backBtnSize),
+      height: scale(backBtnSize),
+      borderRadius: scale(backBtnSize / 2),
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    backIcon: {
+      width: scale(backIconSize),
+      height: scale(backIconSize),
+      tintColor: '#FFF',
+    },
+    headerTitle: {
+      fontWeight: '500',
+      color: '#FFF',
+      textAlign: 'center',
+      flex: 1,
+      fontSize: scale(titleFs),
+    },
+    newOrderButton: {
+      minWidth: scale(96),
+      height: scale(newOrderBtnH),
+      paddingHorizontal: scale(newOrderBtnPadH),
+      borderRadius: newOrderBtnR,
+      backgroundColor: 'rgba(255,255,255,0.94)',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: scale(6),
+      shadowColor: '#000',
+      shadowOpacity: 0.14,
+      shadowRadius: scale(8),
+      shadowOffset: { width: 0, height: scale(2) },
+      elevation: 2,
+    },
+    newOrderButtonText: {
+      color: '#002748',
+      fontSize: scale(newOrderFs),
+      fontWeight: '700',
+      letterSpacing: 0.2,
+    },
+
+    // ── Toast ────────────────────────────────────────────────────────────────
+    toastBanner: {
+      position: 'absolute',
+      left: scale(toastLR),
+      right: scale(toastLR),
+      top: scale(toastTop),
+      zIndex: 30,
+      alignItems: 'center',
+    },
+    toastBannerText: {
+      backgroundColor: 'rgba(0, 39, 72, 0.96)',
+      color: '#FFF',
+      paddingVertical: scale(toastPadV),
+      paddingHorizontal: scale(toastPadH),
+      borderRadius: toastRadius,
+      overflow: 'hidden',
+      fontSize: scale(toastFs),
+      fontWeight: '600',
+      shadowColor: '#000',
+      shadowOpacity: 0.16,
+      shadowRadius: scale(8),
+      shadowOffset: { width: 0, height: scale(2) },
+      elevation: 3,
+    },
+
+    // ── Fixed Info ───────────────────────────────────────────────────────────
+    fixedInfo: {
+      backgroundColor: '#FFF',
+      paddingTop: scale(fixedInfoPadT),
+      paddingBottom: scale(fixedInfoPadB),
+      paddingHorizontal: scale(hPad),
+    },
+    logoContainer: {
+      alignItems: 'center',
+      marginBottom: scale(logoMB),
+    },
+    logo: {
+      width: scale(logoW),
+      height: scale(logoH),
+    },
+    tableNumber: {
+      fontWeight: '500',
+      color: '#000',
+      textAlign: 'center',
+      marginBottom: scale(tableMB),
+      fontSize: scale(tableFs),
+    },
+    dateText: {
+      fontWeight: '300',
+      color: '#000',
+      textAlign: 'center',
+      marginBottom: scale(dateMB),
+      fontSize: scale(dateFs),
+    },
+
+    // ── Scrollable Content ───────────────────────────────────────────────────
+    content: {
+      flexGrow: 1,
+      paddingTop: scale(contentPadT),
+      paddingBottom: scale(contentPadB),
+      paddingHorizontal: scale(hPad),
+    },
+    billItemBlock: {
+      marginBottom: scale(billItemMB),
+    },
+    itemRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      marginBottom: scale(itemRowMB),
+    },
+    itemName: {
+      fontWeight: '400',
+      color: '#000',
+      flex: 1,
+      flexShrink: 1,
+      minWidth: 0,
+      marginRight: scale(itemNameMR),
+      fontSize: scale(itemFs),
+    },
+    itemRightBlock: {
+      flexShrink: 0,
+      alignItems: 'flex-end',
+    },
+    itemPrice: {
+      fontWeight: '400',
+      color: '#000',
+      flexShrink: 0,
+      textAlign: 'right',
+      marginBottom: scale(itemPriceMB),
+      fontSize: scale(itemFs),
+    },
+    qtyPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: scale(qtyPillGap),
+    },
+    qtyText: {
+      fontWeight: '500',
+      color: '#000',
+      minWidth: scale(qtyMinW),
+      textAlign: 'center',
+      fontSize: scale(qtyFs),
+    },
+    qtyBtn: {
+      width: scale(qtyBtnSize),
+      height: scale(qtyBtnSize),
+      borderRadius: scale(qtyBtnRadius),
+      backgroundColor: 'rgba(0,0,0,0.08)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    inlineVoidActionBtn: {
+      alignSelf: 'flex-end',
+      marginTop: scale(inlineVoidMT),
+      marginBottom: scale(inlineVoidMB),
+      backgroundColor: '#8D9ED4',
+      borderRadius: scale(inlineVoidRadius),
+      paddingHorizontal: scale(inlineVoidPadH),
+      paddingVertical: scale(inlineVoidPadV),
+    },
+    inlineVoidActionText: {
+      color: '#FFF',
+      fontSize: scale(inlineVoidFs),
+      fontWeight: '600',
+    },
+    billingRemarkRow: {
+      alignSelf: 'flex-start',
+      marginTop: scale(remarkMT),
+      maxWidth: '100%',
+    },
+    billingRemarkText: {
+      color: '#555',
+      lineHeight: scale(18),
+      textAlign: 'left',
+      fontSize: scale(remarkTextFs),
+    },
+    itemDivider: {
+      height: 1,
+      backgroundColor: 'rgba(0,0,0,0.10)',
+      marginTop: scale(itemDivMT),
+    },
+    addMoreWrap: {
+      marginTop: scale(addMoreMT),
+      marginBottom: scale(addMoreMB),
+    },
+    addMoreBtn: {
+      height: scale(addMoreH),
+      borderRadius: scale(addMoreRadius),
+      borderWidth: addMoreBW,
+      borderColor: '#002748',
+      backgroundColor: 'transparent',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    addMoreText: {
+      color: '#002748',
+      fontSize: scale(addMoreFs),
+      fontWeight: '700',
+    },
+
+    // ── Footer ───────────────────────────────────────────────────────────────
+    footer: {
+      backgroundColor: '#FFF',
+      paddingTop: scale(footerPadT),
+      paddingBottom: scale(footerPadB) + bottomInset,
+      paddingHorizontal: scale(hPad),
+    },
+    topDivider: {
+      height: 1,
+      backgroundColor: 'rgba(0,0,0,0.15)',
+      marginBottom: scale(dividerMB),
+    },
+    totalRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: scale(totalMT),
+    },
+    totalLabel: {
+      fontWeight: '500',
+      color: '#000',
+      fontSize: scale(totalFs),
+    },
+    totalValue: {
+      fontWeight: '500',
+      color: '#000',
+      fontSize: scale(totalFs),
+    },
+    printBtn: {
+      height: scale(printBtnH),
+      borderRadius: scale(printBtnRadius),
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: scale(printBtnGap),
+      marginTop: scale(12),
+    },
+    printText: {
+      color: '#FFF',
+      fontWeight: '700',
+      fontSize: scale(printFs),
+    },
+
+    // ── Loading overlay ──────────────────────────────────────────────────────
+    loadingOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0, 0, 0, 0.25)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    loadingCard: {
+      minWidth: scale(loadingCardMinW),
+      paddingVertical: scale(loadingCardPadV),
+      paddingHorizontal: scale(loadingCardPadH),
+      borderRadius: scale(loadingCardR),
+      backgroundColor: '#FFF',
+      alignItems: 'center',
+      gap: scale(loadingCardGap),
+      shadowColor: '#000',
+      shadowOpacity: 0.18,
+      shadowRadius: scale(12),
+      shadowOffset: { width: 0, height: scale(4) },
+      elevation: 5,
+    },
+    loadingText: {
+      color: '#002748',
+      fontSize: scale(loadingTextFs),
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+
+    // ── Void Modal ───────────────────────────────────────────────────────────
+    voidModalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: scale(voidOverlayPadH),
+    },
+    voidCard: {
+      width: '90%',
+      maxWidth: scale(560),
+      height: scale(voidCardH),
+      borderRadius: scale(voidCardRadius),
+      backgroundColor: '#FFF',
+      padding: scale(voidCardPad),
+      overflow: 'hidden',
+      elevation: 18,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: scale(voidCardShadH) },
+      shadowOpacity: 0.22,
+      shadowRadius: scale(voidCardShadR),
+    },
+    voidCardBody: {
+      flex: 1,
+    },
+    voidCardScroll: {
+      flex: 1,
+    },
+    voidCardContent: {
+      flexGrow: 1,
+      paddingBottom: scale(8),
+    },
+    voidCardFooter: {
+      paddingTop: scale(voidFooterPT),
+    },
+
+    // Manager auth
+    managerAuthCardBody: {
+      flex: 1,
+      paddingTop: scale(4),
+    },
+    managerAuthHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: scale(managerHdrMB),
+    },
+    managerAuthTitle: {
+      flex: 1,
+      color: '#000',
+      fontSize: scale(managerTitleFs),
+      fontFamily: 'Roboto',
+      fontWeight: '600',
+    },
+    managerAuthFieldGroup: {
+      marginBottom: scale(managerFieldMB),
+    },
+    managerAuthLabel: {
+      opacity: 0.75,
+      color: 'rgba(0, 0, 0, 0.80)',
+      fontSize: scale(managerLabelFs),
+      fontFamily: 'Inter',
+      fontWeight: '500',
+      marginBottom: scale(managerLabelMB),
+    },
+    managerAuthInputBox: {
+      width: '100%',
+      height: scale(managerInputH),
+      borderRadius: scale(managerInputR),
+      borderWidth: managerInputBW,
+      borderColor: '#0062AA',
+      paddingHorizontal: scale(managerInputPH),
+      justifyContent: 'center',
+    },
+    managerAuthInputBoxError: {
+      borderColor: '#FF4D4D',
+    },
+    managerAuthInput: {
+      flex: 1,
+      color: 'black',
+      fontSize: scale(managerInputFs),
+      fontFamily: 'Roboto',
+      fontWeight: '500',
+      padding: 0,
+      margin: 0,
+    },
+    managerAuthErrorText: {
+      marginTop: scale(managerErrMT),
+      color: '#FF4D4D',
+      fontSize: scale(managerErrFs),
+      fontFamily: 'Inter',
+      fontWeight: '500',
+    },
+    managerAuthFooter: {
+      marginTop: scale(managerFootMT),
+      alignItems: 'center',
+    },
+
+    // Preset list
+    presetListCardBody: {
+      flex: 1,
+      paddingTop: scale(4),
+    },
+    presetListHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: scale(presetHdrMB),
+    },
+    presetBackButton: {
+      width: scale(presetBackBtnSz),
+      height: scale(presetBackBtnSz),
+      borderRadius: scale(presetBackR),
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(0, 39, 72, 0.08)',
+    },
+    presetBackButtonSpacer: {
+      width: scale(presetBackBtnSz),
+      height: scale(presetBackBtnSz),
+    },
+    presetListTitle: {
+      flex: 1,
+      color: '#000',
+      fontSize: scale(presetTitleFs),
+      fontFamily: 'Roboto',
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+    presetListContent: {
+      paddingBottom: scale(presetListPB),
+    },
+    presetListRow: {
+      minHeight: scale(presetRowMinH),
+      borderRadius: scale(presetRowRadius),
+      backgroundColor: '#F4F7FB',
+      borderWidth: 1,
+      borderColor: 'rgba(0, 98, 170, 0.12)',
+      paddingHorizontal: scale(presetRowPadH),
+      paddingVertical: scale(presetRowPadV),
+      marginBottom: scale(presetRowMB),
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: scale(presetRowGap),
+    },
+    presetListRowText: {
+      flex: 1,
+      color: '#002748',
+      fontSize: scale(presetRowFs),
+      fontFamily: 'Roboto',
+      fontWeight: '500',
+    },
+    presetListEmptyWrap: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: scale(presetEmptyPadV),
+    },
+    presetListEmptyText: {
+      color: 'rgba(0, 39, 72, 0.7)',
+      fontSize: scale(presetEmptyFs),
+      fontWeight: '500',
+      textAlign: 'center',
+    },
+
+    // Void card internals
+    metaSpecificationsStack: {
+      gap: scale(metaStackGap),
+      marginBottom: scale(metaStackMB),
+    },
+    metaRowInline: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    metaLabelStyle: {
+      opacity: 0.75,
+      color: 'rgba(0, 0, 0, 0.80)',
+      fontSize: scale(metaLabelFs),
+      fontFamily: 'Inter',
+      fontWeight: '500',
+      width: scale(metaLabelW),
+    },
+    metaValueStyle: {
+      color: 'black',
+      fontSize: scale(metaValueFs),
+      fontFamily: 'Roboto',
+      fontWeight: '500',
+    },
+    voidQtyBtn: {
+      width: scale(voidQtyBtnSz),
+      height: scale(voidQtyBtnSz),
+      borderRadius: scale(voidQtyBtnR),
+      backgroundColor: 'rgba(0,0,0,0.08)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: scale(voidQtyBtnMR),
+    },
+    inputFieldLabelOutside: {
+      opacity: 0.75,
+      color: 'rgba(0, 0, 0, 0.80)',
+      fontSize: scale(fieldLabelFs),
+      fontFamily: 'Inter',
+      fontWeight: '500',
+      marginBottom: scale(fieldLabelMB),
+      marginTop: scale(fieldLabelMT),
+    },
+    textareaWrapperContainer: {
+      flexDirection: 'row',
+      width: '100%',
+      gap: scale(textareaGap),
+      alignItems: 'flex-start',
+      marginBottom: scale(14),
+    },
+    textAreaInputBox: {
+      flex: 1,
+      height: scale(textareaH),
+      borderRadius: scale(textareaRadius),
+      borderWidth: textareaBW,
+      borderColor: '#0062AA',
+      padding: scale(textareaPad),
+      justifyContent: 'flex-start',
+    },
+    textAreaTextInput: {
+      flex: 1,
+      color: 'black',
+      fontSize: scale(textareaTextFs),
+      fontFamily: 'Roboto',
+      fontWeight: '500',
+      textAlignVertical: 'top',
+      padding: 0,
+      margin: 0,
+    },
+    presetToggleButton: {
+      alignSelf: 'flex-start',
+      minWidth: scale(presetToggleW),
+      height: scale(presetToggleH),
+      borderRadius: scale(presetToggleR),
+      backgroundColor: '#8D9ED4',
+      paddingHorizontal: scale(presetTogglePH),
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    presetToggleButtonText: {
+      color: '#FFF',
+      fontSize: scale(presetToggleFs),
+      fontFamily: 'Roboto',
+      fontWeight: '600',
+    },
+    singleLineInputBoxWrapper: {
+      width: '100%',
+      marginBottom: scale(singleInputMB),
+    },
+    singleLineInputField: {
+      width: '100%',
+      height: scale(singleInputH),
+      borderRadius: scale(singleInputR),
+      borderWidth: singleInputBW,
+      borderColor: '#0062AA',
+      paddingHorizontal: scale(singleInputPH),
+      color: 'black',
+      fontSize: scale(singleInputFs),
+      fontFamily: 'Roboto',
+      fontWeight: '500',
+    },
+    ctaButtonControlRowGroup: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      width: '100%',
+      marginBottom: 0,
+    },
+    confirmActionButtonPrimary: {
+      width: confirmBtnW,
+      height: scale(confirmBtnH),
+      backgroundColor: '#8D9ED4',
+      borderRadius: scale(confirmBtnR),
+      justifyContent: 'center',
+      alignItems: 'center',
+      flexDirection: 'row',
+    },
+    confirmIconWrap: {
+      width: scale(confirmIconSz),
+      height: scale(confirmIconSz),
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: scale(confirmIconMR),
+    },
+    confirmButtonLabelInlineText: {
+      color: 'white',
+      fontSize: scale(confirmBtnFs),
+      fontFamily: 'Roboto',
+      fontWeight: '500',
+    },
+    cancelActionButtonOutlineSecondary: {
+      width: confirmBtnW,
+      height: scale(confirmBtnH),
+      borderRadius: scale(confirmBtnR),
+      borderWidth: cancelBtnBW,
+      borderColor: '#8D9ED4',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    cancelButtonLabelInlineText: {
+      opacity: 0.5,
+      color: 'black',
+      fontSize: scale(confirmBtnFs),
+      fontFamily: 'Roboto',
+      fontWeight: '500',
+    },
+
+    // ── Billing Remark Modal ─────────────────────────────────────────────────
+    remarkModalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: scale(remarkModalPadH),
+    },
+    remarkCard: {
+      width: '90%',
+      maxWidth: scale(560),
+      height: scale(remarkCardH),
+      borderRadius: scale(remarkCardRadius),
+      backgroundColor: '#fff',
+      padding: scale(remarkCardPad),
+      overflow: 'hidden',
+      elevation: 18,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: scale(8) },
+      shadowOpacity: 0.22,
+      shadowRadius: scale(16),
+    },
+    remarkCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: scale(remarkHdrMB),
+    },
+    remarkCardHeaderTitle: {
+      fontSize: scale(remarkHdrTitleFs),
+      fontWeight: '800',
+      color: '#0F172A',
+      flex: 1,
+      textAlign: 'center',
+    },
+    remarkHeaderIconBtn: {
+      width: scale(remarkHdrIconSz),
+      height: scale(remarkHdrIconSz),
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    remarkCardBody: {
+      flex: 1,
+    },
+    remarkScrollArea: {
+      flex: 1,
+    },
+    remarkCardContent: {
+      paddingBottom: scale(4),
+    },
+    presetsDivider: {
+      height: 1,
+      backgroundColor: '#E2E8F0',
+      marginBottom: scale(8),
+    },
+    presetsLoaderWrap: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: scale(presetsLoaderPadV),
+    },
+    remarkInput: {
+      height: scale(remarkInputH),
+      paddingHorizontal: scale(remarkInputPH),
+      fontSize: scale(remarkInputFs),
+      color: '#000',
+      textAlignVertical: 'center',
+      flex: 1,
+    },
+    saveRemarkBtn: {
+      marginTop: scale(saveRemarkMT),
+      height: scale(saveRemarkBtnH),
+      borderRadius: scale(saveRemarkR),
+      backgroundColor: '#8D9ED4',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    saveRemarkText: {
+      color: '#FFF',
+      fontSize: scale(saveRemarkFs),
+      fontWeight: '600',
+    },
+    tagsWrap: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: scale(tagsWrapGap),
+      marginBottom: scale(tagsWrapMB),
+    },
+    tagBadge: {
+      backgroundColor: '#0062AA',
+      paddingHorizontal: scale(tagPadH),
+      paddingVertical: scale(tagPadV),
+      borderRadius: scale(tagRadius),
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginRight: scale(tagMR),
+      marginBottom: scale(tagMB),
+    },
+    tagLabelBtn: {
+      paddingRight: scale(4),
+    },
+    tagText: {
+      color: '#FFF',
+      fontSize: scale(tagFs),
+      marginRight: scale(6),
+    },
+    tagClose: {
+      width: scale(tagCloseSz),
+      height: scale(tagCloseSz),
+      borderRadius: scale(tagCloseR),
+      backgroundColor: 'rgba(0,0,0,0.2)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    remarkInputRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: scale(remarkInputRowGap),
+      marginTop: scale(remarkInputRowMT),
+    },
+    remarkInputShell: {
+      flex: 1,
+      position: 'relative',
+    },
+    remarkDropdownIconBtn: {
+      position: 'absolute',
+      right: scale(8),
+      top: 0,
+      bottom: 0,
+      width: scale(36),
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    addTagBtn: {
+      backgroundColor: '#002748',
+      paddingHorizontal: scale(addTagPH),
+      paddingVertical: scale(addTagPV),
+      borderRadius: scale(addTagRadius),
+    },
+    addTagText: {
+      color: '#FFF',
+      fontWeight: '700',
+      fontSize: scale(addTagFs),
+    },
+    presetsListContent: {
+      paddingVertical: scale(2),
+    },
+    presetsRow: {
+      paddingVertical: scale(presetsRowPadV),
+      borderBottomWidth: 1,
+      borderBottomColor: '#F4F4F4',
+    },
+    presetsRowText: {
+      color: '#003366',
+      fontWeight: '600',
+      fontSize: scale(presetsRowFs),
+    },
+
+    // ── Category section header (billing list) ─────────────────────────────
+    billingSectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: scale(18),
+      marginBottom: scale(4),
+      paddingHorizontal: scale(4),
+    },
+    billingSectionHeaderText: {
+      fontSize: scale(14),
+      fontWeight: '700',
+      color: '#186cb1',
+      letterSpacing: 1.2,
+      textTransform: 'uppercase',
+      marginRight: scale(8),
+      flexShrink: 0,
+    },
+    billingSectionHeaderLine: {
+      flex: 1,
+      height: 3,
+      backgroundColor: 'rgba(0,39,72,0.12)',
+    },
+  });
+}

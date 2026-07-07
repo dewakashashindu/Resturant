@@ -1,11 +1,11 @@
 {
   "expo": {
     "name": "Restaurant",
-    "slug": "Restarurant",
+    "slug": "Restaurant",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/appiconw.png",
-    "scheme": "resturant",
+    "scheme": "restaurant",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true
@@ -14,7 +14,7 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/appiconw.png"
       },
-      "package": "com.dewaka_shashindu.Restarurant"
+      "package": "com.dewaka_shashindu.Restaurant"
     },
     "plugins": [
       "expo-router",

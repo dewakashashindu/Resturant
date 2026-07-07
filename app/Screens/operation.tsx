@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -16,193 +17,128 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
 
+// ─── Static data ──────────────────────────────────────────────────────────────
+const MODES: {
+  label: string;
+  color: string;
+  ionIcon: React.ComponentProps<typeof Ionicons>['name'];
+  route: string | null;
+}[] = [
+  {
+    label: 'Dining',
+    color: '#B9A0D5',
+    ionIcon: 'restaurant-outline',
+    route: '/Screens/tableselection',
+  },
+  {
+    label: 'Take Away',
+    color: '#8D9ED4',
+    ionIcon: 'bag-handle-outline',
+    route: '/Screens/TakeAway',
+  },
+  {
+    label: 'Delivery',
+    color: '#A9ABCF',
+    ionIcon: 'bicycle-outline',
+    route: null,
+  },
+  {
+    label: 'Pickup',
+    color: '#BC8EB6',
+    ionIcon: 'storefront-outline',
+    route: null,
+  },
+];
+
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function ModeSelectionScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const { s, meta } = getDynamicStyles(width, height, insets.bottom);
 
+  // ── State ──────────────────────────────────────────────────────────────────
   const [billOverlayVisible, setBillOverlayVisible] = useState(false);
-  const [heldTables, setHeldTables] = useState<string[]>([]);
+  const [heldBills, setHeldBills] = useState<{ tableNo: string; invoiceNo: string }[]>([]);
 
-  const isTablet = width >= 600;
-  const isSmall = height < 700;
-
-  const hPad = isTablet ? 24 : 16;
-  const headerMT = Platform.OS === 'android' ? (isTablet ? 20 : 16) : 10;
-  const headerTitleFs = isTablet ? 32 : 24;
-  const backIconSize = isTablet ? 56 : 44;
-
-  const cardW = isTablet ? width * 0.9 : width - hPad * 2;
-
-  const innerPad = isTablet ? 24 : 16;
-  const modeGap = isTablet ? 24 : 14;
-  const modeCardW = (cardW - innerPad * 2 - modeGap) / 2;
-  const modeCardH = isTablet ? modeCardW * 0.72 : modeCardW * 0.8;
-
-  const iconSize = isTablet ? modeCardW * 0.45 : modeCardW * 0.48;
-  const labelFs = isTablet ? 20 : 12;
-  const labelPadH = isTablet ? 32 : 16;
-  const labelPadV = isTablet ? 8 : 4;
-
-  const modes = [
-    {
-      label: 'Dining',
-      color: '#B9A0D5',
-      image: require('../../assets/images/dining.png'),
-      route: '/Screens/tableselection',
-    },
-    {
-      label: 'Take Away',
-      color: '#8D9ED4',
-      image: require('../../assets/images/takeaway.png'),
-      route: '/Screens/TakeAway',
-    },
-    {
-      label: 'Delivery',
-      color: '#A9ABCF',
-      image: require('../../assets/images/delivery.png'),
-      route: null,
-    },
-    {
-      label: 'Pickup',
-      color: '#BC8EB6',
-      image: require('../../assets/images/pickup.png'),
-      route: null,
-    },
-  ];
-
+  // ── Handlers & side-effects ────────────────────────────────────────────────
   const refreshHeldTables = async () => {
     try {
       const response = await apiClient.fetchUnpaidBills();
-      if (!response.ok) {
-        setHeldTables([]);
-        return;
-      }
+      if (!response.ok) { setHeldBills([]); return; }
       const bills = Array.isArray(response.data?.data) ? response.data.data : [];
-      const uniqueTables = [...new Set(bills.map((bill: any) => String(bill.tableNo ?? '').trim()).filter(Boolean))] as string[];
-      setHeldTables(uniqueTables.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })));
-    } catch (err) {
-      setHeldTables([]);
+      const parsed = bills
+        .map((bill: any) => ({
+          tableNo:   String(bill.tableNo   ?? '').trim(),
+          invoiceNo: String(bill.invoiceNo ?? '').trim(),
+        }))
+        .filter((b: { tableNo: string; invoiceNo: string }) => b.tableNo && b.invoiceNo);
+      setHeldBills(
+        parsed.sort((a: { tableNo: string; invoiceNo: string }, b: { tableNo: string; invoiceNo: string }) =>
+          a.tableNo.localeCompare(b.tableNo, undefined, { numeric: true, sensitivity: 'base' }),
+        ),
+      );
+    } catch {
+      setHeldBills([]);
     }
   };
 
   useEffect(() => {
-    if (billOverlayVisible) {
-      refreshHeldTables();
-    }
+    if (billOverlayVisible) refreshHeldTables();
   }, [billOverlayVisible]);
 
   const handleBillPress = () => {
-    refreshHeldTables();
     setBillOverlayVisible(true);
   };
 
-  const handleHeldTableSelect = (tableNumber: string) => {
+  const handleHeldTableSelect = (bill: { tableNo: string; invoiceNo: string }) => {
     setBillOverlayVisible(false);
-
     router.replace({
       pathname: '/Screens/BillingScreen',
-      params: {
-        tableName: tableNumber,
-      },
+      params: { tableName: bill.tableNo, invoiceNo: bill.invoiceNo },
     });
   };
 
+  // ── JSX ────────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={s.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#F3F3F3" />
 
       {/* BACK BUTTON */}
-      <TouchableOpacity
-        style={styles.backButtonAbsolute}
-        onPress={() => router.back()}
-      >
+      <TouchableOpacity style={s.backButtonAbsolute} onPress={() => router.back()}>
         <Image
           source={require('../../assets/icons/blackback.png')}
-          style={{ width: backIconSize, height: backIconSize }}
+          style={s.backIcon}
           resizeMode="contain"
         />
       </TouchableOpacity>
 
-      <View style={styles.contentWrapper}>
+      <View style={s.contentWrapper}>
+
         {/* HEADER */}
-        <View
-          style={[
-            styles.header,
-            {
-              marginTop: headerMT,
-              paddingHorizontal: hPad,
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.headerTitle,
-              {
-                fontSize: headerTitleFs,
-              },
-            ]}
-          >
-            Mode Selection
-          </Text>
+        <View style={s.header}>
+          <Text style={s.headerTitle}>Mode Selection</Text>
         </View>
 
         {/* MAIN CARD */}
-        <View
-          style={[
-            styles.mainCard,
-            {
-              width: cardW,
-              padding: innerPad,
-            },
-          ]}
-        >
-          <View style={[styles.grid, { gap: modeGap }]}>
-            {modes.map((mode, i) => (
+        <View style={s.mainCard}>
+          <View style={s.grid}>
+            {MODES.map((mode, i) => (
               <TouchableOpacity
                 key={i}
                 activeOpacity={0.82}
-                style={[
-                  styles.modeCard,
-                  {
-                    backgroundColor: mode.color,
-                    width: modeCardW,
-                    height: modeCardH,
-                  },
-                ]}
-                onPress={() => {
-                  if (mode.route) router.push(mode.route as any);
-                }}
+                style={[s.modeCard, { backgroundColor: mode.color }]}
+                onPress={() => { if (mode.route) router.push(mode.route as any); }}
               >
-                <Image
-                  source={mode.image}
-                  style={{
-                    width: iconSize,
-                    height: iconSize,
-                    marginBottom: isTablet ? 16 : 12,
-                  }}
-                  resizeMode="contain"
+                {/* Ionicons — same pattern as settings & home screens */}
+                <Ionicons
+                  name={mode.ionIcon}
+                  size={meta.modeIconSize}
+                  color="#000000"
+                  style={s.modeIconSpacing}
                 />
-
-                <View
-                  style={[
-                    styles.labelContainer,
-                    {
-                      paddingHorizontal: labelPadH,
-                      paddingVertical: labelPadV,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.label,
-                      {
-                        fontSize: labelFs,
-                      },
-                    ]}
-                  >
-                    {mode.label}
-                  </Text>
+                <View style={s.labelContainer}>
+                  <Text style={s.label}>{mode.label}</Text>
                 </View>
               </TouchableOpacity>
             ))}
@@ -210,55 +146,64 @@ export default function ModeSelectionScreen() {
         </View>
 
         {/* BILL BUTTON */}
-        <TouchableOpacity
-          style={[
-            styles.billButton,
-            {
-              width: cardW,
-              marginTop: 18,
-            },
-          ]}
-          onPress={handleBillPress}
-        >
-          <Text style={styles.billText}>Bill</Text>
+        <TouchableOpacity style={s.billButton} onPress={handleBillPress}>
+          <Text style={s.billText}>Bill</Text>
         </TouchableOpacity>
+
       </View>
 
-      <Modal visible={billOverlayVisible} transparent animationType="fade" onRequestClose={() => setBillOverlayVisible(false)}>
+      {/* BILL OVERLAY MODAL */}
+      <Modal
+        visible={billOverlayVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBillOverlayVisible(false)}
+      >
         <TouchableWithoutFeedback onPress={() => setBillOverlayVisible(false)}>
-          <View style={styles.overlayBackdrop}>
+          <View style={s.overlayBackdrop}>
             <TouchableWithoutFeedback>
-              <View style={[styles.overlayCard, { width: isTablet ? Math.min(width * 0.78, 620) : width - 32 }]}>
-                <View style={styles.overlayHeader}>
-                  <Text style={styles.overlayTitle}>Listed Bills</Text>
-                  <TouchableOpacity onPress={() => setBillOverlayVisible(false)} style={styles.overlayCloseBtn}>
-                    <Text style={styles.overlayCloseText}>✕</Text>
+              <View style={s.overlayCard}>
+
+                <View style={s.overlayHeader}>
+                  <Text style={s.overlayTitle}>Listed Bills</Text>
+                  <TouchableOpacity
+                    onPress={() => setBillOverlayVisible(false)}
+                    style={s.overlayCloseBtn}
+                  >
+                    <Text style={s.overlayCloseText}>✕</Text>
                   </TouchableOpacity>
                 </View>
 
-                <Text style={styles.overlaySubtitle}>Select a listed bill to view or modify it</Text>
+                <Text style={s.overlaySubtitle}>Select a listed bill to view or modify it</Text>
 
-                {heldTables.length > 0 ? (
+                {heldBills.length > 0 ? (
                   <FlatList
-                    data={heldTables}
-                    keyExtractor={(item) => item}
-                    contentContainerStyle={[styles.heldTableList, { paddingBottom: 2 + insets.bottom }]}
+                    data={heldBills}
+                    keyExtractor={(item) => item.invoiceNo}
+                    contentContainerStyle={s.heldTableList}
                     renderItem={({ item }) => (
-                      <TouchableOpacity style={styles.heldTableRow} activeOpacity={0.82} onPress={() => handleHeldTableSelect(item)}>
+                      <TouchableOpacity
+                        style={s.heldTableRow}
+                        activeOpacity={0.82}
+                        onPress={() => handleHeldTableSelect(item)}
+                      >
                         <View>
-                          <Text style={styles.heldTableLabel}>Table {item}</Text>
-                          <Text style={styles.heldTableHint}>Tap to continue this order</Text>
+                          <Text style={s.heldTableLabel}>Table {item.tableNo}</Text>
+                          <Text style={s.heldTableHint}>Tap to continue this order</Text>
                         </View>
-                        <Text style={styles.heldTableChevron}>›</Text>
+                        <Text style={s.heldTableChevron}>›</Text>
                       </TouchableOpacity>
                     )}
                   />
                 ) : (
-                  <View style={styles.emptyStateWrap}>
-                    <Text style={styles.emptyStateTitle}>No listed bills</Text>
-                    <Text style={styles.emptyStateText}>Start a new order to create a listed bill here.</Text>
+                  <View style={s.emptyStateWrap}>
+                    <Text style={s.emptyStateTitle}>No listed bills</Text>
+                    <Text style={s.emptyStateText}>
+                      Start a new order to create a listed bill here.
+                    </Text>
                   </View>
                 )}
+
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -268,183 +213,286 @@ export default function ModeSelectionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F3F3F3',
-  },
+// ─── Dynamic Styles Factory ───────────────────────────────────────────────────
+function getDynamicStyles(width: number, height: number, bottomInset: number) {
+  const isTablet = width >= 600;
+  const isSmall  = height < 700;
 
-  backButtonAbsolute: {
-    position: 'absolute',
-    top: Platform.OS === 'android' ? 44 : 8,
-    left: 12,
-    zIndex: 10,
-    padding: 8,
-  },
+  const BASE_WIDTH = isTablet ? 768 : 375;
+  const scale = (size: number): number => (width / BASE_WIDTH) * size;
 
-  header: {
-    alignItems: 'center',
-    marginBottom: 18,
-  },
+  // ── 3-Tier Conditional Benchmarks ─────────────────────────────────────────
 
-  headerTitle: {
-    fontWeight: '600',
-    color: '#000',
-    fontSize: 22,
-  },
+  // Back button
+  const backBtnTop    = Platform.OS === 'android'
+    ? (isTablet ? 44  : isSmall ? 36  : 44)
+    : (isTablet ? 10  : isSmall ?  6  :  8);
+  const backBtnLeft   = isTablet ?  16 : isSmall ?  10 : 12;
+  const backBtnPad    = isTablet ?  12 : isSmall ?   6 :  8;
+  const backIconSize  = isTablet ?  56 : isSmall ?  38 : 44;
 
-  contentWrapper: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  // Header
+  const headerMT      = Platform.OS === 'android'
+    ? (isTablet ? 20  : isSmall ? 14  : 16)
+    : (isTablet ? 12  : isSmall ?  8  : 10);
+  const headerMB      = isTablet ?  24 : isSmall ?  14 : 18;
+  const hPad          = isTablet ?  24 : isSmall ?  12 : 16;
+  const headerTitleFs = isTablet ?  32 : isSmall ?  20 : 24;
 
-  mainCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
+  // Card
+  const cardW         = isTablet ? width * 0.9 : width - scale(hPad) * 2;
+  const innerPad      = isTablet ?  24 : isSmall ?  14 : 16;
+  const cardRadius    = isTablet ?  22 : isSmall ?  14 : 16;
+  const shadowH       = isTablet ?   4 : isSmall ?   2 :  3;
+  const shadowR       = isTablet ?  12 : isSmall ?   7 :  8;
 
-    elevation: 5,
+  // Mode grid
+  const modeGap       = isTablet ?  24 : isSmall ?  12 : 14;
+  const modeCardW     = (cardW - scale(innerPad) * 2 - scale(modeGap)) / 2;
+  const modeCardH     = isTablet ? modeCardW * 0.72 : modeCardW * 0.80;
+  const modeCardR     = isTablet ?  14 : isSmall ?   9 : 10;
 
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 3,
+  // Icon — raw number for Ionicons size prop (not a StyleSheet value)
+  const modeIconSize  = isTablet ? modeCardW * 0.38 : isSmall ? modeCardW * 0.40 : modeCardW * 0.42;
+  const iconMB        = isTablet ?  16 : isSmall ?  10 : 12;
+
+  // Label pill
+  const labelFs       = isTablet ?  20 : isSmall ?  10 : 12;
+  const labelPadH     = isTablet ?  32 : isSmall ?  14 : 16;
+  const labelPadV     = isTablet ?   8 : isSmall ?   3 :  4;
+  const labelRadius   = isTablet ?  28 : isSmall ?  17 : 20;
+
+  // Bill button
+  const billMT        = isTablet ?  22 : isSmall ?  14 : 18;
+  const billPadV      = isTablet ?  18 : isSmall ?  12 : 14;
+  const billRadius    = isTablet ?  18 : isSmall ?  12 : 14;
+  const billFs        = isTablet ?  22 : isSmall ?  14 : 16;
+
+  // Overlay
+  const overlayPadH   = isTablet ?  22 : isSmall ?  12 : 16;
+  const overlayCardW  = isTablet ? Math.min(width * 0.78, scale(620)) : width - scale(32);
+  const overlayPad    = isTablet ?  24 : isSmall ?  14 : 18;
+  const overlayRadius = isTablet ?  30 : isSmall ?  18 : 22;
+  const overlayShadH  = isTablet ?  10 : isSmall ?   6 :  8;
+  const overlayShadR  = isTablet ?  20 : isSmall ?  12 : 16;
+  const overlayTitleFs  = isTablet ? 24 : isSmall ? 15 : 18;
+  const closeBtnSize    = isTablet ? 44 : isSmall ? 28 : 34;
+  const closeBtnRadius  = isTablet ? 22 : isSmall ? 14 : 17;
+  const closeIconFs     = isTablet ? 24 : isSmall ? 15 : 18;
+  const subtitleMT    = isTablet ?  12 : isSmall ?   6 :  8;
+  const subtitleMB    = isTablet ?  18 : isSmall ?  12 : 14;
+  const subtitleFs    = isTablet ?  17 : isSmall ?  11 : 13;
+
+  // Held table rows
+  const rowRadius     = isTablet ?  22 : isSmall ?  14 : 16;
+  const rowPadV       = isTablet ?  18 : isSmall ?  12 : 14;
+  const rowPadH       = isTablet ?  18 : isSmall ?  12 : 14;
+  const rowMB         = isTablet ?  14 : isSmall ?   8 : 10;
+  const rowLabelFs    = isTablet ?  22 : isSmall ?  14 : 16;
+  const rowHintMT     = isTablet ?   4 : isSmall ?   1 :  2;
+  const rowHintFs     = isTablet ?  16 : isSmall ?  10 : 12;
+  const chevronFs     = isTablet ?  38 : isSmall ?  22 : 28;
+  const chevronML     = isTablet ?  12 : isSmall ?   6 :  8;
+  const listPB        = isTablet ?   4 : isSmall ?   1 :  2;
+
+  // Empty state
+  const emptyPadV     = isTablet ?  40 : isSmall ?  22 : 28;
+  const emptyTitleFs  = isTablet ?  24 : isSmall ?  15 : 18;
+  const emptyTextMT   = isTablet ?  10 : isSmall ?   5 :  6;
+  const emptyTextFs   = isTablet ?  17 : isSmall ?  11 : 13;
+  const emptyLineH    = isTablet ?  24 : isSmall ?  15 : 18;
+
+  // ── StyleSheet ─────────────────────────────────────────────────────────────
+  const s = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: '#F3F3F3',
     },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-  },
+    backButtonAbsolute: {
+      position: 'absolute',
+      top: scale(backBtnTop),
+      left: scale(backBtnLeft),
+      zIndex: 10,
+      padding: scale(backBtnPad),
+    },
+    backIcon: {
+      width: scale(backIconSize),
+      height: scale(backIconSize),
+    },
+    contentWrapper: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    header: {
+      alignItems: 'center',
+      marginTop: scale(headerMT),
+      marginBottom: scale(headerMB),
+      paddingHorizontal: scale(hPad),
+    },
+    headerTitle: {
+      fontWeight: '600',
+      color: '#000',
+      fontSize: scale(headerTitleFs),
+    },
+    mainCard: {
+      width: cardW,
+      padding: scale(innerPad),
+      backgroundColor: '#fff',
+      borderRadius: scale(cardRadius),
+      elevation: 5,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: scale(shadowH) },
+      shadowOpacity: 0.12,
+      shadowRadius: scale(shadowR),
+    },
+    grid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+      gap: scale(modeGap),
+    },
+    modeCard: {
+      width: modeCardW,
+      height: modeCardH,
+      borderRadius: scale(modeCardR),
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    // Spacing below the icon — replaces the old modeIcon marginBottom
+    modeIconSpacing: {
+      marginBottom: scale(iconMB),
+    },
+    labelContainer: {
+      backgroundColor: '#000',
+      borderRadius: scale(labelRadius),
+      paddingHorizontal: scale(labelPadH),
+      paddingVertical: scale(labelPadV),
+    },
+    label: {
+      color: '#fff',
+      fontWeight: '600',
+      fontSize: scale(labelFs),
+    },
+    billButton: {
+      width: cardW,
+      marginTop: scale(billMT),
+      paddingVertical: scale(billPadV),
+      borderRadius: scale(billRadius),
+      backgroundColor: '#002748',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    billText: {
+      fontSize: scale(billFs),
+      fontWeight: '700',
+      color: '#fff',
+    },
+    overlayBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.48)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: scale(overlayPadH),
+    },
+    overlayCard: {
+      width: overlayCardW,
+      padding: scale(overlayPad),
+      backgroundColor: '#FFF',
+      borderRadius: scale(overlayRadius),
+      maxHeight: '78%',
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOpacity: 0.18,
+      shadowRadius: scale(overlayShadR),
+      shadowOffset: { width: 0, height: scale(overlayShadH) },
+    },
+    overlayHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    overlayTitle: {
+      color: '#002748',
+      fontSize: scale(overlayTitleFs),
+      fontWeight: '800',
+      flex: 1,
+    },
+    overlayCloseBtn: {
+      width: scale(closeBtnSize),
+      height: scale(closeBtnSize),
+      borderRadius: scale(closeBtnRadius),
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(0,39,72,0.08)',
+    },
+    overlayCloseText: {
+      color: '#002748',
+      fontSize: scale(closeIconFs),
+      fontWeight: '800',
+    },
+    overlaySubtitle: {
+      marginTop: scale(subtitleMT),
+      marginBottom: scale(subtitleMB),
+      color: 'rgba(0,39,72,0.68)',
+      fontSize: scale(subtitleFs),
+      fontWeight: '500',
+    },
+    heldTableList: {
+      paddingBottom: scale(listPB) + bottomInset,
+    },
+    heldTableRow: {
+      borderRadius: scale(rowRadius),
+      paddingVertical: scale(rowPadV),
+      paddingHorizontal: scale(rowPadH),
+      backgroundColor: '#F4F7FB',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: scale(rowMB),
+      borderWidth: 1,
+      borderColor: 'rgba(0,39,72,0.08)',
+    },
+    heldTableLabel: {
+      color: '#002748',
+      fontSize: scale(rowLabelFs),
+      fontWeight: '800',
+    },
+    heldTableHint: {
+      color: 'rgba(0,39,72,0.58)',
+      marginTop: scale(rowHintMT),
+      fontSize: scale(rowHintFs),
+      fontWeight: '500',
+    },
+    heldTableChevron: {
+      color: '#002748',
+      fontSize: scale(chevronFs),
+      fontWeight: '300',
+      marginLeft: scale(chevronML),
+    },
+    emptyStateWrap: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: scale(emptyPadV),
+    },
+    emptyStateTitle: {
+      color: '#002748',
+      fontSize: scale(emptyTitleFs),
+      fontWeight: '800',
+    },
+    emptyStateText: {
+      color: 'rgba(0,39,72,0.68)',
+      textAlign: 'center',
+      marginTop: scale(emptyTextMT),
+      fontSize: scale(emptyTextFs),
+      lineHeight: scale(emptyLineH),
+    },
+  });
 
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
+  // ── Meta — raw numeric values needed as props (e.g. Ionicons size) ─────────
+  const meta = {
+    modeIconSize: Math.round(modeIconSize),
+  };
 
-  modeCard: {
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  labelContainer: {
-    backgroundColor: '#000',
-    borderRadius: 20,
-  },
-
-  label: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-
-  billButton: {
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: '#002748',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  billText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  overlayBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.48)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-  },
-  overlayCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 22,
-    padding: 18,
-    maxHeight: '78%',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-  },
-  overlayHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  overlayTitle: {
-    color: '#002748',
-    fontSize: 18,
-    fontWeight: '800',
-    flex: 1,
-  },
-  overlayCloseBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,39,72,0.08)',
-  },
-  overlayCloseText: {
-    color: '#002748',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  overlaySubtitle: {
-    marginTop: 8,
-    marginBottom: 14,
-    color: 'rgba(0,39,72,0.68)',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  heldTableList: {
-    paddingBottom: 2,
-  },
-  heldTableRow: {
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    backgroundColor: '#F4F7FB',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(0,39,72,0.08)',
-  },
-  heldTableLabel: {
-    color: '#002748',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  heldTableHint: {
-    color: 'rgba(0,39,72,0.58)',
-    marginTop: 2,
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  heldTableChevron: {
-    color: '#002748',
-    fontSize: 28,
-    fontWeight: '300',
-    marginLeft: 8,
-  },
-  emptyStateWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 28,
-  },
-  emptyStateTitle: {
-    color: '#002748',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  emptyStateText: {
-    color: 'rgba(0,39,72,0.68)',
-    textAlign: 'center',
-    marginTop: 6,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-});
+  return { s, meta };
+}

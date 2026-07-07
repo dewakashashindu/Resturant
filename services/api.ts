@@ -190,6 +190,8 @@ type ConfirmCartPayloadInput = ConfirmCartPayload | {
   LPax?: number;
   fPax?: number;
   FPax?: number;
+  existingInvoiceNo?: string | null;
+  invoiceNo?: string | null;
   items: Array<{
     menuItemCode?: string;
     ItemCode?: string;
@@ -378,16 +380,26 @@ const normalizeConfirmCartPayload = (payload: ConfirmCartPayloadInput): any => {
     rawOrderType = 'TA';
   }
 
-  
+
+  // Resolve the existing invoice number — checked under both field names
+  // so it survives regardless of how the caller spelled it.
+  const existingInvoiceNo = toString(
+    (payload as any).existingInvoiceNo ?? (payload as any).invoiceNo ?? '',
+    ''
+  ).trim() || null;
+
   return {
     items,
     tableNo: toString((payload as any).TabelNo ?? (payload as any).tableNo ?? '', '').trim(),
-    orderType: rawOrderType, 
+    orderType: rawOrderType,
     tableGrpId: (payload as any).TabelGrpID ?? (payload as any).tableGrpId ?? null,
     lPax: toNumber((payload as any).LPax ?? (payload as any).lPax, 0),
     fPax: toNumber((payload as any).FPax ?? (payload as any).fPax, 0),
     userId: toString((payload as any).UserID ?? (payload as any).userId ?? 'SYSTEM', ''),
-    customerDetails: normalizedCustomer, 
+    customerDetails: normalizedCustomer,
+    // Pass through so the server can match the existing open bill instead of
+    // generating a new TA serial / INV number on every Add-More confirm.
+    existingInvoiceNo,
   };
 };
 
@@ -682,9 +694,9 @@ export const apiClient = {
     return { ok: response.ok, data };
   },
 
-  getMenuItems: async (since?: string) => {
+  getMenuItems: async () => {
     try {
-      const url = since ? `${getDynamicApiBaseUrl()}/api/menu/items?since=${encodeURIComponent(since)}` : `${getDynamicApiBaseUrl()}/api/menu/items`;
+      const url = `${getDynamicApiBaseUrl()}/api/menu/items`;
       console.log('[api] getMenuItems URL=', url);
       const response = await fetch(url);
       const contentType = response.headers.get('content-type') || '';
@@ -774,9 +786,17 @@ export const apiClient = {
     }
   },
 
-  getActiveBillItems: async (tableNo: string) => {
+  getActiveBillItems: async (tableNo: string, invoiceNo?: string) => {
     try {
-      const url = `${getDynamicApiBaseUrl()}/api/billing/active-items?tableNo=${encodeURIComponent(tableNo)}`;
+      // Prefer invoiceNo — it uniquely identifies one bill so items from
+      // other users on the same table are never mixed in.
+      const params = new URLSearchParams();
+      if (invoiceNo) {
+        params.set('invoiceNo', invoiceNo);
+      } else {
+        params.set('tableNo', tableNo);
+      }
+      const url = `${getDynamicApiBaseUrl()}/api/billing/active-items?${params.toString()}`;
       const response = await fetch(url);
       const contentType = response.headers.get('content-type') || '';
       let data: any = null;
@@ -798,7 +818,8 @@ export const apiClient = {
   fetchUnpaidBills: async () => {
     try {
       const url = `${getDynamicApiBaseUrl()}/api/unpaid-bills`;
-      const response = await fetch(url);
+      // Auth header required — server uses JWT to decide manager vs own-bills filter.
+      const response = await fetch(url, { headers: await buildAuthHeaders() });
       const data = await parseResponseBody(response);
       return { ok: response.ok, data };
     } catch (err) {
@@ -823,11 +844,22 @@ export const apiClient = {
     }
   },
 
-  payBill: async (invoiceNo: string) => {
+  payBill: async (payload: string | { invoiceNo: string; tableNo?: string }) => {
+    const normalized = typeof payload === 'string' ? { invoiceNo: payload } : payload;
     const response = await requestJson(`${getDynamicApiBaseUrl()}/api/pay-bill`, {
       method: 'POST',
       headers: await buildAuthHeaders(),
-      body: JSON.stringify({ invoiceNo }),
+      body: JSON.stringify(normalized),
+    });
+
+    return response;
+  },
+
+  updateTableStatus: async (payload: { tableId: string; status: 'Y' | 'N' }) => {
+    const response = await requestJson(`${getDynamicApiBaseUrl()}/api/tables/status`, {
+      method: 'POST',
+      headers: await buildAuthHeaders(),
+      body: JSON.stringify(payload),
     });
 
     return response;
@@ -928,6 +960,34 @@ getWorkers: async () => {
     });
   },
 
+
+  // ── Profile Picture ────────────────────────────────────────────────────────
+  getProfilePicture: async (userId: string | number, locCode: string): Promise<{ ok: boolean; picture?: string | null }> => {
+    try {
+      const url = `${getDynamicApiBaseUrl()}/api/auth/profile-picture?userId=${encodeURIComponent(String(userId))}&locCode=${encodeURIComponent(locCode)}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      return { ok: response.ok, picture: data.picture || null };
+    } catch (error: any) {
+      console.error('[API] getProfilePicture failed:', error);
+      return { ok: false, picture: null };
+    }
+  },
+
+  updateProfilePicture: async (userId: string | number, locCode: string, pictureBase64: string): Promise<{ ok: boolean; message?: string }> => {
+    try {
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/auth/update-picture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: String(userId), locCode, picture: pictureBase64 }),
+      });
+      const data = await response.json();
+      return { ok: response.ok, message: data.message };
+    } catch (error: any) {
+      console.error('[API] updateProfilePicture failed:', error);
+      return { ok: false, message: error.message || 'Network error' };
+    }
+  },
 
   checkDeviceStatus: async (deviceId: string): Promise<{ ok: boolean;
      data?: { allowed: boolean; 

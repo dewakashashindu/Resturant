@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   ScrollView,
   StatusBar,
@@ -60,6 +61,7 @@ export default function TableSelectionScreen() {
   const [occupiedCount,  setOccupiedCount]  = useState(0);
   const [reservedCount,  setReservedCount]  = useState(0);
   const [loadingCounts,  setLoadingCounts]  = useState(true);
+  const [openingTableId, setOpeningTableId] = useState<string | null>(null);
 
   const isTablet = width  >= 600;
   const isSmall  = height < 700;
@@ -376,17 +378,49 @@ export default function TableSelectionScreen() {
                   table.status === 'available' && styles.tableCardAvailable,
                 ]}
                 onPress={() => {
-                  clearCart();
-                  if (table.status === 'occupied') {
-                    router.push({ pathname: '/Screens/selectitems', params: { tableName: table.id, status: table.status, floor: selectedFloor } });
-                    return;
-                  }
-                  router.push({ pathname: '/Screens/paxcount', params: { tableName: table.id, floor: selectedFloor, status: table.status } });
+                    const openTable = async () => {
+                      if (table.status === 'occupied') {
+                        try {
+                          setOpeningTableId(table.id);
+                          const activeBill = await apiClient.getActiveBillItems(table.id);
+                          const data = activeBill.ok ? activeBill.data?.data : null;
+                          const invoiceNo = String(data?.invoiceNo ?? '').trim();
+
+                          if (!invoiceNo) {
+                            Alert.alert('No active bill found', 'This table is marked occupied, but no open bill was returned.');
+                            return;
+                          }
+
+                          router.push({
+                            pathname: '/Screens/BillingScreen',
+                            params: {
+                              tableName: table.id,
+                              tableNo: table.id,
+                              floor: selectedFloor,
+                              invoiceNo,
+                              localPax: String(data?.lPax ?? '0'),
+                              foreignPax: String(data?.fPax ?? '0'),
+                            },
+                          });
+                          return;
+                        } finally {
+                          setOpeningTableId(null);
+                        }
+                      }
+
+                      clearCart();
+                      router.push({ pathname: '/Screens/paxcount', params: { tableName: table.id, floor: selectedFloor, status: table.status } });
+                    };
+
+                    void openTable();
                 }}
+                  disabled={openingTableId === table.id}
               >
                 {table.status === 'available' ? (
                   <Text style={[styles.plusIcon, { fontSize: plusFs }]}>+</Text>
-                ) : (
+                  ) : openingTableId === table.id ? (
+                    <ActivityIndicator size="small" color="#002748" />
+                  ) : (
                   <Text style={{ fontSize: emojiFs, marginBottom: 4 }}>👥</Text>
                 )}
                 <Text style={[styles.tableText, { fontSize: cardFont }]}>

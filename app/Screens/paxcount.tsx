@@ -139,7 +139,7 @@ export default function PaxCountScreen() {
             }}
           >
             <Text style={[styles.nextText, { fontSize: btnFs }]}>Confirm</Text>
-            <Text style={[styles.checkIcon, { fontSize: btnFs }]}>✓</Text>
+           
           </TouchableOpacity>
 
         </View>

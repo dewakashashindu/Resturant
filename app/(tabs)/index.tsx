@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -16,7 +17,7 @@ import { useAuthStore } from '../../services/authStore';
 export default function HomeScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
- 
+
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const userName = useAuthStore((state) => state.user?.userName);
@@ -29,45 +30,61 @@ export default function HomeScreen() {
     };
   }, []);
 
-  const formattedDate = currentDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: '2-digit', year: 'numeric' });
+  const formattedDate = currentDate.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: '2-digit',
+    year: 'numeric',
+  });
+
   const getGreeting = (d: Date) => {
     const h = d.getHours();
     if (h < 12) return 'Good Morning,';
     if (h < 17) return 'Good Afternoon,';
     return 'Good Evening,';
   };
+
   const greetingText = getGreeting(currentDate);
-  const isTablet  = width >= 600;
-  const isSmall   = height < 680;
 
-  // ── RESPONSIVE VALUES ─────────────────────────
-  const headerH     = isTablet ? height * 0.35 : height * 0.35;
-  const logoW       = isTablet ? 260 : Math.min(200, width * 0.6);
-  const logoH       = isTablet ? 200  : 55;
-  const greetSize   = isTablet ? 20  : 15;
-  const nameSize    = isTablet ? 32  : 24;
-  const dateSize    = isTablet ? 23  : 10;
-  const sectionSize = isTablet ? 32  : 18;
+  const isTablet = width >= 600;
+  const isSmall  = height < 680;
 
-  // Card: 2 columns with gap
-  const cardPadding = isTablet ? 16 : 16;
-  const cardGap     = isTablet ? 24 : 12;
-  const cardWidth   = (width - cardPadding * 2 - cardGap) / 2;
-  const cardHeight  = isTablet ? cardWidth * 0.42 : 140;
+  // ── RESPONSIVE VALUES ─────────────────────────────────────────────────────
+  const headerH        = isTablet ? height * 0.25 : isSmall ? height * 0.28 : height * 0.25;
+  const logoW          = isTablet ? 260            : isSmall ? 160           : Math.min(200, width * 0.6);
+  const logoH          = isTablet ? 110            : isSmall ? 55            : 65;
+  const greetSize      = isTablet ? 20             : isSmall ? 12            : 16;
+  const nameSize       = isTablet ? 32             : isSmall ? 20            : 28;
+  const dateSize       = isTablet ? 23             : isSmall ? 10            : 12;
+  const sectionSize    = isTablet ? 32             : isSmall ? 18            : 20;
+  const headerPaddingTop = isTablet ? 60           : isSmall ? 30            : 55;
 
-  const iconSize    = isTablet ? 40 : 28;
-  const iconBox     = isTablet ? 64 : 50;
-  const cardTitle   = isTablet ? 20 : 15;
-  const cardSub     = isTablet ? 15 : 12;
+  // ── CARD GRID VALUES ──────────────────────────────────────────────────────
+  const contentOverlap = isTablet ? -18 : isSmall ? -10  : -25;
+  const cardPadding    = isTablet ? 16  : 16;
+  const cardGap        = isTablet ? 10  : 6;
+  const cardWidth      = (width - cardPadding * 2 - cardGap) / 2;
+  const cardHeight     = isTablet ? cardWidth * 0.62 : 160;
+  const iconSize       = isTablet ? 50  : 42;
+  const iconBox        = isTablet ? 74  : 60;
+  const cardTitle      = isTablet ? 24  : 15;
+  const cardSub        = isTablet ? 16  : 12;
 
-  const cards = [
+  const cards: {
+    title: string;
+    subtitle: string;
+    color: string;
+    iconBg: string;
+    route: string;
+    ionIcon: React.ComponentProps<typeof Ionicons>['name'];
+  }[] = [
     {
       title: 'Order Taking',
       subtitle: 'Table POS',
       color: 'rgba(255,153,142,0.5)',
       iconBg: 'rgba(255,153,142,0.6)',
       route: '/Screens/operation',
-      icon: require('../../assets/icons/ordertaking.png'),
+      ionIcon: 'receipt-outline',
     },
     {
       title: 'Dashboard',
@@ -75,7 +92,7 @@ export default function HomeScreen() {
       color: 'rgba(151,173,210,0.5)',
       iconBg: 'rgba(151,173,210,0.6)',
       route: '/Screens/dashboard',
-      icon: require('../../assets/icons/dashboard.png'),
+      ionIcon: 'grid-outline',
     },
     {
       title: 'Menu Card',
@@ -83,7 +100,7 @@ export default function HomeScreen() {
       color: 'rgba(255,248,131,0.5)',
       iconBg: 'rgba(255,248,131,0.6)',
       route: '/Screens/menu',
-      icon: require('../../assets/icons/menu.png'),
+      ionIcon: 'restaurant-outline',
     },
     {
       title: 'Feedback Collector',
@@ -91,7 +108,7 @@ export default function HomeScreen() {
       color: 'rgba(129,113,183,0.5)',
       iconBg: 'rgba(129,113,183,0.6)',
       route: '/Screens/nps',
-      icon: require('../../assets/icons/nps.png'),
+      ionIcon: 'chatbubble-ellipses-outline',
     },
     {
       title: 'Sales Report',
@@ -99,7 +116,7 @@ export default function HomeScreen() {
       color: 'rgba(144,123,22,0.5)',
       iconBg: 'rgba(144,123,22,0.6)',
       route: '/Screens/salesreport',
-      icon: require('../../assets/icons/salesreports.png'),
+      ionIcon: 'bar-chart-outline',
     },
     {
       title: 'Settings',
@@ -107,7 +124,7 @@ export default function HomeScreen() {
       color: 'rgba(66,119,164,0.5)',
       iconBg: 'rgba(66,119,164,0.6)',
       route: '/Screens/settings',
-      icon: require('../../assets/icons/settings.png'),
+      ionIcon: 'settings-outline',
     },
   ];
 
@@ -116,7 +133,17 @@ export default function HomeScreen() {
       <StatusBar barStyle="light-content" backgroundColor="#002748" />
 
       {/* HEADER - fixed, not scrollable */}
-      <View style={[styles.header, { height: headerH, paddingHorizontal: cardPadding }]}>
+      <View
+        style={[
+          styles.header,
+          {
+            height:            headerH,
+            paddingHorizontal: cardPadding,
+            paddingTop:        headerPaddingTop,  // ← updated
+            paddingBottom:     isTablet ? 28 : isSmall ? 20 : 32,
+          },
+        ]}
+      >
         <View style={styles.circle} />
 
         {/* LOGO */}
@@ -132,7 +159,7 @@ export default function HomeScreen() {
         <View style={styles.headerRow}>
           <View>
             <Text style={[styles.greeting, { fontSize: greetSize }]}>{greetingText}</Text>
-            <Text style={[styles.name, { fontSize: nameSize }]}>{displayName}</Text>
+            <Text style={[styles.name,     { fontSize: nameSize  }]}>{displayName}</Text>
           </View>
 
           <View style={styles.dateContainer}>
@@ -144,7 +171,10 @@ export default function HomeScreen() {
       {/* CONTENT - only Quick Access + cards scroll */}
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { paddingHorizontal: cardPadding }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingHorizontal: cardPadding, marginTop: contentOverlap },
+        ]}
         style={styles.content}
       >
         <Text style={[styles.sectionTitle, { fontSize: sectionSize }]}>
@@ -160,8 +190,8 @@ export default function HomeScreen() {
                 styles.card,
                 {
                   backgroundColor: item.color,
-                  width: cardWidth,
-                  height: cardHeight,
+                  width:           cardWidth,
+                  height:          cardHeight,
                 },
               ]}
               onPress={() => router.push(item.route as any)}
@@ -174,25 +204,20 @@ export default function HomeScreen() {
                   styles.iconBox,
                   {
                     backgroundColor: item.iconBg,
-                    width: iconBox,
-                    height: iconBox,
-                    borderRadius: isTablet ? 16 : 12,
+                    width:           iconBox,
+                    height:          iconBox,
+                    borderRadius:    Math.round(iconBox * 0.27),
                   },
                 ]}
               >
-                <Image
-                  source={item.icon}
-                  style={{ width: iconSize, height: iconSize }}
-                  resizeMode="contain"
-                />
+                <Ionicons name={item.ionIcon} size={iconSize} color="#002748" />
               </View>
 
-              <Text style={[styles.cardTitle, { fontSize: cardTitle }]}>
-                {item.title}
-              </Text>
-              <Text style={[styles.cardSubtitle, { fontSize: cardSub }]}>
-                {item.subtitle}
-              </Text>
+              {/* TEXT BLOCK */}
+              <View>
+                <Text style={[styles.cardTitle,    { fontSize: cardTitle }]}>{item.title}</Text>
+                <Text style={[styles.cardSubtitle, { fontSize: cardSub   }]}>{item.subtitle}</Text>
+              </View>
             </TouchableOpacity>
           ))}
         </View>
@@ -208,14 +233,12 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 100,
+    paddingBottom: 10,
   },
 
   // ── HEADER ──────────────────────────────────
   header: {
     backgroundColor: '#002748',
-    paddingTop: 100,    // ← reduce this (try 25-35)
-    paddingBottom: 40,
     justifyContent: 'space-between',
   },
   circle: {
@@ -229,7 +252,6 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     alignItems: 'center',
-    
   },
   headerRow: {
     flexDirection: 'row',
@@ -238,7 +260,6 @@ const styles = StyleSheet.create({
   },
   greeting: {
     color: '#fff',
-    
   },
   name: {
     color: '#fff',
@@ -257,7 +278,6 @@ const styles = StyleSheet.create({
   // ── CONTENT ─────────────────────────────────
   content: {
     backgroundColor: '#fff',
-    marginTop: -25,
   },
   sectionTitle: {
     fontWeight: '600',
@@ -275,7 +295,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 16,
     overflow: 'hidden',
-    justifyContent: 'flex-end', // push text to bottom
+    justifyContent: 'space-between',
   },
   cardCircle: {
     position: 'absolute',
@@ -293,11 +313,10 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontWeight: '600',
-    color: '#111',
+    color: '#111827',
   },
   cardSubtitle: {
-    opacity: 0.6,
-    color: '#111',
+    color: '#6B7280',
     marginTop: 2,
   },
 });

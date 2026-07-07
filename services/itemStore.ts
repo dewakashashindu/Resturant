@@ -218,20 +218,15 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
   },
 
   syncMenuData: async () => {
-    // Called from Settings → "Sync Menu Data" button.
-    // Uses incremental sync (since=lastSyncDate) to avoid pulling the full
-    // table every time the user manually refreshes. Only changed rows come back.
+    // Called from Settings → "Sync Menu Data" button, and also on the first
+    // login after midnight (via hydrateItems). Always does a full pull —
+    // no incremental/since filter, so no LastUpdated column is needed on the DB.
     if (get().isSyncing) return false;
     set({ isSyncing: true, syncError: null });
 
     try {
-      // Pass the stored sync DATE as the `since` filter.
-      // The server does: WHERE LastUpdated > @since
-      // On first ever sync storedSyncDate is null → full pull (no filter).
-      const storedSyncDate = readStoredSyncDate();
-
       const [itemsResponse, categoriesResponse] = await Promise.all([
-        apiClient.getMenuItems(storedSyncDate ?? undefined), // incremental if date exists
+        apiClient.getMenuItems(), // full pull — no since param
         apiClient.getCategories(),
       ]);
 
@@ -246,12 +241,7 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
       }
 
       const itemsPayload = itemsResponse.data ?? {};
-      const incomingItems: RawItem[] = Array.isArray(itemsPayload.items) ? itemsPayload.items : [];
-
-      // Merge incoming (changed) items into existing cache.
-      // If this was a full pull (no since), incomingItems IS the full list.
-      const existingItems = get().items;
-      const mergedItems = mergeItems(existingItems, incomingItems);
+      const items: RawItem[] = Array.isArray(itemsPayload.items) ? itemsPayload.items : [];
 
       const categoriesPayload = categoriesResponse.data ?? {};
       const categories = Array.isArray((categoriesPayload as any).categories)
@@ -260,14 +250,13 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
 
       const displayTimestamp = getDisplayTimestamp();
 
-      set({ items: mergedItems, lastSyncTime: displayTimestamp, syncError: null, isHydrated: true });
+      set({ items, lastSyncTime: displayTimestamp, syncError: null, isHydrated: true });
 
-      persistLegacyCacheKeys(mergedItems, categories);
-      persistSnapshot(mergedItems, displayTimestamp);
+      persistLegacyCacheKeys(items, categories);
+      persistSnapshot(items, displayTimestamp);
 
       console.log('[ItemStore] syncMenuData: done', {
-        incomingRows: incomingItems.length,
-        totalCached: mergedItems.length,
+        totalRows: items.length,
         lastSyncTime: displayTimestamp,
       });
       return true;
@@ -305,25 +294,6 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
   },
 }));
 
-// ── Merge helper ──────────────────────────────────────────────────────────────
-/**
- * Merges changed/new items from the server into the existing cached list.
- * Matches on MenuItemCode. If the server returned ALL items (full pull),
- * this just replaces the whole list cleanly.
- */
-const mergeItems = (existing: RawItem[], incoming: RawItem[]): RawItem[] => {
-  if (incoming.length === 0) return existing;
 
-  const map = new Map<string, RawItem>();
-  for (const item of existing) {
-    const key = String(item.MenuItemCode ?? item.menuItemCode ?? '');
-    if (key) map.set(key, item);
-  }
-  for (const item of incoming) {
-    const key = String(item.MenuItemCode ?? item.menuItemCode ?? '');
-    if (key) map.set(key, item); // overwrites stale row
-  }
-  return [...map.values()];
-};
 
 export default useItemStore;
