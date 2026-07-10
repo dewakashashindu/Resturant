@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -42,37 +43,50 @@ const VOID_REMARK_PRESETS = [
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function BillingScreen() {
   const router = useRouter();
-  const { tableName, tableNo, localPax, foreignPax, floor, invoiceNo: routeInvoiceNo, fromCart } =
-    useLocalSearchParams<{
-      tableName?: string;
-      tableNo?: string;
-      localPax?: string;
-      foreignPax?: string;
-      floor?: string;
-      invoiceNo?: string;
-      fromBilling?: string;
-      fromCart?: string;   // '1' when navigating back from cart after "Add More" confirm
-    }>();
+  const {
+    tableName,
+    tableNo,
+    localPax,
+    foreignPax,
+    floor,
+    invoiceNo: routeInvoiceNo,
+    fromCart,
+    forceRefresh,
+  } = useLocalSearchParams<{
+    tableName?: string;
+    tableNo?: string;
+    localPax?: string;
+    foreignPax?: string;
+    floor?: string;
+    invoiceNo?: string;
+    fromBilling?: string;
+    fromCart?: string;
+    forceRefresh?: string;
+  }>();
 
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const s = getDynamicStyles(width, height, insets.bottom);
 
-  // ── Zustand store ──────────────────────────────────────────────────────────
+  // ── Zustand stores ─────────────────────────────────────────────────────────
   const cartItems = useCartStore((state) => state.cartItems);
   const updateQuantityInCart = useCartStore((state) => state.updateQuantity);
   const setCartItemsInStore = useCartStore((state) => state.setCartItems);
 
   const lastConfirmedOrder = useOrderStore((state) => state.lastConfirmedOrder);
-  const displayedItems = lastConfirmedOrder
-    ? lastConfirmedOrder.items.map((it) => ({
+
+  const displayedItems = useMemo(() => {
+    if (lastConfirmedOrder?.items?.length) {
+      return lastConfirmedOrder.items.map((it) => ({
         menuItemCode: it.menuItemCode,
         menuItmDes: it.menuItmDes ?? '',
         salesPrice: it.salesPrice ?? 0,
         quantity: it.quantity,
         itemRemarks: it.itemRemarks ?? '',
-      }))
-    : cartItems;
+      }));
+    }
+    return cartItems;
+  }, [lastConfirmedOrder, cartItems]);
 
   // ── Item store — used for category grouping ────────────────────────────────
   const storeItems = useItemStore((state) => state.items);
@@ -81,7 +95,7 @@ export default function BillingScreen() {
     const map: Record<string, string> = {};
     for (const item of storeItems) {
       const code = String(item.MenuItemCode ?? item.ItemCode ?? '').trim();
-      const cat  = String(item.Category ?? '').trim();
+      const cat = String(item.Category ?? '').trim();
       if (code && cat) map[code] = cat;
     }
     return map;
@@ -95,7 +109,11 @@ export default function BillingScreen() {
   };
   const BILLING_CATEGORY_ORDER = ['F', 'B', 'S', 'O'];
 
-  type BillingSection = { categoryCode: string; label: string; items: typeof displayedItems };
+  type BillingSection = {
+    categoryCode: string;
+    label: string;
+    items: typeof displayedItems;
+  };
 
   const billingSections = useMemo((): BillingSection[] => {
     const buckets: Record<string, typeof displayedItems> = {};
@@ -132,7 +150,9 @@ export default function BillingScreen() {
   const [billingHasChanges, setBillingHasChanges] = useState(false);
   const [isHydratingBill, setIsHydratingBill] = useState(false);
   const [pendingAdditions, setPendingAdditions] = useState<Record<string, number>>({});
-  const [voidMetadata, setVoidMetadata] = useState<Record<string, { remark: string; manager: string }>>({});
+  const [voidMetadata, setVoidMetadata] = useState<
+    Record<string, { remark: string; manager: string }>
+  >({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [dbInvoiceNo, setDbInvoiceNo] = useState<string | null>(null);
   const [dbLPax, setDbLPax] = useState<number | null>(null);
@@ -160,25 +180,111 @@ export default function BillingScreen() {
 
   const activeTableNo = String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim();
   const grossTotal = displayedItems.reduce((sum, item: any) => {
-    return sum + (Number(item.salesPrice ?? 0) || 0) * (Number(item.quantity ?? 0) || 0);
+    return (
+      sum + (Number(item.salesPrice ?? 0) || 0) * (Number(item.quantity ?? 0) || 0)
+    );
   }, 0);
   const footerButtonLabel = billingHasChanges ? 'Confirm Changes' : 'Print';
   const footerButtonBackgroundColor = billingHasChanges ? '#D97706' : '#8D9ED4';
 
   const now = new Date();
-  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', day: '2-digit', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const dateStr = now.toLocaleDateString('en-US', {
+    weekday: 'long',
+    day: '2-digit',
+    year: 'numeric',
+  });
+
+  // ── fetchOrderDetails ──────────────────────────────────────────────────────
+  const fetchOrderDetails = useCallback(async (invoiceNo?: string) => {
+    console.log('Refreshing bill data from DB...');
+
+    setCartItemsInStore([]);
+    useOrderStore.getState().clearLastConfirmedOrder();
+
+    const targetInvoiceNo = invoiceNo
+      ? String(invoiceNo)
+      : String(routeInvoiceNo ?? '').trim() || undefined;
+    const targetTableNo = String(tableName ?? tableNo ?? '').trim();
+
+    if (!targetTableNo && !targetInvoiceNo) {
+      return;
+    }
+
+    setIsLoadingBillFromDb(true);
+
+    try {
+      const response = await apiClient.getActiveBillItems(
+        targetTableNo,
+        targetInvoiceNo,
+      );
+
+      if (!response.ok || !response.data?.data) {
+        console.warn('[BillingScreen] Fetch failed or empty data');
+        return;
+      }
+
+      const data = response.data.data;
+      const freshItems = Array.isArray(data.items) ? data.items : [];
+
+      setCartItemsInStore(freshItems);
+
+      // FIX: Prefer server-returned tableNo, fall back to route param
+      const resolvedTableNo = String(data.tableNo ?? targetTableNo ?? '').trim();
+
+      useOrderStore.getState().setLastConfirmedOrder({
+        orderType: data.orderType || 'DI',
+        tableNo: resolvedTableNo,
+        userId: data.userId || 'SYSTEM',
+        tableGrpId: data.tableGrpId || '',
+        lPax: typeof data.lPax === 'number' ? data.lPax : Number(localPax ?? 0),
+        fPax: typeof data.fPax === 'number' ? data.fPax : Number(foreignPax ?? 0),
+        invoiceNo: targetInvoiceNo ?? data.invoiceNo ?? undefined,
+        createdAt: data.createdAt || new Date().toISOString(),
+        items: freshItems.map((item: any) => ({
+          menuItemCode: item.menuItemCode || item.ItemCode || item.itemCode,
+          menuItmDes: item.menuItmDes || item.ItemDescription || '',
+          salesPrice: Number(item.salesPrice ?? item.SalesPrice ?? 0),
+          quantity: Number(item.quantity ?? item.QTY ?? 0),
+          itemRemarks: item.itemRemarks || item.ItemRemarks || '',
+        })),
+      });
+
+      setDbInvoiceNo(targetInvoiceNo ?? data.invoiceNo ?? null);
+      setDbLPax(typeof data.lPax === 'number' ? data.lPax : null);
+      setDbFPax(typeof data.fPax === 'number' ? data.fPax : null);
+    } catch (error) {
+      console.error('[BillingScreen] Error fetching bill:', error);
+    } finally {
+      setIsLoadingBillFromDb(false);
+    }
+  }, [routeInvoiceNo, tableName, tableNo, localPax, foreignPax]);
+
+  // ── useFocusEffect ─────────────────────────────────────────────────────────
+  useFocusEffect(
+    useCallback(() => {
+      const currentInvoice = routeInvoiceNo ? String(routeInvoiceNo) : undefined;
+      fetchOrderDetails(currentInvoice);
+    }, [fetchOrderDetails, routeInvoiceNo])
+  );
 
   // ── Callbacks & Handlers ───────────────────────────────────────────────────
-  const upsertVoidMetadata = useCallback((menuItemCode: string, remark: string, manager: string) => {
-    setVoidMetadata((current) => ({
-      ...current,
-      [menuItemCode]: {
-        remark: String(remark || '').trim(),
-        manager: String(manager || '').trim(),
-      },
-    }));
-  }, []);
+  const upsertVoidMetadata = useCallback(
+    (menuItemCode: string, remark: string, manager: string) => {
+      setVoidMetadata((current) => ({
+        ...current,
+        [menuItemCode]: {
+          remark: String(remark || '').trim(),
+          manager: String(manager || '').trim(),
+        },
+      }));
+    },
+    [],
+  );
 
   const deleteVoidMetadata = useCallback((menuItemCode: string) => {
     setVoidMetadata((current) => {
@@ -208,7 +314,10 @@ export default function BillingScreen() {
     setBillingRemarkItemName(item.menuItmDes ?? '');
     const existing = String(item.itemRemarks ?? '').trim();
     const parts = existing
-      ? existing.split(',').map((s: string) => s.trim()).filter(Boolean)
+      ? existing
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean)
       : [];
     setBillingModalTags(parts);
     setBillingRemarkDraft('');
@@ -217,22 +326,25 @@ export default function BillingScreen() {
     setBillingRemarkVisible(true);
   }, []);
 
-  const billingAddTag = useCallback((tag: string) => {
-    const t = String(tag || '').trim();
-    if (!t) return;
-    setBillingModalTags((prev) => {
-      if (billingEditingTagIndex !== null) {
-        const next = [...prev];
-        const insertAt = Math.max(0, Math.min(billingEditingTagIndex, next.length));
-        next.splice(insertAt, 0, t);
-        setBillingEditingTagIndex(null);
-        return next;
-      }
-      return prev.includes(t) ? prev : [...prev, t];
-    });
-    setBillingRemarkDraft('');
-    setBillingIsViewingPresets(false);
-  }, [billingEditingTagIndex]);
+  const billingAddTag = useCallback(
+    (tag: string) => {
+      const t = String(tag || '').trim();
+      if (!t) return;
+      setBillingModalTags((prev) => {
+        if (billingEditingTagIndex !== null) {
+          const next = [...prev];
+          const insertAt = Math.max(0, Math.min(billingEditingTagIndex, next.length));
+          next.splice(insertAt, 0, t);
+          setBillingEditingTagIndex(null);
+          return next;
+        }
+        return prev.includes(t) ? prev : [...prev, t];
+      });
+      setBillingRemarkDraft('');
+      setBillingIsViewingPresets(false);
+    },
+    [billingEditingTagIndex],
+  );
 
   const billingEditTag = useCallback((tag: string, index: number) => {
     setBillingRemarkDraft(tag);
@@ -266,7 +378,9 @@ export default function BillingScreen() {
       useOrderStore.getState().setLastConfirmedOrder({
         ...lastConfirmedOrder,
         items: lastConfirmedOrder.items.map((it) =>
-          it.menuItemCode === billingRemarkItemId ? { ...it, itemRemarks: compiled } : it
+          it.menuItemCode === billingRemarkItemId
+            ? { ...it, itemRemarks: compiled }
+            : it,
         ),
       });
     } else {
@@ -281,7 +395,14 @@ export default function BillingScreen() {
     setBillingRemarkItemName('');
     setBillingEditingTagIndex(null);
     setBillingIsViewingPresets(false);
-  }, [billingEditingTagIndex, billingModalTags, billingRemarkDraft, billingRemarkItemId, cartItems, lastConfirmedOrder]);
+  }, [
+    billingEditingTagIndex,
+    billingModalTags,
+    billingRemarkDraft,
+    billingRemarkItemId,
+    cartItems,
+    lastConfirmedOrder,
+  ]);
 
   const loadBillingRemarkPresets = useCallback(async () => {
     setBillingLoadingPresets(true);
@@ -291,7 +412,7 @@ export default function BillingScreen() {
         setBillingRemarkOptions(
           response.data
             .map((d: any) => String(d.VoidDescription ?? '').trim())
-            .filter(Boolean)
+            .filter(Boolean),
         );
       } else {
         setBillingRemarkOptions([]);
@@ -326,37 +447,69 @@ export default function BillingScreen() {
 
   const hasQuantityChangesFromBaseline = useCallback(() => {
     const baseline = originalQuantitiesRef.current;
-    const currentMap = displayedItems.reduce<Record<string, number>>((acc, item: any) => {
-      acc[item.menuItemCode] = Number(item.quantity ?? 0) || 0;
-      return acc;
-    }, {});
-    const allCodes = new Set<string>([...Object.keys(baseline), ...Object.keys(currentMap)]);
+    const currentMap = displayedItems.reduce<Record<string, number>>(
+      (acc, item: any) => {
+        acc[item.menuItemCode] = Number(item.quantity ?? 0) || 0;
+        return acc;
+      },
+      {},
+    );
+    const allCodes = new Set<string>([
+      ...Object.keys(baseline),
+      ...Object.keys(currentMap),
+    ]);
     for (const code of allCodes) {
-      if ((Number(baseline[code] ?? 0) || 0) !== (Number(currentMap[code] ?? 0) || 0)) return true;
+      if (
+        (Number(baseline[code] ?? 0) || 0) !==
+        (Number(currentMap[code] ?? 0) || 0)
+      )
+        return true;
     }
     return false;
   }, [displayedItems]);
 
-  const rollbackItemToBaseline = useCallback((menuItemCode: string) => {
-    const baselineQty = getBaselineQuantity(menuItemCode);
-    if (lastConfirmedOrder) {
-      if (!lastConfirmedOrder.items.some((item) => item.menuItemCode === menuItemCode)) return;
-      useOrderStore.getState().setLastConfirmedOrder({
-        ...lastConfirmedOrder,
-        items: lastConfirmedOrder.items
-          .map((item) => item.menuItemCode === menuItemCode ? { ...item, quantity: baselineQty } : item)
+  const rollbackItemToBaseline = useCallback(
+    (menuItemCode: string) => {
+      const baselineQty = getBaselineQuantity(menuItemCode);
+      if (lastConfirmedOrder) {
+        if (
+          !lastConfirmedOrder.items.some(
+            (item) => item.menuItemCode === menuItemCode,
+          )
+        )
+          return;
+        useOrderStore.getState().setLastConfirmedOrder({
+          ...lastConfirmedOrder,
+          items: lastConfirmedOrder.items
+            .map((item) =>
+              item.menuItemCode === menuItemCode
+                ? { ...item, quantity: baselineQty }
+                : item,
+            )
+            .filter((item) => Number(item.quantity ?? 0) > 0),
+        });
+        return;
+      }
+      if (!cartItems.some((item) => item.menuItemCode === menuItemCode)) return;
+      setCartItemsInStore(
+        cartItems
+          .map((item) =>
+            item.menuItemCode === menuItemCode
+              ? { ...item, quantity: baselineQty }
+              : item,
+          )
           .filter((item) => Number(item.quantity ?? 0) > 0),
-      });
-      return;
-    }
-    if (!cartItems.some((item) => item.menuItemCode === menuItemCode)) return;
-    setCartItemsInStore(
-      cartItems
-        .map((item) => item.menuItemCode === menuItemCode ? { ...item, quantity: baselineQty } : item)
-        .filter((item) => Number(item.quantity ?? 0) > 0)
-    );
-    deleteVoidMetadata(menuItemCode);
-  }, [cartItems, deleteVoidMetadata, getBaselineQuantity, lastConfirmedOrder, setCartItemsInStore]);
+      );
+      deleteVoidMetadata(menuItemCode);
+    },
+    [
+      cartItems,
+      deleteVoidMetadata,
+      getBaselineQuantity,
+      lastConfirmedOrder,
+      setCartItemsInStore,
+    ],
+  );
 
   const rollbackAllToBaseline = useCallback(() => {
     const baseline = originalQuantitiesRef.current;
@@ -364,40 +517,54 @@ export default function BillingScreen() {
       useOrderStore.getState().setLastConfirmedOrder({
         ...lastConfirmedOrder,
         items: lastConfirmedOrder.items
-          .map((item) => ({ ...item, quantity: Number(baseline[item.menuItemCode] ?? 0) || 0 }))
+          .map((item) => ({
+            ...item,
+            quantity: Number(baseline[item.menuItemCode] ?? 0) || 0,
+          }))
           .filter((item) => Number(item.quantity ?? 0) > 0),
       });
     } else {
       setCartItemsInStore(
         cartItems
-          .map((item) => ({ ...item, quantity: Number(baseline[item.menuItemCode] ?? 0) || 0 }))
-          .filter((item) => Number(item.quantity ?? 0) > 0)
+          .map((item) => ({
+            ...item,
+            quantity: Number(baseline[item.menuItemCode] ?? 0) || 0,
+          }))
+          .filter((item) => Number(item.quantity ?? 0) > 0),
       );
     }
     clearPendingChanges();
     setVoidMetadata({});
     resetVoidState();
-  }, [cartItems, clearPendingChanges, lastConfirmedOrder, resetVoidState, setCartItemsInStore]);
+  }, [
+    cartItems,
+    clearPendingChanges,
+    lastConfirmedOrder,
+    resetVoidState,
+    setCartItemsInStore,
+  ]);
 
+  const adjustPendingAddition = (menuItemCode: string, delta: number) => {
+    if (
+      !menuItemCode ||
+      menuItemCode === 'undefined' ||
+      menuItemCode === 'null'
+    ) {
+      console.warn(
+        '[BillingScreen] Prevented pending addition for an invalid/undefined item code.',
+      );
+      return;
+    }
+    setPendingAdditions((current) => {
+      const next = { ...current };
+      const nextValue = Math.max(0, (next[menuItemCode] ?? 0) + delta);
+      if (nextValue > 0) next[menuItemCode] = nextValue;
+      else delete next[menuItemCode];
+      return next;
+    });
+  };
 
-const adjustPendingAddition = (menuItemCode: string, delta: number) => {
-  
-  if (!menuItemCode || menuItemCode === 'undefined' || menuItemCode === 'null') {
-    console.warn('[BillingScreen] Prevented pending addition for an invalid/undefined item code.');
-    return;
-  }
-
-  setPendingAdditions((current) => {
-    const next = { ...current };
-    const nextValue = Math.max(0, (next[menuItemCode] ?? 0) + delta);
-    if (nextValue > 0) next[menuItemCode] = nextValue;
-    else delete next[menuItemCode];
-    return next;
-  });
-};
   const handleNewOrder = useCallback(() => {
-    // DB-driven flow: no MMKV hold needed. Just clear local state and go back
-    // so the user can start a fresh order. The DB still holds the current bill.
     clearPendingChanges();
     setVoidMetadata({});
     resetVoidState();
@@ -415,10 +582,17 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
   }, [hasQuantityChangesFromBaseline, rollbackAllToBaseline, router]);
 
   const openVoidModal = (menuItemCode: string, editOnly = false) => {
-    const item = displayedItems.find((entry: any) => entry.menuItemCode === menuItemCode) ?? null;
+    const item =
+      displayedItems.find(
+        (entry: any) => entry.menuItemCode === menuItemCode,
+      ) ?? null;
     if (!item) return;
-    const existingMeta = voidMetadata[menuItemCode] ?? { remark: '', manager: '' };
-    const prefilledRemark = existingMeta.remark || (editOnly ? (item.itemRemarks ?? '') : '');
+    const existingMeta = voidMetadata[menuItemCode] ?? {
+      remark: '',
+      manager: '',
+    };
+    const prefilledRemark =
+      existingMeta.remark || (editOnly ? (item.itemRemarks ?? '') : '');
     setActiveVoidItem(item);
     setVoidQuantity(editOnly ? 0 : 1);
     setVoidRemark(prefilledRemark);
@@ -429,10 +603,19 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
   };
 
   const handleVoidPreview = (menuItemCode: string) => {
-    const item = displayedItems.find((entry: any) => entry.menuItemCode === menuItemCode) ?? null;
+    const item =
+      displayedItems.find(
+        (entry: any) => entry.menuItemCode === menuItemCode,
+      ) ?? null;
     if (!item) return;
-    if (pendingVoidItemId === menuItemCode && activeVoidItem && activeVoidItem.quantity) {
-      setVoidQuantity(Math.min(activeVoidItem.quantity, (voidQuantity || 1) + 1));
+    if (
+      pendingVoidItemId === menuItemCode &&
+      activeVoidItem &&
+      activeVoidItem.quantity
+    ) {
+      setVoidQuantity(
+        Math.min(activeVoidItem.quantity, (voidQuantity || 1) + 1),
+      );
       setBillingHasChanges(true);
       return;
     }
@@ -450,21 +633,32 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
     if (isManagerAuthView) {
       const trimmedManagerUsername = String(managerName || '').trim();
       const trimmedManagerPassword = String(managerPassword || '').trim();
-      const nextManagerIdError = trimmedManagerUsername ? '' : 'Manager username is required!';
-      const nextManagerPasswordError = trimmedManagerPassword ? '' : 'Password is required!';
+      const nextManagerIdError = trimmedManagerUsername
+        ? ''
+        : 'Manager username is required!';
+      const nextManagerPasswordError = trimmedManagerPassword
+        ? ''
+        : 'Password is required!';
       setManagerIdError(nextManagerIdError);
       setManagerPasswordError(nextManagerPasswordError);
       if (nextManagerIdError || nextManagerPasswordError) return;
       if (managerVerifying) return;
       setManagerVerifying(true);
       try {
-        const verifyResult = await apiClient.verifyManager(trimmedManagerUsername, trimmedManagerPassword);
+        const verifyResult = await apiClient.verifyManager(
+          trimmedManagerUsername,
+          trimmedManagerPassword,
+        );
         if (!verifyResult.ok) {
-          setManagerPasswordError(verifyResult.data?.message || 'Invalid manager credentials');
+          setManagerPasswordError(
+            verifyResult.data?.message || 'Invalid manager credentials',
+          );
           return;
         }
       } catch (error) {
-        setManagerPasswordError('Could not verify manager. Check connection and try again.');
+        setManagerPasswordError(
+          'Could not verify manager. Check connection and try again.',
+        );
         return;
       } finally {
         setManagerVerifying(false);
@@ -472,23 +666,29 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
     }
     const itemCode = activeVoidItem.menuItemCode;
     const baselineQty = getBaselineQuantity(itemCode);
-    const currentItem = displayedItems.find((it: any) => it.menuItemCode === itemCode);
+    const currentItem = displayedItems.find(
+      (it: any) => it.menuItemCode === itemCode,
+    );
     const currentQty = Number(currentItem?.quantity ?? 0) || 0;
     const isTrueVoidReduction = currentQty < baselineQty;
     const trimmedRemark = String(voidRemark || '').trim();
     const trimmedManager = String(managerName || '').trim();
     if (isTrueVoidReduction && (!trimmedRemark || !trimmedManager)) {
-      Alert.alert('Validation Error', 'Void Remark and Manager Username are required');
+      Alert.alert(
+        'Validation Error',
+        'Void Remark and Manager Username are required',
+      );
       return;
     }
-    if (trimmedRemark || trimmedManager) upsertVoidMetadata(itemCode, trimmedRemark, trimmedManager);
+    if (trimmedRemark || trimmedManager)
+      upsertVoidMetadata(itemCode, trimmedRemark, trimmedManager);
     if (lastConfirmedOrder && !isTrueVoidReduction) {
       useOrderStore.getState().setLastConfirmedOrder({
         ...lastConfirmedOrder,
         items: lastConfirmedOrder.items.map((it) =>
           it.menuItemCode === itemCode
             ? { ...it, itemRemarks: trimmedRemark || it.itemRemarks }
-            : it
+            : it,
         ),
       });
     }
@@ -497,10 +697,17 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
 
   const updateDisplayedQuantity = (menuItemCode: string, delta: number) => {
     if (lastConfirmedOrder) {
-      const currentItem = lastConfirmedOrder.items.find((it) => it.menuItemCode === menuItemCode);
+      const currentItem = lastConfirmedOrder.items.find(
+        (it) => it.menuItemCode === menuItemCode,
+      );
       if (!currentItem) return;
-      const originalQuantity = originalQuantitiesRef.current[menuItemCode] ?? (Number(currentItem.quantity ?? 0) || 0);
-      const nextQuantity = Math.max(0, Number(currentItem.quantity ?? 0) + delta);
+      const originalQuantity =
+        originalQuantitiesRef.current[menuItemCode] ??
+        (Number(currentItem.quantity ?? 0) || 0);
+      const nextQuantity = Math.max(
+        0,
+        Number(currentItem.quantity ?? 0) + delta,
+      );
       const shouldOpenVoidRemark = delta < 0 && nextQuantity < originalQuantity;
       useOrderStore.getState().setLastConfirmedOrder((current) => {
         if (!current) return current;
@@ -508,25 +715,39 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
           ...current,
           items: current.items.map((it) =>
             it.menuItemCode === menuItemCode
-              ? { ...it, quantity: Math.max(0, Math.floor(it.quantity + delta)) }
-              : it
+              ? {
+                  ...it,
+                  quantity: Math.max(0, Math.floor(it.quantity + delta)),
+                }
+              : it,
           ),
         };
       });
       adjustPendingAddition(menuItemCode, delta);
-      const updatedItem = useOrderStore.getState().lastConfirmedOrder?.items.find(
-        (it) => it.menuItemCode === menuItemCode
-      );
+      const updatedItem = useOrderStore
+        .getState()
+        .lastConfirmedOrder?.items.find(
+          (it) => it.menuItemCode === menuItemCode,
+        );
       if (shouldOpenVoidRemark && updatedItem) {
         setPendingVoidItemId(menuItemCode);
         setActiveVoidItem(updatedItem as CartItem);
       } else if (pendingVoidItemId === menuItemCode) {
-        setPendingVoidItemId(null); setActiveVoidItem(null); setVoidQuantity(1); setVoidRemark('');
+        setPendingVoidItemId(null);
+        setActiveVoidItem(null);
+        setVoidQuantity(1);
+        setVoidRemark('');
       }
     } else {
-      const cartItem = cartItems.find((c) => c.menuItemCode === menuItemCode) ?? null;
-      const originalQuantity = originalQuantitiesRef.current[menuItemCode] ?? (Number(cartItem?.quantity ?? 0) || 0);
-      const nextQuantity = Math.max(0, Number(cartItem?.quantity ?? 0) + delta);
+      const cartItem =
+        cartItems.find((c) => c.menuItemCode === menuItemCode) ?? null;
+      const originalQuantity =
+        originalQuantitiesRef.current[menuItemCode] ??
+        (Number(cartItem?.quantity ?? 0) || 0);
+      const nextQuantity = Math.max(
+        0,
+        Number(cartItem?.quantity ?? 0) + delta,
+      );
       const shouldOpenVoidRemark = delta < 0 && nextQuantity < originalQuantity;
       updateQuantityInCart(menuItemCode, delta);
       adjustPendingAddition(menuItemCode, delta);
@@ -534,7 +755,10 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
         setPendingVoidItemId(menuItemCode);
         setActiveVoidItem(cartItem);
       } else if (pendingVoidItemId === menuItemCode) {
-        setPendingVoidItemId(null); setActiveVoidItem(null); setVoidQuantity(1); setVoidRemark('');
+        setPendingVoidItemId(null);
+        setActiveVoidItem(null);
+        setVoidQuantity(1);
+        setVoidRemark('');
       }
     }
   };
@@ -547,29 +771,49 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
     resetVoidState();
   };
 
+  // ── handleFooterAction ─────────────────────────────────────────────────────
   const handleFooterAction = () => {
     if (billingHasChanges) {
       void (async () => {
         try {
           const voidCandidates = displayedItems.filter((item: any) => {
-            return (Number(item.quantity ?? 0) || 0) < getBaselineQuantity(item.menuItemCode || item.ItemCode || item.itemCode);
+            return (
+              (Number(item.quantity ?? 0) || 0) <
+              getBaselineQuantity(
+                item.menuItemCode || item.ItemCode || item.itemCode,
+              )
+            );
           });
 
-          const voidCandidateMissingMeta = voidCandidates.some((candidate: any) => {
-            const itemCode = candidate.menuItemCode || candidate.ItemCode || candidate.itemCode;
-            const itemMeta = voidMetadata[itemCode] || { remark: '', manager: '' };
-            return !String(itemMeta.remark).trim() || !String(itemMeta.manager).trim();
-          });
+          const voidCandidateMissingMeta = voidCandidates.some(
+            (candidate: any) => {
+              const itemCode =
+                candidate.menuItemCode ||
+                candidate.ItemCode ||
+                candidate.itemCode;
+              const itemMeta = voidMetadata[itemCode] || {
+                remark: '',
+                manager: '',
+              };
+              return (
+                !String(itemMeta.remark).trim() ||
+                !String(itemMeta.manager).trim()
+              );
+            },
+          );
 
           if (voidCandidateMissingMeta) {
-            Alert.alert('Validation Error', 'Void Remark and Manager Approval are required');
+            Alert.alert(
+              'Validation Error',
+              'Void Remark and Manager Approval are required',
+            );
             return;
           }
 
-          
           const pendingEntries = Object.entries(pendingAdditions).filter(
-  ([code, qty]) => qty > 0 && code && code !== 'undefined' && code !== 'null'
-);
+            ([code, qty]) =>
+              qty > 0 && code && code !== 'undefined' && code !== 'null',
+          );
 
           if (pendingEntries.length === 0 && voidCandidates.length === 0) {
             clearPendingChanges();
@@ -577,127 +821,208 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
             return;
           }
 
-          const tNo = lastConfirmedOrder?.tableNo ?? String(tableName ?? '').trim();
-          const tableGrpId = lastConfirmedOrder?.tableGrpId ?? '';
-          const lPax = Number(lastConfirmedOrder?.lPax ?? Number(localPax ?? dbLPax ?? 0));
-          const fPax = Number(lastConfirmedOrder?.fPax ?? Number(foreignPax ?? dbFPax ?? 0));
+          // ─── FIX: Robust tableNo resolution ─────────────────────────────
+          // Priority: lastConfirmedOrder.tableNo → tableNo param → tableName param → ''
+          // For TA orders, lastConfirmedOrder.tableNo holds the TA serial (e.g. "TA-0012")
+          // For DI orders, it holds the server table number
+          const tNo = String(
+            lastConfirmedOrder?.tableNo ??
+            tableNo ??
+            tableName ??
+            ''
+          ).trim();
+
+          // ─── FIX: Robust tableGrpId resolution ──────────────────────────
+          const tableGrpId = String(
+            lastConfirmedOrder?.tableGrpId ?? ''
+          ).trim();
+
+          const lPax = Number(
+            lastConfirmedOrder?.lPax ?? Number(localPax ?? dbLPax ?? 0),
+          );
+          const fPax = Number(
+            lastConfirmedOrder?.fPax ?? Number(foreignPax ?? dbFPax ?? 0),
+          );
           const userId = lastConfirmedOrder?.userId ?? 'SYSTEM';
-          const addBillingItem = apiClient.addBillingItem;
+          const orderType = (lastConfirmedOrder as any)?.orderType || 'DI';
 
-          if (typeof addBillingItem !== 'function') throw new Error('Billing sync API is unavailable.');
+          // ─── Guard: backend requires tableNo ────────────────────────────
+          if (!tNo) {
+            Alert.alert(
+              'Missing Table',
+              'Could not determine the table number. Please go back and reopen the bill.',
+            );
+            return;
+          }
 
-          
-          const requests = pendingEntries.map(([menuItemCode, qty]) => {
-  const currentItem = displayedItems.find((item: any) => 
-    item.menuItemCode === menuItemCode || 
-    item.ItemCode === menuItemCode || 
-    item.itemCode === menuItemCode
-  );
+          console.log('[BillingScreen] handleFooterAction payload meta:', {
+            tNo,
+            tableGrpId,
+            orderType,
+            lPax,
+            fPax,
+            userId,
+          });
 
-  if (!currentItem) {
-    console.error(`[BillingScreen] Missing details for: ${menuItemCode}`);
-    return Promise.resolve({ ok: true, data: {} } as any); 
-  }
-  
-  return addBillingItem({
-    tableNo: tNo, 
-    itemCode: menuItemCode, 
-    qty,
-    salesPrice: Number(currentItem.salesPrice ?? 0) || 0,
-    itemRemarks: currentItem.itemRemarks ?? '',
-    userId, 
-    tableGrpId, 
-    
-    orderType: (lastConfirmedOrder as any)?.orderType || 'DI', 
-    lPax, 
-    fPax,
-    mgrId: String(voidMetadata[menuItemCode]?.manager ?? managerName).trim(),
-  } as any); 
-});
+          const addRequests = pendingEntries.map(
+            ([menuItemCode, deltaQty]) => {
+              const currentItem = displayedItems.find(
+                (item: any) =>
+                  item.menuItemCode === menuItemCode ||
+                  item.ItemCode === menuItemCode ||
+                  item.itemCode === menuItemCode,
+              );
+
+              if (!currentItem) {
+                console.error(
+                  `[BillingScreen] Missing details for item: ${menuItemCode}`,
+                );
+                return Promise.resolve({ ok: true, data: {} } as any);
+              }
+
+              // ─── FIX: Explicitly include tableNo + tableGrpId ───────────
+              return apiClient.addBillingItem({
+                tableNo: tNo,
+                tableGrpId,
+                itemCode: menuItemCode,
+                qty: deltaQty,
+                QTY: deltaQty,
+                AoR: 'A',
+                salesPrice: Number(currentItem.salesPrice ?? 0) || 0,
+                itemRemarks: currentItem.itemRemarks ?? '',
+                userId,
+                orderType,
+                lPax,
+                fPax,
+                mgrId: String(
+                  voidMetadata[menuItemCode]?.manager ?? managerName,
+                ).trim(),
+              } as any);
+            },
+          );
+
           const voidRequests = voidCandidates.map((item: any) => {
-  const baselineQty = getBaselineQuantity(item.menuItemCode);
-  const currentQty = Number(item.quantity ?? 0) || 0;
-  const qtyDifference = Math.max(0, baselineQty - currentQty);
-  const itemMeta = voidMetadata[item.menuItemCode] || { remark: '', manager: '' };
-  if (qtyDifference <= 0) return Promise.resolve({ ok: true, data: {} });
-  
-  return apiClient.removeBillingItem({
-    tableNo: tNo, 
-    itemCode: item.menuItemCode, 
-    qtyDifference,
-    salesPrice: Number(item.salesPrice ?? 0) || 0,
-    itemRemarks: '',
-    voidRemark: String(itemMeta.remark).trim(),
-    userId, 
-    tableGrpId, 
-   
-    orderType: (lastConfirmedOrder as any)?.orderType || 'DI', 
-    lPax, 
-    fPax,
-    mgrId: String(itemMeta.manager).trim(),
-  } as any); 
-});
-          const results = await Promise.all([...requests, ...voidRequests]);
+            const baselineQty = getBaselineQuantity(item.menuItemCode);
+            const currentQty = Number(item.quantity ?? 0) || 0;
+            const removeQtyDelta = Math.max(0, baselineQty - currentQty);
+            const itemMeta = voidMetadata[item.menuItemCode] || {
+              remark: '',
+              manager: '',
+            };
+
+            if (removeQtyDelta <= 0)
+              return Promise.resolve({ ok: true, data: {} });
+
+            // ─── FIX: Explicitly include tableNo + tableGrpId ─────────────
+            return apiClient.removeBillingItem({
+              tableNo: tNo,
+              tableGrpId,
+              itemCode: item.menuItemCode,
+              qty: removeQtyDelta,
+              QTY: removeQtyDelta,
+              qtyDifference: removeQtyDelta,
+              AoR: 'R',
+              salesPrice: Number(item.salesPrice ?? 0) || 0,
+              itemRemarks: '',
+              voidRemark: String(itemMeta.remark).trim(),
+              userId,
+              orderType,
+              lPax,
+              fPax,
+              mgrId: String(itemMeta.manager).trim(),
+            } as any);
+          });
+
+          const results = await Promise.all([
+            ...addRequests,
+            ...voidRequests,
+          ]);
           const failed = results.find((result) => !result.ok);
           if (failed) {
-            const serverMsg = failed.data && (failed.data.message || JSON.stringify(failed.data));
+            const serverMsg =
+              failed.data &&
+              (failed.data.message || JSON.stringify(failed.data));
             throw new Error(serverMsg || 'Failed to save billing changes');
           }
-          originalQuantitiesRef.current = displayedItems.reduce<Record<string, number>>((acc, item: any) => {
+
+          originalQuantitiesRef.current = displayedItems.reduce<
+            Record<string, number>
+          >((acc, item: any) => {
             acc[item.menuItemCode] = Number(item.quantity ?? 0) || 0;
             return acc;
           }, {});
+
           clearPendingChanges();
           setVoidMetadata((current) => {
             const next = { ...current };
-            voidCandidates.forEach((candidate: any) => { delete next[candidate.menuItemCode]; });
+            voidCandidates.forEach((candidate: any) => {
+              delete next[candidate.menuItemCode];
+            });
             return next;
           });
           resetVoidState();
           Alert.alert('Confirmed', 'Billing changes saved successfully.');
         } catch (error) {
-          Alert.alert('Save failed', error instanceof Error ? error.message : 'Failed to save billing changes');
+          Alert.alert(
+            'Save failed',
+            error instanceof Error
+              ? error.message
+              : 'Failed to save billing changes',
+          );
         }
       })();
       return;
     }
-   (async () => {
-  try {
-    if (hasQuantityChangesFromBaseline()) rollbackAllToBaseline();
-    const tNo = lastConfirmedOrder?.tableNo ?? String(tableName ?? '').trim();
-    let result: any = { ok: true, data: {} };
-    
-    if (typeof (apiClient as any).finalizeBill === 'function') {
-      result = await (apiClient as any).finalizeBill({ tableNo: tNo });
-    } else if (typeof (apiClient as any).printBill === 'function') {
-      result = await (apiClient as any).printBill({ tableNo: tNo });
-    }
-    
-    if (!result.ok) {
-      const serverMsg = result.data && (result.data.message || JSON.stringify(result.data));
-      throw new Error(serverMsg || 'Failed to finalize/print bill');
-    }
-    
-    if (dbInvoiceNo) {
-      
-      const payResult = await apiClient.payBill({
-        invoiceNo: dbInvoiceNo,
-        tableNo: String(lastConfirmedOrder?.tableNo ?? tableName ?? tableNo ?? '').trim() || undefined,
-        
-        orderType: (lastConfirmedOrder as any)?.orderType || 'DI',
-        tableGrpId: lastConfirmedOrder?.tableGrpId || '',
-      } as any); 
-      
-      if (!payResult.ok) console.log('[BillingScreen] payBill failed', payResult.error);
-    }
-    
-    useOrderStore.getState().clearLastConfirmedOrder();
-    Alert.alert('Done', 'Payment completed and cart cleared.');
-    router.push('/');
-  } catch (error) {
-    Alert.alert('Finalize failed', error instanceof Error ? error.message : 'Failed to finalize/print bill');
-  }
-})();
+
+    void (async () => {
+      try {
+        if (hasQuantityChangesFromBaseline()) rollbackAllToBaseline();
+        const tNo = String(
+          lastConfirmedOrder?.tableNo ??
+          tableNo ??
+          tableName ??
+          ''
+        ).trim();
+
+        let result: any = { ok: true, data: {} };
+
+        if (typeof (apiClient as any).finalizeBill === 'function') {
+          result = await (apiClient as any).finalizeBill({ tableNo: tNo });
+        } else if (typeof (apiClient as any).printBill === 'function') {
+          result = await (apiClient as any).printBill({ tableNo: tNo });
+        }
+
+        if (!result.ok) {
+          const serverMsg =
+            result.data &&
+            (result.data.message || JSON.stringify(result.data));
+          throw new Error(serverMsg || 'Failed to finalize/print bill');
+        }
+
+        if (dbInvoiceNo) {
+          const payResult = await apiClient.payBill({
+            invoiceNo: dbInvoiceNo,
+            tableNo: tNo || undefined,
+            orderType: (lastConfirmedOrder as any)?.orderType || 'DI',
+            tableGrpId: lastConfirmedOrder?.tableGrpId || '',
+          } as any);
+
+          if (!payResult.ok)
+            console.log('[BillingScreen] payBill failed', payResult.error);
+        }
+
+        useOrderStore.getState().clearLastConfirmedOrder();
+        Alert.alert('Done', 'Payment completed and cart cleared.');
+        router.push('/');
+      } catch (error) {
+        Alert.alert(
+          'Finalize failed',
+          error instanceof Error
+            ? error.message
+            : 'Failed to finalize/print bill',
+        );
+      }
+    })();
   };
 
   // ── Effects ────────────────────────────────────────────────────────────────
@@ -708,10 +1033,16 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
       try {
         const response = await apiClient.getVoidPresets();
         if (!isMounted) return;
-        setVoidPresetItems(response.ok && Array.isArray(response.data) ? response.data : []);
-      } catch { if (isMounted) setVoidPresetItems([]); }
+        setVoidPresetItems(
+          response.ok && Array.isArray(response.data) ? response.data : [],
+        );
+      } catch {
+        if (isMounted) setVoidPresetItems([]);
+      }
     })();
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+    };
   }, [isPresetListView]);
 
   useEffect(() => {
@@ -720,65 +1051,104 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
     };
   }, []);
 
- useEffect(() => {
-  const targetTableNo = String(tableName ?? tableNo ?? '').trim();
-  const targetInvoiceNo = String(routeInvoiceNo ?? '').trim() || undefined;
-  const returningFromCart = fromCart === '1';
+  // ── fromCart effect ────────────────────────────────────────────────────────
+  useEffect(() => {
+    const targetTableNo = String(tableName ?? tableNo ?? '').trim();
+    const targetInvoiceNo = String(routeInvoiceNo ?? '').trim() || undefined;
+    const returningFromCart = fromCart === '1';
 
-  // 1. මුලික පරීක්ෂාවන්
-  if (!targetTableNo) return;
+    if (!targetTableNo) return;
 
-  // 2. දැනටමත් memory එකේ දත්ත තිබේ නම් සහ "Add More" නැතිනම් fetch කිරීම නවත්වන්න
-  if (!returningFromCart && lastConfirmedOrder && String(lastConfirmedOrder.tableNo ?? '').trim() === targetTableNo) {
-    return;
-  }
-
-  let isMounted = true;
-
-  // 3. Billing screen එකට ඇතුල් වන විට stale state වහාම ඉවත් කිරීම
-  if (returningFromCart) {
-    useOrderStore.getState().clearLastConfirmedOrder();
-  }
-  
-  setIsLoadingBillFromDb(true);
-  setCartItemsInStore([]); // පැරණි දත්ත ඉවත් කිරීම
-
-  // 4. Async දත්ත ලබා ගැනීම (Nested useEffect භාවිතා නොකර අලුත් async function එකක් සාදා කෝල් කරන්න)
-  const fetchBillData = async () => {
-    try {
-      const response = await apiClient.getActiveBillItems(targetTableNo, targetInvoiceNo);
-      
-      if (!isMounted || !response.ok || !response.data?.data) return;
-
-      const data = response.data.data;
-      setCartItemsInStore(Array.isArray(data.items) ? data.items : []);
-      setDbInvoiceNo(targetInvoiceNo ?? data.invoiceNo ?? null);
-      setDbLPax(typeof data.lPax === 'number' ? data.lPax : null);
-      setDbFPax(typeof data.fPax === 'number' ? data.fPax : null);
-    } catch (error) {
-      console.error('[BillingScreen] Error fetching bill:', error);
-    } finally {
-      if (isMounted) setIsLoadingBillFromDb(false);
+    if (
+      !returningFromCart &&
+      lastConfirmedOrder &&
+      String(lastConfirmedOrder.tableNo ?? '').trim() === targetTableNo
+    ) {
+      return;
     }
-  };
 
-  fetchBillData(); // 🌟 මෙලෙස කෝල් කිරීමෙන් Argument Error එක විසඳේ
+    let isMounted = true;
 
-  return () => { 
-    isMounted = false; 
-  };
-}, [tableName, tableNo, routeInvoiceNo, fromCart]); // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (returningFromCart) {
+      useOrderStore.getState().clearLastConfirmedOrder();
+      setCartItemsInStore([]);
+    }
+
+    setIsLoadingBillFromDb(true);
+
+    const fetchBillData = async () => {
+      try {
+        const response = await apiClient.getActiveBillItems(
+          targetTableNo,
+          targetInvoiceNo,
+        );
+
+        if (!isMounted || !response.ok || !response.data?.data) return;
+
+        const data = response.data.data;
+        const freshItems = Array.isArray(data.items) ? data.items : [];
+
+        setCartItemsInStore(freshItems);
+
+        // FIX: Prefer server-returned tableNo, fall back to route param
+        const resolvedTableNo = String(data.tableNo ?? targetTableNo ?? '').trim();
+
+        useOrderStore.getState().setLastConfirmedOrder({
+          orderType: data.orderType || 'DI',
+          tableNo: resolvedTableNo,
+          userId: data.userId || 'SYSTEM',
+          tableGrpId: data.tableGrpId || '',
+          lPax: typeof data.lPax === 'number' ? data.lPax : Number(localPax ?? 0),
+          fPax: typeof data.fPax === 'number' ? data.fPax : Number(foreignPax ?? 0),
+          invoiceNo: targetInvoiceNo ?? data.invoiceNo ?? undefined,
+          createdAt: data.createdAt || new Date().toISOString(),
+          items: freshItems.map((item: any) => ({
+            menuItemCode: item.menuItemCode || item.ItemCode || item.itemCode,
+            menuItmDes: item.menuItmDes || item.ItemDescription || '',
+            salesPrice: Number(item.salesPrice ?? item.SalesPrice ?? 0),
+            quantity: Number(item.quantity ?? item.QTY ?? 0),
+            itemRemarks: item.itemRemarks || item.ItemRemarks || '',
+          })),
+        });
+
+        setDbInvoiceNo(targetInvoiceNo ?? data.invoiceNo ?? null);
+        setDbLPax(typeof data.lPax === 'number' ? data.lPax : null);
+        setDbFPax(typeof data.fPax === 'number' ? data.fPax : null);
+      } catch (error) {
+        console.error('[BillingScreen] Error fetching bill:', error);
+      } finally {
+        if (isMounted) setIsLoadingBillFromDb(false);
+      }
+    };
+
+    fetchBillData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [tableName, tableNo, routeInvoiceNo, fromCart, forceRefresh, localPax, foreignPax]);
 
   useEffect(() => {
-    if (!activeTableNo) { originalQuantitiesRef.current = {}; originalTableNoRef.current = ''; return; }
-    const hasBaseline = originalTableNoRef.current === activeTableNo && Object.keys(originalQuantitiesRef.current).length > 0;
+    if (!activeTableNo) {
+      originalQuantitiesRef.current = {};
+      originalTableNoRef.current = '';
+      return;
+    }
+    const hasBaseline =
+      originalTableNoRef.current === activeTableNo &&
+      Object.keys(originalQuantitiesRef.current).length > 0;
     if (hasBaseline) return;
-    const sourceItems = lastConfirmedOrder?.items?.length ? lastConfirmedOrder.items : cartItems;
+    const sourceItems = lastConfirmedOrder?.items?.length
+      ? lastConfirmedOrder.items
+      : cartItems;
     if (!sourceItems.length) return;
-    originalQuantitiesRef.current = sourceItems.reduce<Record<string, number>>((acc, item) => {
-      acc[item.menuItemCode] = Number(item.quantity ?? 0) || 0;
-      return acc;
-    }, {});
+    originalQuantitiesRef.current = sourceItems.reduce<Record<string, number>>(
+      (acc, item) => {
+        acc[item.menuItemCode] = Number(item.quantity ?? 0) || 0;
+        return acc;
+      },
+      {},
+    );
     originalTableNoRef.current = activeTableNo;
   }, [activeTableNo, cartItems, lastConfirmedOrder?.items]);
 
@@ -787,8 +1157,14 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
   }, [hasQuantityChangesFromBaseline]);
 
   useEffect(() => {
-    const handler = () => { goBack(); return true; };
-    const subscription = BackHandler.addEventListener('hardwareBackPress', handler);
+    const handler = () => {
+      goBack();
+      return true;
+    };
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      handler,
+    );
     return () => subscription.remove();
   }, [goBack]);
 
@@ -800,7 +1176,11 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
       {/* HEADER */}
       <View style={[s.header, { paddingTop: insets.top }]}>
         <View style={s.headerTopRow}>
-          <TouchableOpacity style={s.backButton} onPress={goBack} disabled={isHydratingBill}>
+          <TouchableOpacity
+            style={s.backButton}
+            onPress={goBack}
+            disabled={isHydratingBill}
+          >
             <Image
               source={require('../../assets/icons/blackback.png')}
               style={s.backIcon}
@@ -810,7 +1190,11 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
 
           <Text style={s.headerTitle}>Billing</Text>
 
-          <TouchableOpacity activeOpacity={0.85} onPress={handleNewOrder} style={s.newOrderButton}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={handleNewOrder}
+            style={s.newOrderButton}
+          >
             <Ionicons name="add" size={14} color="#002748" />
             <Text style={s.newOrderButtonText}>New Order</Text>
           </TouchableOpacity>
@@ -827,10 +1211,20 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
       {/* TABLE INFO */}
       <View style={s.fixedInfo}>
         <View style={s.logoContainer}>
-          <Image source={require('../../assets/images/CAPTURE 1.png')} style={s.logo} resizeMode="contain" />
+          <Image
+            source={require('../../assets/images/CAPTURE 1.png')}
+            style={s.logo}
+            resizeMode="contain"
+          />
         </View>
-        <Text style={s.tableNumber}>Table Number - {tableName || tableNo || 'GF 05'}</Text>
-        <Text style={s.dateText}>{timeStr}{'  '}{dateStr}</Text>
+        <Text style={s.tableNumber}>
+          Table Number - {tableName || tableNo || 'GF 05'}
+        </Text>
+        <Text style={s.dateText}>
+          {timeStr}
+          {'  '}
+          {dateStr}
+        </Text>
       </View>
 
       {/* ITEMS LIST */}
@@ -838,116 +1232,195 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[s.content, { paddingBottom: insets.bottom }]}
       >
-        {billingSections.map((section) => (
-  <React.Fragment key={section.categoryCode}>
-    {/* Category section header */}
-    <View style={s.billingSectionHeader}>
-      <Text style={s.billingSectionHeaderText}>{section.label}</Text>
-      <View style={s.billingSectionHeaderLine} />
-    </View>
-
-    {section.items.map((item: any, index: number) => (
-      
-      <View key={`${item.menuItemCode}-${index}`} style={s.billItemBlock}>
-        <View style={s.itemRow}>
-          <Text style={s.itemName} numberOfLines={2}>{item.menuItmDes}</Text>
-          <View style={s.itemRightBlock}>
-            <Text style={s.itemPrice}>
-              Lkr {(Number(item.salesPrice ?? 0) * Number(item.quantity ?? 0)).toFixed(2)}
-            </Text>
-            <View style={s.qtyPill}>
-              <TouchableOpacity
-                onPress={() => updateDisplayedQuantity(item.menuItemCode, -1)}
-                onLongPress={() => openVoidModal(item.menuItemCode)}
-                style={s.qtyBtn}
-                delayLongPress={300}
-              >
-                <Ionicons name="remove" size={isTablet ? 16 : 12} color="#000" />
-              </TouchableOpacity>
-              <Text style={s.qtyText}>{item.quantity}</Text>
-              <TouchableOpacity
-                onPress={() => updateDisplayedQuantity(item.menuItemCode, 1)}
-                style={s.qtyBtn}
-              >
-                <Ionicons name="add" size={isTablet ? 16 : 12} color="#000" />
-              </TouchableOpacity>
-            </View>
+        {isLoadingBillFromDb ? (
+          <View style={s.loadingCard}>
+            <ActivityIndicator size="large" color="#002748" />
+            <Text style={s.loadingText}>Loading bill...</Text>
           </View>
-        </View>
+        ) : (
+          <>
+            {billingSections.map((section) => (
+              <React.Fragment key={section.categoryCode}>
+                <View style={s.billingSectionHeader}>
+                  <Text style={s.billingSectionHeaderText}>
+                    {section.label}
+                  </Text>
+                  <View style={s.billingSectionHeaderLine} />
+                </View>
 
-        {pendingVoidItemId === item.menuItemCode && (
-          <TouchableOpacity
-            activeOpacity={0.85}
-            style={s.inlineVoidActionBtn}
-            onPress={() => openVoidModal(item.menuItemCode)}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Text style={s.inlineVoidActionText}>Add Void Remark</Text>
+                {section.items.map((item: any, index: number) => (
+                  <View
+                    key={`${item.menuItemCode}-${index}`}
+                    style={s.billItemBlock}
+                  >
+                    <View style={s.itemRow}>
+                      <Text style={s.itemName} numberOfLines={2}>
+                        {item.menuItmDes}
+                      </Text>
+                      <View style={s.itemRightBlock}>
+                        <Text style={s.itemPrice}>
+                          Lkr{' '}
+                          {(
+                            Number(item.salesPrice ?? 0) *
+                            Number(item.quantity ?? 0)
+                          ).toFixed(2)}
+                        </Text>
+                        <View style={s.qtyPill}>
+                          <TouchableOpacity
+                            onPress={() =>
+                              updateDisplayedQuantity(item.menuItemCode, -1)
+                            }
+                            onLongPress={() =>
+                              openVoidModal(item.menuItemCode)
+                            }
+                            style={s.qtyBtn}
+                            delayLongPress={300}
+                          >
+                            <Ionicons
+                              name="remove"
+                              size={isTablet ? 16 : 12}
+                              color="#000"
+                            />
+                          </TouchableOpacity>
+                          <Text style={s.qtyText}>{item.quantity}</Text>
+                          <TouchableOpacity
+                            onPress={() =>
+                              updateDisplayedQuantity(item.menuItemCode, 1)
+                            }
+                            style={s.qtyBtn}
+                          >
+                            <Ionicons
+                              name="add"
+                              size={isTablet ? 16 : 12}
+                              color="#000"
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+
+                    {pendingVoidItemId === item.menuItemCode && (
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        style={s.inlineVoidActionBtn}
+                        onPress={() => openVoidModal(item.menuItemCode)}
+                      >
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          <Text style={s.inlineVoidActionText}>
+                            Add Void Remark
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    )}
+
+                    {'itemRemarks' in item && item.itemRemarks ? (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => openBillingRemarkModal(item)}
+                        style={s.billingRemarkRow}
+                      >
+                        <Text style={s.billingRemarkText} numberOfLines={2}>
+                          {item.itemRemarks}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+
+                    {index < section.items.length - 1 ? (
+                      <View style={s.itemDivider} />
+                    ) : null}
+                  </View>
+                ))}
+              </React.Fragment>
+            ))}
+
+            {/* ── ADD MORE BUTTON ── */}
+            <View style={s.addMoreWrap}>
+              <TouchableOpacity
+                style={s.addMoreBtn}
+                activeOpacity={0.85}
+                onPress={() => {
+                  const activeOrderType: string =
+                    (lastConfirmedOrder as any)?.orderType ||
+                    String(useOrderStore.getState().lastConfirmedOrder?.orderType ?? '') ||
+                    'DI';
+
+                  if (!lastConfirmedOrder && cartItems.length > 0) {
+                    const activeTable = String(
+                      tableName ?? tableNo ?? '',
+                    ).trim();
+                    const activeInvoice = String(
+                      routeInvoiceNo ?? dbInvoiceNo ?? '',
+                    ).trim();
+                    useOrderStore.getState().setLastConfirmedOrder({
+                      orderType: activeOrderType,
+                      tableNo: activeTable,
+                      userId: 'SYSTEM',
+                      tableGrpId: '',
+                      lPax: dbLPax ?? Number(localPax ?? 0),
+                      fPax: dbFPax ?? Number(foreignPax ?? 0),
+                      invoiceNo: activeInvoice || undefined,
+                      createdAt: new Date().toISOString(),
+                      items: cartItems.map((item) => ({
+                        menuItemCode: item.menuItemCode,
+                        menuItmDes: item.menuItmDes ?? '',
+                        salesPrice: item.salesPrice ?? 0,
+                        quantity: item.quantity,
+                        itemRemarks: item.itemRemarks ?? '',
+                      })),
+                    } as any);
+                  }
+
+                  useCartStore.getState().setCartItems([]);
+
+                  const resolvedTableNo = String(
+                    lastConfirmedOrder?.tableNo ??
+                      tableNo ??
+                      tableName ??
+                      '',
+                  );
+
+                  const resolvedTableName = String(
+                    tableName ??
+                      lastConfirmedOrder?.tableNo ??
+                      '',
+                  );
+
+                  router.push({
+                    pathname: '/Screens/selectitems',
+                    params: {
+                      tableName: resolvedTableName,
+                      tableNo: resolvedTableNo,
+                      invoiceNo: String(
+                        routeInvoiceNo ??
+                          dbInvoiceNo ??
+                          lastConfirmedOrder?.invoiceNo ??
+                          '',
+                      ),
+                      localPax: String(
+                        lastConfirmedOrder?.lPax ?? localPax ?? '0',
+                      ),
+                      foreignPax: String(
+                        lastConfirmedOrder?.fPax ?? foreignPax ?? '0',
+                      ),
+                      floor: String(floor ?? ''),
+                      fromBilling: '1',
+                      status: 'Active',
+                      orderType: activeOrderType,
+                    },
+                  });
+                }}
+              >
+                <Text style={s.addMoreText}>+ Add More</Text>
+              </TouchableOpacity>
             </View>
-          </TouchableOpacity>
+          </>
         )}
-
-        {'itemRemarks' in item && item.itemRemarks ? (
-          <TouchableOpacity activeOpacity={0.8} onPress={() => openBillingRemarkModal(item)} style={s.billingRemarkRow}>
-            <Text style={s.billingRemarkText} numberOfLines={2}>{item.itemRemarks}</Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {index < section.items.length - 1 ? <View style={s.itemDivider} /> : null}
-      </View>
-    ))}
-  </React.Fragment>
-))}
-
-        {/* ADD MORE */}
-       <View style={s.addMoreWrap}>
-  <TouchableOpacity
-    style={s.addMoreBtn}
-    activeOpacity={0.85}
-    onPress={() => {
-      // ── Sync cartItems → orderStore if lastConfirmedOrder is null ──────────
-      // This happens when arriving from an occupied table tap (DB load path).
-      // Cart screen needs lastConfirmedOrder to split existing vs new items.
-      if (!lastConfirmedOrder && cartItems.length > 0) {
-        const activeTable  = String(tableName ?? tableNo ?? '').trim();
-        const activeInvoice = String(routeInvoiceNo ?? dbInvoiceNo ?? '').trim();
-        useOrderStore.getState().setLastConfirmedOrder({
-          orderType: 'DI',
-          tableNo:    activeTable,
-          userId:     'SYSTEM',
-          tableGrpId: '',
-          lPax:       dbLPax  ?? Number(localPax  ?? 0),
-          fPax:       dbFPax  ?? Number(foreignPax ?? 0),
-          invoiceNo:  activeInvoice || undefined,
-          createdAt:  new Date().toISOString(),
-          items: cartItems.map((item) => ({
-            menuItemCode: item.menuItemCode,
-            menuItmDes:   item.menuItmDes  ?? '',
-            salesPrice:   item.salesPrice  ?? 0,
-            quantity:     item.quantity,
-            itemRemarks:  item.itemRemarks ?? '',
-          })),
-        } as any);
-      }
-
-      router.push({
-        pathname: '/Screens/selectitems',
-        params: {
-          tableName:   String(tableName  ?? lastConfirmedOrder?.tableNo ?? ''),
-          tableNo:     String(tableNo    ?? lastConfirmedOrder?.tableNo ?? ''),
-          invoiceNo:   String(routeInvoiceNo ?? dbInvoiceNo ?? lastConfirmedOrder?.invoiceNo ?? ''),
-          localPax:    String(lastConfirmedOrder?.lPax ?? localPax  ?? '0'),
-          foreignPax:  String(lastConfirmedOrder?.fPax ?? foreignPax ?? '0'),
-          floor:       String(floor ?? ''),
-          fromBilling: '1',
-          status:      'Active',
-        },
-      });
-    }}
-  >
-    <Text style={s.addMoreText}>+ Add More</Text>
-  </TouchableOpacity>
-</View>
       </ScrollView>
 
       {/* FOOTER */}
@@ -958,7 +1431,10 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
           <Text style={s.totalValue}>{grossTotal.toFixed(2)}</Text>
         </View>
         <TouchableOpacity
-          style={[s.printBtn, { backgroundColor: footerButtonBackgroundColor }]}
+          style={[
+            s.printBtn,
+            { backgroundColor: footerButtonBackgroundColor },
+          ]}
           activeOpacity={0.85}
           onPress={handleFooterAction}
         >
@@ -967,7 +1443,12 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
       </View>
 
       {/* VOID MODAL */}
-      <Modal visible={isVoidModalVisible} animationType="fade" transparent onRequestClose={handleVoidCancel}>
+      <Modal
+        visible={isVoidModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={handleVoidCancel}
+      >
         <TouchableWithoutFeedback onPress={handleVoidCancel}>
           <View style={s.voidModalOverlay}>
             <TouchableWithoutFeedback>
@@ -975,51 +1456,96 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
                 {isManagerAuthView ? (
                   <View style={s.managerAuthCardBody}>
                     <View style={s.managerAuthHeaderRow}>
-                      <Text style={s.managerAuthTitle}>Manager Authentication</Text>
-                      <TouchableOpacity onPress={() => setIsManagerAuthView(false)} activeOpacity={0.8}>
+                      <Text style={s.managerAuthTitle}>
+                        Manager Authentication
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => setIsManagerAuthView(false)}
+                        activeOpacity={0.8}
+                      >
                         <Ionicons name="close" size={22} color="#0F172A" />
                       </TouchableOpacity>
                     </View>
 
                     <View style={s.managerAuthFieldGroup}>
-                      <Text style={s.managerAuthLabel}>Manager Username:</Text>
-                      <View style={[s.managerAuthInputBox, managerIdError ? s.managerAuthInputBoxError : null]}>
+                      <Text style={s.managerAuthLabel}>
+                        Manager Username:
+                      </Text>
+                      <View
+                        style={[
+                          s.managerAuthInputBox,
+                          managerIdError
+                            ? s.managerAuthInputBoxError
+                            : null,
+                        ]}
+                      >
                         <TextInput
                           style={s.managerAuthInput}
                           placeholder="Enter Manager Username"
                           placeholderTextColor="rgba(0, 0, 0, 0.25)"
                           value={managerName}
-                          onChangeText={(text) => { setManagerName(text); if (managerIdError) setManagerIdError(''); }}
+                          onChangeText={(text) => {
+                            setManagerName(text);
+                            if (managerIdError) setManagerIdError('');
+                          }}
                           onFocus={() => setIsManagerAuthView(true)}
                         />
                       </View>
-                      {!!managerIdError && <Text style={s.managerAuthErrorText}>{managerIdError}</Text>}
+                      {!!managerIdError && (
+                        <Text style={s.managerAuthErrorText}>
+                          {managerIdError}
+                        </Text>
+                      )}
                     </View>
 
                     <View style={s.managerAuthFieldGroup}>
-                      <Text style={s.managerAuthLabel}>Manager Password:</Text>
-                      <View style={[s.managerAuthInputBox, managerPasswordError ? s.managerAuthInputBoxError : null]}>
+                      <Text style={s.managerAuthLabel}>
+                        Manager Password:
+                      </Text>
+                      <View
+                        style={[
+                          s.managerAuthInputBox,
+                          managerPasswordError
+                            ? s.managerAuthInputBoxError
+                            : null,
+                        ]}
+                      >
                         <TextInput
                           style={s.managerAuthInput}
                           placeholder="Enter Password"
                           placeholderTextColor="rgba(0, 0, 0, 0.25)"
                           value={managerPassword}
-                          onChangeText={(text) => { setManagerPassword(text); if (managerPasswordError) setManagerPasswordError(''); }}
+                          onChangeText={(text) => {
+                            setManagerPassword(text);
+                            if (managerPasswordError)
+                              setManagerPasswordError('');
+                          }}
                           secureTextEntry
                         />
                       </View>
-                      {!!managerPasswordError && <Text style={s.managerAuthErrorText}>{managerPasswordError}</Text>}
+                      {!!managerPasswordError && (
+                        <Text style={s.managerAuthErrorText}>
+                          {managerPasswordError}
+                        </Text>
+                      )}
                     </View>
 
                     <View style={s.managerAuthFooter}>
                       <TouchableOpacity
-                        style={[s.confirmActionButtonPrimary, managerVerifying ? { opacity: 0.6 } : null]}
+                        style={[
+                          s.confirmActionButtonPrimary,
+                          managerVerifying ? { opacity: 0.6 } : null,
+                        ]}
                         onPress={handleVoidConfirm}
                         activeOpacity={0.85}
                         disabled={managerVerifying}
                       >
                         <View style={s.confirmIconWrap}>
-                          <Ionicons name="checkmark" size={18} color="#FFF" />
+                          <Ionicons
+                            name="checkmark"
+                            size={18}
+                            color="#FFF"
+                          />
                         </View>
                         <Text style={s.confirmButtonLabelInlineText}>
                           {managerVerifying ? 'Verifying...' : 'Confirm'}
@@ -1030,51 +1556,120 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
                 ) : isPresetListView ? (
                   <View style={s.presetListCardBody}>
                     <View style={s.presetListHeaderRow}>
-                      <TouchableOpacity style={s.presetBackButton} activeOpacity={0.8} onPress={() => setIsPresetListView(false)}>
-                        <Ionicons name="arrow-back" size={18} color="#0F172A" />
+                      <TouchableOpacity
+                        style={s.presetBackButton}
+                        activeOpacity={0.8}
+                        onPress={() => setIsPresetListView(false)}
+                      >
+                        <Ionicons
+                          name="arrow-back"
+                          size={18}
+                          color="#0F172A"
+                        />
                       </TouchableOpacity>
-                      <Text style={s.presetListTitle}>Select Preset Remark</Text>
+                      <Text style={s.presetListTitle}>
+                        Select Preset Remark
+                      </Text>
                       <View style={s.presetBackButtonSpacer} />
                     </View>
-                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.presetListContent}>
+                    <ScrollView
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={s.presetListContent}
+                    >
                       {voidPresetItems.length > 0 ? (
                         voidPresetItems.map((item, index) => (
                           <TouchableOpacity
                             key={String(item.VoidRmkId ?? index)}
                             activeOpacity={0.82}
                             style={s.presetListRow}
-                            onPress={() => { setVoidRemark(String(item.VoidDescription ?? '').trim()); setIsPresetListView(false); }}
+                            onPress={() => {
+                              setVoidRemark(
+                                String(item.VoidDescription ?? '').trim(),
+                              );
+                              setIsPresetListView(false);
+                            }}
                           >
-                            <Text style={s.presetListRowText}>{String(item.VoidDescription ?? '').trim()}</Text>
-                            <Ionicons name="chevron-forward" size={18} color="#002748" />
+                            <Text style={s.presetListRowText}>
+                              {String(item.VoidDescription ?? '').trim()}
+                            </Text>
+                            <Ionicons
+                              name="chevron-forward"
+                              size={18}
+                              color="#002748"
+                            />
                           </TouchableOpacity>
                         ))
                       ) : (
                         <View style={s.presetListEmptyWrap}>
-                          <Text style={s.presetListEmptyText}>No preset remarks available.</Text>
+                          <Text style={s.presetListEmptyText}>
+                            No preset remarks available.
+                          </Text>
                         </View>
                       )}
                     </ScrollView>
                   </View>
                 ) : (
                   <View style={s.voidCardBody}>
-                    <ScrollView showsVerticalScrollIndicator contentContainerStyle={s.voidCardContent} style={s.voidCardScroll}>
+                    <ScrollView
+                      showsVerticalScrollIndicator
+                      contentContainerStyle={s.voidCardContent}
+                      style={s.voidCardScroll}
+                    >
                       <View style={s.metaSpecificationsStack}>
                         <View style={s.metaRowInline}>
                           <Text style={s.metaLabelStyle}>Void Item:</Text>
-                          <Text style={s.metaValueStyle}>{activeVoidItem?.menuItmDes || 'N/A'}</Text>
+                          <Text style={s.metaValueStyle}>
+                            {activeVoidItem?.menuItmDes || 'N/A'}
+                          </Text>
                         </View>
-                        <View style={[s.metaRowInline, { alignItems: 'center' }]}>
-                          <Text style={s.metaLabelStyle}>Remove Quantity:</Text>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8 }}>
-                            <TouchableOpacity onPress={() => setVoidQuantity((q) => Math.max(1, (q || 1) - 1))} style={s.voidQtyBtn} activeOpacity={0.8}>
-                              <Ionicons name="remove" size={16} color="#000" />
+                        <View
+                          style={[
+                            s.metaRowInline,
+                            { alignItems: 'center' },
+                          ]}
+                        >
+                          <Text style={s.metaLabelStyle}>
+                            Remove Quantity:
+                          </Text>
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              marginLeft: 8,
+                            }}
+                          >
+                            <TouchableOpacity
+                              onPress={() =>
+                                setVoidQuantity((q) =>
+                                  Math.max(1, (q || 1) - 1),
+                                )
+                              }
+                              style={s.voidQtyBtn}
+                              activeOpacity={0.8}
+                            >
+                              <Ionicons
+                                name="remove"
+                                size={16}
+                                color="#000"
+                              />
                             </TouchableOpacity>
-                            <Text style={[s.metaValueStyle, { minWidth: 32, textAlign: 'center' }]}>
+                            <Text
+                              style={[
+                                s.metaValueStyle,
+                                { minWidth: 32, textAlign: 'center' },
+                              ]}
+                            >
                               {String(voidQuantity || 1).padStart(2, '0')}
                             </Text>
                             <TouchableOpacity
-                              onPress={() => setVoidQuantity((q) => Math.min(activeVoidItem?.quantity ?? 9999, (q || 1) + 1))}
+                              onPress={() =>
+                                setVoidQuantity((q) =>
+                                  Math.min(
+                                    activeVoidItem?.quantity ?? 9999,
+                                    (q || 1) + 1,
+                                  ),
+                                )
+                              }
                               style={s.voidQtyBtn}
                               activeOpacity={0.8}
                             >
@@ -1084,7 +1679,9 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
                         </View>
                       </View>
 
-                      <Text style={s.inputFieldLabelOutside}>Void Remarks:</Text>
+                      <Text style={s.inputFieldLabelOutside}>
+                        Void Remarks:
+                      </Text>
                       <View style={s.textareaWrapperContainer}>
                         <View style={s.textAreaInputBox}>
                           <TextInput
@@ -1097,21 +1694,35 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
                             onChangeText={setVoidRemark}
                           />
                         </View>
-                        <TouchableOpacity activeOpacity={0.82} style={s.presetToggleButton} onPress={() => setIsPresetListView(true)}>
-                          <Text style={s.presetToggleButtonText}>Preset</Text>
+                        <TouchableOpacity
+                          activeOpacity={0.82}
+                          style={s.presetToggleButton}
+                          onPress={() => setIsPresetListView(true)}
+                        >
+                          <Text style={s.presetToggleButtonText}>
+                            Preset
+                          </Text>
                           <Ionicons name="albums" size={14} color="#fff" />
                         </TouchableOpacity>
                       </View>
 
-                      <Text style={s.inputFieldLabelOutside}>Manager Name:</Text>
-                      <TouchableOpacity activeOpacity={0.9} onPress={() => setIsManagerAuthView(true)}>
+                      <Text style={s.inputFieldLabelOutside}>
+                        Manager Name:
+                      </Text>
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => setIsManagerAuthView(true)}
+                      >
                         <View style={s.singleLineInputBoxWrapper}>
                           <TextInput
                             style={s.singleLineInputField}
                             placeholder="Enter Manager Username"
                             placeholderTextColor="rgba(0, 0, 0, 0.25)"
                             value={managerName}
-                            onChangeText={(text) => { setManagerName(text); if (managerIdError) setManagerIdError(''); }}
+                            onChangeText={(text) => {
+                              setManagerName(text);
+                              if (managerIdError) setManagerIdError('');
+                            }}
                             onFocus={() => setIsManagerAuthView(true)}
                           />
                         </View>
@@ -1120,14 +1731,30 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
 
                     <View style={s.voidCardFooter}>
                       <View style={s.ctaButtonControlRowGroup}>
-                        <TouchableOpacity style={s.confirmActionButtonPrimary} onPress={handleVoidConfirm} activeOpacity={0.85}>
+                        <TouchableOpacity
+                          style={s.confirmActionButtonPrimary}
+                          onPress={handleVoidConfirm}
+                          activeOpacity={0.85}
+                        >
                           <View style={s.confirmIconWrap}>
-                            <Ionicons name="checkmark" size={18} color="#FFF" />
+                            <Ionicons
+                              name="checkmark"
+                              size={18}
+                              color="#FFF"
+                            />
                           </View>
-                          <Text style={s.confirmButtonLabelInlineText}>Confirm</Text>
+                          <Text style={s.confirmButtonLabelInlineText}>
+                            Confirm
+                          </Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={s.cancelActionButtonOutlineSecondary} onPress={handleVoidCancel} activeOpacity={0.85}>
-                          <Text style={s.cancelButtonLabelInlineText}>Cancel</Text>
+                        <TouchableOpacity
+                          style={s.cancelActionButtonOutlineSecondary}
+                          onPress={handleVoidCancel}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={s.cancelButtonLabelInlineText}>
+                            Cancel
+                          </Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1140,29 +1767,59 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
       </Modal>
 
       {/* BILLING REMARK MODAL */}
-      <Modal visible={billingRemarkVisible} transparent animationType="fade" onRequestClose={() => setBillingRemarkVisible(false)}>
-        <TouchableWithoutFeedback onPress={() => setBillingRemarkVisible(false)}>
+      <Modal
+        visible={billingRemarkVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBillingRemarkVisible(false)}
+      >
+        <TouchableWithoutFeedback
+          onPress={() => setBillingRemarkVisible(false)}
+        >
           <View style={s.remarkModalOverlay}>
             <TouchableWithoutFeedback>
               <View style={s.remarkCard}>
                 {!billingIsViewingPresets ? (
                   <>
                     <View style={s.remarkCardHeader}>
-                      <Text style={s.remarkCardHeaderTitle}>Order Remark</Text>
-                      <TouchableOpacity onPress={() => setBillingRemarkVisible(false)} activeOpacity={0.8}>
+                      <Text style={s.remarkCardHeaderTitle}>
+                        Order Remark
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => setBillingRemarkVisible(false)}
+                        activeOpacity={0.8}
+                      >
                         <Ionicons name="close" size={22} color="#0F172A" />
                       </TouchableOpacity>
                     </View>
                     <View style={s.remarkCardBody}>
-                      <ScrollView showsVerticalScrollIndicator contentContainerStyle={s.remarkCardContent} style={s.remarkScrollArea}>
+                      <ScrollView
+                        showsVerticalScrollIndicator
+                        contentContainerStyle={s.remarkCardContent}
+                        style={s.remarkScrollArea}
+                      >
                         <View style={s.tagsWrap}>
                           {billingModalTags.map((t, index) => (
-                            <View key={`${t}-${index}`} style={s.tagBadge}>
-                              <TouchableOpacity onPress={() => billingEditTag(t, index)} style={s.tagLabelBtn} activeOpacity={0.75}>
+                            <View
+                              key={`${t}-${index}`}
+                              style={s.tagBadge}
+                            >
+                              <TouchableOpacity
+                                onPress={() => billingEditTag(t, index)}
+                                style={s.tagLabelBtn}
+                                activeOpacity={0.75}
+                              >
                                 <Text style={s.tagText}>{t}</Text>
                               </TouchableOpacity>
-                              <TouchableOpacity onPress={() => billingRemoveTag(t)} style={s.tagClose}>
-                                <Ionicons name="close" size={14} color="#fff" />
+                              <TouchableOpacity
+                                onPress={() => billingRemoveTag(t)}
+                                style={s.tagClose}
+                              >
+                                <Ionicons
+                                  name="close"
+                                  size={14}
+                                  color="#fff"
+                                />
                               </TouchableOpacity>
                             </View>
                           ))}
@@ -1177,19 +1834,35 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
                               style={s.remarkInput}
                             />
                             <TouchableOpacity
-                              onPress={() => { setBillingIsViewingPresets(true); void loadBillingRemarkPresets(); }}
+                              onPress={() => {
+                                setBillingIsViewingPresets(true);
+                                void loadBillingRemarkPresets();
+                              }}
                               style={s.remarkDropdownIconBtn}
                               activeOpacity={0.8}
                             >
-                              <Ionicons name="chevron-down" size={20} color="#0062AA" />
+                              <Ionicons
+                                name="chevron-down"
+                                size={20}
+                                color="#0062AA"
+                              />
                             </TouchableOpacity>
                           </View>
-                          <TouchableOpacity style={s.addTagBtn} onPress={() => billingAddTag(billingRemarkDraft)}>
+                          <TouchableOpacity
+                            style={s.addTagBtn}
+                            onPress={() =>
+                              billingAddTag(billingRemarkDraft)
+                            }
+                          >
                             <Text style={s.addTagText}>Add Tag</Text>
                           </TouchableOpacity>
                         </View>
                       </ScrollView>
-                      <TouchableOpacity style={s.saveRemarkBtn} onPress={saveBillingRemarks} activeOpacity={0.85}>
+                      <TouchableOpacity
+                        style={s.saveRemarkBtn}
+                        onPress={saveBillingRemarks}
+                        activeOpacity={0.85}
+                      >
                         <Text style={s.saveRemarkText}>Save Remarks</Text>
                       </TouchableOpacity>
                     </View>
@@ -1197,11 +1870,25 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
                 ) : (
                   <>
                     <View style={s.remarkCardHeader}>
-                      <TouchableOpacity onPress={() => setBillingIsViewingPresets(false)} activeOpacity={0.8} style={s.remarkHeaderIconBtn}>
-                        <Ionicons name="arrow-back" size={22} color="#0F172A" />
+                      <TouchableOpacity
+                        onPress={() => setBillingIsViewingPresets(false)}
+                        activeOpacity={0.8}
+                        style={s.remarkHeaderIconBtn}
+                      >
+                        <Ionicons
+                          name="arrow-back"
+                          size={22}
+                          color="#0F172A"
+                        />
                       </TouchableOpacity>
-                      <Text style={s.remarkCardHeaderTitle}>Select Preset Remark</Text>
-                      <TouchableOpacity onPress={() => setBillingRemarkVisible(false)} activeOpacity={0.8} style={s.remarkHeaderIconBtn}>
+                      <Text style={s.remarkCardHeaderTitle}>
+                        Select Preset Remark
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => setBillingRemarkVisible(false)}
+                        activeOpacity={0.8}
+                        style={s.remarkHeaderIconBtn}
+                      >
                         <Ionicons name="close" size={22} color="#0F172A" />
                       </TouchableOpacity>
                     </View>
@@ -1211,16 +1898,30 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
                         <ActivityIndicator size="small" color="#002748" />
                       </View>
                     ) : (
-                      <ScrollView showsVerticalScrollIndicator contentContainerStyle={s.presetsListContent}>
+                      <ScrollView
+                        showsVerticalScrollIndicator
+                        contentContainerStyle={s.presetsListContent}
+                      >
                         {billingRemarkOptions.length > 0 ? (
                           billingRemarkOptions.map((r) => (
-                            <TouchableOpacity key={r} style={s.presetsRow} onPress={() => billingAddTag(r)}>
+                            <TouchableOpacity
+                              key={r}
+                              style={s.presetsRow}
+                              onPress={() => billingAddTag(r)}
+                            >
                               <Text style={s.presetsRowText}>{r}</Text>
                             </TouchableOpacity>
                           ))
                         ) : (
                           <View style={s.presetsLoaderWrap}>
-                            <Text style={{ color: 'rgba(0,39,72,0.7)', fontSize: 13 }}>No presets available.</Text>
+                            <Text
+                              style={{
+                                color: 'rgba(0,39,72,0.7)',
+                                fontSize: 13,
+                              }}
+                            >
+                              No presets available.
+                            </Text>
                           </View>
                         )}
                       </ScrollView>
@@ -1249,217 +1950,197 @@ const adjustPendingAddition = (menuItemCode: string, delta: number) => {
 // ─── Dynamic Styles Factory ───────────────────────────────────────────────────
 function getDynamicStyles(width: number, height: number, bottomInset: number) {
   const isTablet = width >= 600;
-  const isSmall  = height < 700;
+  const isSmall = height < 700;
 
   const BASE_WIDTH = isTablet ? 768 : 375;
   const scale = (size: number): number => (width / BASE_WIDTH) * size;
 
-  // ── 3-Tier Conditional Benchmarks ─────────────────────────────────────────
+  const headerH = isTablet ? 220 : isSmall ? 80 : 150;
+  const hPad = isTablet ? 40 : isSmall ? 12 : 16;
+  const backBtnSize = isTablet ? 40 : isSmall ? 30 : 44;
+  const backIconSize = isTablet ? 64 : isSmall ? 22 : 42;
+  const titleFs = isTablet ? 32 : isSmall ? 20 : 24;
 
-  // Header
-  const headerH         = isTablet ? 220  : isSmall ? 80   : 150;
-  const hPad            = isTablet ? 40   : isSmall ? 12   : 16;
-  const backBtnSize     = isTablet ? 40   : isSmall ? 30   : 44;
-  const backIconSize    = isTablet ? 64   : isSmall ? 22   : 42;  // raw icon = size + 8
-  const titleFs         = isTablet ? 32   : isSmall ? 20   : 24;
+  const newOrderBtnH = isTablet ? 42 : isSmall ? 28 : 34;
+  const newOrderBtnPadH = isTablet ? 16 : isSmall ? 10 : 12;
+  const newOrderBtnR = 999;
+  const newOrderFs = isTablet ? 15 : isSmall ? 11 : 12;
 
-  // New Order button
-  const newOrderBtnH    = isTablet ? 42   : isSmall ? 28   : 34;
-  const newOrderBtnPadH = isTablet ? 16   : isSmall ? 10   : 12;
-  const newOrderBtnR    = isTablet ? 999  : 999;
-  const newOrderFs      = isTablet ? 15   : isSmall ? 11   : 12;
+  const toastTop = headerH - 10;
+  const toastLR = isTablet ? 24 : isSmall ? 12 : 16;
+  const toastPadV = isTablet ? 14 : isSmall ? 8 : 10;
+  const toastPadH = isTablet ? 22 : isSmall ? 12 : 16;
+  const toastRadius = 999;
+  const toastFs = isTablet ? 15 : isSmall ? 11 : 13;
 
-  // Toast
-  const toastTop        = isTablet ? headerH - 10 : isSmall ? headerH - 10 : headerH - 10;
-  const toastLR         = isTablet ? 24   : isSmall ? 12   : 16;
-  const toastPadV       = isTablet ? 14   : isSmall ? 8    : 10;
-  const toastPadH       = isTablet ? 22   : isSmall ? 12   : 16;
-  const toastRadius     = isTablet ? 999  : 999;
-  const toastFs         = isTablet ? 15   : isSmall ? 11   : 13;
+  const fixedInfoPadT = isTablet ? 20 : isSmall ? 10 : 14;
+  const fixedInfoPadB = isTablet ? 10 : isSmall ? 4 : 6;
+  const logoW = isTablet ? 200 : isSmall ? 120 : 159;
+  const logoH = isTablet ? 100 : isSmall ? 44 : 60;
+  const logoMB = isTablet ? 16 : isSmall ? 8 : 12;
+  const tableFs = isTablet ? 24 : isSmall ? 13 : 16;
+  const tableMB = isTablet ? 6 : isSmall ? 2 : 4;
+  const dateFs = isTablet ? 16 : isSmall ? 11 : 14;
+  const dateMB = isTablet ? 20 : isSmall ? 10 : 16;
 
-  // Fixed info (logo / table / date)
-  const fixedInfoPadT   = isTablet ? 20   : isSmall ? 10   : 14;
-  const fixedInfoPadB   = isTablet ? 10   : isSmall ? 4    : 6;
-  const logoW           = isTablet ? 200  : isSmall ? 120  : 159;
-  const logoH           = isTablet ? 100  : isSmall ? 44   : 60;
-  const logoMB          = isTablet ? 16   : isSmall ? 8    : 12;
-  const tableFs         = isTablet ? 24   : isSmall ? 13   : 16;
-  const tableMB         = isTablet ? 6    : isSmall ? 2    : 4;
-  const dateFs          = isTablet ? 16   : isSmall ? 11   : 14;
-  const dateMB          = isTablet ? 20   : isSmall ? 10   : 16;
+  const contentPadT = isTablet ? 14 : isSmall ? 6 : 10;
+  const contentPadB = isTablet ? 16 : isSmall ? 8 : 12;
+  const billItemMB = isTablet ? 12 : isSmall ? 5 : 8;
+  const itemFs = isTablet ? 20 : isSmall ? 13 : 14;
+  const itemRowMB = isTablet ? 4 : isSmall ? 1 : 2;
+  const itemNameMR = isTablet ? 12 : isSmall ? 6 : 8;
+  const itemPriceMB = isTablet ? 6 : isSmall ? 2 : 4;
+  const itemDivMT = isTablet ? 14 : isSmall ? 7 : 10;
+  const qtyBtnSize = isTablet ? 28 : isSmall ? 20 : 24;
+  const qtyBtnRadius = isTablet ? 6 : isSmall ? 3 : 4;
+  const qtyPillGap = isTablet ? 6 : isSmall ? 3 : 4;
+  const qtyFs = isTablet ? 20 : isSmall ? 14 : 16;
+  const qtyMinW = isTablet ? 22 : isSmall ? 14 : 16;
+  const inlineVoidPadH = isTablet ? 20 : isSmall ? 10 : 14;
+  const inlineVoidPadV = isTablet ? 10 : isSmall ? 4 : 6;
+  const inlineVoidMT = isTablet ? 10 : isSmall ? 4 : 6;
+  const inlineVoidMB = isTablet ? 12 : isSmall ? 5 : 8;
+  const inlineVoidRadius = isTablet ? 12 : isSmall ? 6 : 8;
+  const inlineVoidFs = isTablet ? 17 : isSmall ? 12 : 14;
+  const remarkTextFs = isTablet ? 15 : isSmall ? 10 : 12;
+  const remarkMT = isTablet ? 4 : isSmall ? 1 : 2;
 
-  // Content list
-  const contentPadT     = isTablet ? 14   : isSmall ? 6    : 10;
-  const contentPadB     = isTablet ? 16   : isSmall ? 8    : 12;
-  const billItemMB      = isTablet ? 12   : isSmall ? 5    : 8;
-  const itemFs          = isTablet ? 20   : isSmall ? 13   : 14;
-  const itemRowMB       = isTablet ? 4    : isSmall ? 1    : 2;
-  const itemNameMR      = isTablet ? 12   : isSmall ? 6    : 8;
-  const itemPriceMB     = isTablet ? 6    : isSmall ? 2    : 4;
-  const itemDivMT       = isTablet ? 14   : isSmall ? 7    : 10;
-  const qtyBtnSize      = isTablet ? 28   : isSmall ? 20   : 24;
-  const qtyBtnRadius    = isTablet ? 6    : isSmall ? 3    : 4;
-  const qtyPillGap      = isTablet ? 6    : isSmall ? 3    : 4;
-  const qtyFs           = isTablet ? 20   : isSmall ? 14   : 16;
-  const qtyMinW         = isTablet ? 22   : isSmall ? 14   : 16;
-  const inlineVoidPadH  = isTablet ? 20   : isSmall ? 10   : 14;
-  const inlineVoidPadV  = isTablet ? 10   : isSmall ? 4    : 6;
-  const inlineVoidMT    = isTablet ? 10   : isSmall ? 4    : 6;
-  const inlineVoidMB    = isTablet ? 12   : isSmall ? 5    : 8;
-  const inlineVoidRadius= isTablet ? 12   : isSmall ? 6    : 8;
-  const inlineVoidFs    = isTablet ? 17   : isSmall ? 12   : 14;
-  const remarkTextFs    = isTablet ? 15   : isSmall ? 10   : 12; 
-  const remarkMT        = isTablet ? 4    : isSmall ? 1    : 2;
+  const addMoreMT = isTablet ? 22 : isSmall ? 10 : 16;
+  const addMoreMB = isTablet ? 12 : isSmall ? 5 : 8;
+  const addMoreH = isTablet ? 64 : isSmall ? 42 : 52;
+  const addMoreRadius = isTablet ? 16 : isSmall ? 10 : 12;
+  const addMoreBW = isTablet ? 2 : 1.5;
+  const addMoreFs = isTablet ? 20 : isSmall ? 13 : 16;
 
-  // Add more button
-  const addMoreMT       = isTablet ? 22   : isSmall ? 10   : 16;
-  const addMoreMB       = isTablet ? 12   : isSmall ? 5    : 8;
-  const addMoreH        = isTablet ? 64   : isSmall ? 42   : 52;
-  const addMoreRadius   = isTablet ? 16   : isSmall ? 10   : 12;
-  const addMoreBW       = isTablet ? 2    : 1.5;
-  const addMoreFs       = isTablet ? 20   : isSmall ? 13   : 16;
+  const footerPadT = isTablet ? 16 : isSmall ? 8 : 12;
+  const footerPadB = isTablet ? 28 : isSmall ? 12 : 20;
+  const dividerMB = isTablet ? 20 : isSmall ? 10 : 16;
+  const totalFs = isTablet ? 24 : isSmall ? 14 : 16;
+  const totalMT = isTablet ? 6 : isSmall ? 2 : 4;
+  const printBtnH = isTablet ? 60 : isSmall ? 42 : 48;
+  const printBtnRadius = isTablet ? 16 : isSmall ? 10 : 12;
+  const printBtnGap = isTablet ? 14 : isSmall ? 6 : 10;
+  const printFs = isTablet ? 24 : isSmall ? 14 : 16;
 
-  // Footer
-  const footerPadT      = isTablet ? 16   : isSmall ? 8    : 12;
-  const footerPadB      = isTablet ? 28   : isSmall ? 12   : 20;
-  const dividerMB       = isTablet ? 20   : isSmall ? 10   : 16;
-  const totalFs         = isTablet ? 24   : isSmall ? 14   : 16;
-  const totalMT         = isTablet ? 6    : isSmall ? 2    : 4;
-  const printBtnH       = isTablet ? 60   : isSmall ? 42   : 48;
-  const printBtnRadius  = isTablet ? 16   : isSmall ? 10   : 12;
-  const printBtnGap     = isTablet ? 14   : isSmall ? 6    : 10;
-  const printFs         = isTablet ? 24   : isSmall ? 14   : 16;
+  const loadingCardMinW = isTablet ? 280 : isSmall ? 180 : 220;
+  const loadingCardPadV = isTablet ? 28 : isSmall ? 16 : 20;
+  const loadingCardPadH = isTablet ? 32 : isSmall ? 18 : 24;
+  const loadingCardR = isTablet ? 22 : isSmall ? 12 : 16;
+  const loadingCardGap = isTablet ? 16 : isSmall ? 8 : 12;
+  const loadingTextFs = isTablet ? 20 : isSmall ? 13 : 16;
 
-  // Loading card
-  const loadingCardMinW = isTablet ? 280  : isSmall ? 180  : 220;
-  const loadingCardPadV = isTablet ? 28   : isSmall ? 16   : 20;
-  const loadingCardPadH = isTablet ? 32   : isSmall ? 18   : 24;
-  const loadingCardR    = isTablet ? 22   : isSmall ? 12   : 16;
-  const loadingCardGap  = isTablet ? 16   : isSmall ? 8    : 12;
-  const loadingTextFs   = isTablet ? 20   : isSmall ? 13   : 16;
+  const voidOverlayPadH = isTablet ? 28 : isSmall ? 14 : 20;
+  const voidCardRadius = isTablet ? 28 : isSmall ? 16 : 20;
+  const voidCardPad = isTablet ? 22 : isSmall ? 12 : 16;
+  const voidCardH = isTablet ? 680 : isSmall ? 460 : 560;
+  const voidCardShadH = isTablet ? 12 : isSmall ? 5 : 8;
+  const voidCardShadR = isTablet ? 22 : isSmall ? 12 : 16;
 
-  // Void modal
-  const voidOverlayPadH = isTablet ? 28   : isSmall ? 14   : 20;
-  const voidCardRadius  = isTablet ? 28   : isSmall ? 16   : 20;
-  const voidCardPad     = isTablet ? 22   : isSmall ? 12   : 16;
-  const voidCardH       = isTablet ? 680  : isSmall ? 460  : 560;
-  const voidCardShadH   = isTablet ? 12   : isSmall ? 5    : 8;
-  const voidCardShadR   = isTablet ? 22   : isSmall ? 12   : 16;
+  const managerTitleFs = isTablet ? 30 : isSmall ? 19 : 24;
+  const managerLabelFs = isTablet ? 17 : isSmall ? 12 : 14;
+  const managerLabelMB = isTablet ? 8 : isSmall ? 4 : 6;
+  const managerFieldMB = isTablet ? 18 : isSmall ? 10 : 14;
+  const managerInputH = isTablet ? 56 : isSmall ? 38 : 45;
+  const managerInputR = isTablet ? 12 : isSmall ? 6 : 8;
+  const managerInputPH = isTablet ? 16 : isSmall ? 10 : 12;
+  const managerInputBW = 2;
+  const managerInputFs = isTablet ? 17 : isSmall ? 12 : 14;
+  const managerErrFs = isTablet ? 14 : isSmall ? 10 : 12;
+  const managerErrMT = isTablet ? 8 : isSmall ? 4 : 6;
+  const managerHdrMB = isTablet ? 24 : isSmall ? 12 : 18;
+  const managerFootMT = isTablet ? 12 : isSmall ? 5 : 8;
 
-  // Manager auth
-  const managerTitleFs  = isTablet ? 30   : isSmall ? 19   : 24;
-  const managerLabelFs  = isTablet ? 17   : isSmall ? 12   : 14;
-  const managerLabelMB  = isTablet ? 8    : isSmall ? 4    : 6;
-  const managerFieldMB  = isTablet ? 18   : isSmall ? 10   : 14;
-  const managerInputH   = isTablet ? 56   : isSmall ? 38   : 45;
-  const managerInputR   = isTablet ? 12   : isSmall ? 6    : 8;
-  const managerInputPH  = isTablet ? 16   : isSmall ? 10   : 12;
-  const managerInputBW  = isTablet ? 2    : 2;
-  const managerInputFs  = isTablet ? 17   : isSmall ? 12   : 14;
-  const managerErrFs    = isTablet ? 14   : isSmall ? 10   : 12;
-  const managerErrMT    = isTablet ? 8    : isSmall ? 4    : 6;
-  const managerHdrMB    = isTablet ? 24   : isSmall ? 12   : 18;
-  const managerFootMT   = isTablet ? 12   : isSmall ? 5    : 8;
+  const presetTitleFs = isTablet ? 28 : isSmall ? 17 : 22;
+  const presetBackBtnSz = isTablet ? 42 : isSmall ? 28 : 34;
+  const presetBackR = isTablet ? 21 : isSmall ? 14 : 17;
+  const presetHdrMB = isTablet ? 18 : isSmall ? 10 : 14;
+  const presetListPB = isTablet ? 10 : isSmall ? 4 : 6;
+  const presetRowMinH = isTablet ? 60 : isSmall ? 40 : 48;
+  const presetRowRadius = isTablet ? 16 : isSmall ? 10 : 12;
+  const presetRowPadH = isTablet ? 18 : isSmall ? 10 : 14;
+  const presetRowPadV = isTablet ? 16 : isSmall ? 9 : 12;
+  const presetRowMB = isTablet ? 14 : isSmall ? 7 : 10;
+  const presetRowFs = isTablet ? 17 : isSmall ? 12 : 14;
+  const presetRowGap = isTablet ? 14 : isSmall ? 7 : 10;
+  const presetEmptyPadV = isTablet ? 30 : isSmall ? 15 : 22;
+  const presetEmptyFs = isTablet ? 15 : isSmall ? 11 : 13;
 
-  // Preset list
-  const presetTitleFs   = isTablet ? 28   : isSmall ? 17   : 22;
-  const presetBackBtnSz = isTablet ? 42   : isSmall ? 28   : 34;
-  const presetBackR     = isTablet ? 21   : isSmall ? 14   : 17;
-  const presetHdrMB     = isTablet ? 18   : isSmall ? 10   : 14;
-  const presetListPB    = isTablet ? 10   : isSmall ? 4    : 6;
-  const presetRowMinH   = isTablet ? 60   : isSmall ? 40   : 48;
-  const presetRowRadius = isTablet ? 16   : isSmall ? 10   : 12;
-  const presetRowPadH   = isTablet ? 18   : isSmall ? 10   : 14;
-  const presetRowPadV   = isTablet ? 16   : isSmall ? 9    : 12;
-  const presetRowMB     = isTablet ? 14   : isSmall ? 7    : 10;
-  const presetRowFs     = isTablet ? 17   : isSmall ? 12   : 14;
-  const presetRowGap    = isTablet ? 14   : isSmall ? 7    : 10;
-  const presetEmptyPadV = isTablet ? 30   : isSmall ? 15   : 22;
-  const presetEmptyFs   = isTablet ? 15   : isSmall ? 11   : 13;
+  const metaStackGap = isTablet ? 16 : isSmall ? 8 : 12;
+  const metaStackMB = isTablet ? 22 : isSmall ? 12 : 16;
+  const metaLabelW = isTablet ? 140 : isSmall ? 90 : 110;
+  const metaLabelFs = isTablet ? 17 : isSmall ? 12 : 14;
+  const metaValueFs = isTablet ? 20 : isSmall ? 13 : 16;
+  const voidQtyBtnSz = isTablet ? 40 : isSmall ? 28 : 34;
+  const voidQtyBtnR = isTablet ? 8 : isSmall ? 5 : 6;
+  const voidQtyBtnMR = isTablet ? 12 : isSmall ? 6 : 8;
+  const fieldLabelFs = isTablet ? 17 : isSmall ? 12 : 14;
+  const fieldLabelMB = isTablet ? 8 : isSmall ? 4 : 6;
+  const fieldLabelMT = isTablet ? 6 : isSmall ? 2 : 4;
+  const textareaH = isTablet ? 130 : isSmall ? 82 : 104;
+  const textareaRadius = isTablet ? 12 : isSmall ? 6 : 8;
+  const textareaGap = isTablet ? 16 : isSmall ? 8 : 12;
+  const textareaTextFs = isTablet ? 16 : isSmall ? 11 : 13;
+  const textareaPad = isTablet ? 16 : isSmall ? 8 : 12;
+  const textareaBW = 2;
+  const presetToggleW = isTablet ? 140 : isSmall ? 90 : 112;
+  const presetToggleH = isTablet ? 46 : isSmall ? 28 : 36;
+  const presetToggleR = isTablet ? 12 : isSmall ? 6 : 8;
+  const presetTogglePH = isTablet ? 14 : isSmall ? 8 : 10;
+  const presetToggleFs = isTablet ? 15 : isSmall ? 10 : 12;
+  const singleInputH = isTablet ? 56 : isSmall ? 38 : 45;
+  const singleInputR = isTablet ? 12 : isSmall ? 6 : 8;
+  const singleInputPH = isTablet ? 16 : isSmall ? 10 : 12;
+  const singleInputMB = isTablet ? 30 : isSmall ? 18 : 24;
+  const singleInputBW = 2;
+  const singleInputFs = isTablet ? 17 : isSmall ? 12 : 14;
+  const voidFooterPT = isTablet ? 16 : isSmall ? 8 : 12;
+  const confirmBtnW = '47%' as const;
+  const confirmBtnH = isTablet ? 66 : isSmall ? 44 : 54;
+  const confirmBtnR = isTablet ? 12 : isSmall ? 6 : 8;
+  const confirmBtnFs = isTablet ? 20 : isSmall ? 13 : 16;
+  const confirmIconSz = isTablet ? 30 : isSmall ? 20 : 24;
+  const confirmIconMR = isTablet ? 12 : isSmall ? 5 : 8;
+  const cancelBtnBW = 2;
 
-  // Void card body internals
-  const metaStackGap    = isTablet ? 16   : isSmall ? 8    : 12;
-  const metaStackMB     = isTablet ? 22   : isSmall ? 12   : 16;
-  const metaLabelW      = isTablet ? 140  : isSmall ? 90   : 110;
-  const metaLabelFs     = isTablet ? 17   : isSmall ? 12   : 14;
-  const metaValueFs     = isTablet ? 20   : isSmall ? 13   : 16;
-  const voidQtyBtnSz    = isTablet ? 40   : isSmall ? 28   : 34;
-  const voidQtyBtnR     = isTablet ? 8    : isSmall ? 5    : 6; // approximation
-  const voidQtyBtnMR    = isTablet ? 12   : isSmall ? 6    : 8;
-  const fieldLabelFs    = isTablet ? 17   : isSmall ? 12   : 14;
-  const fieldLabelMB    = isTablet ? 8    : isSmall ? 4    : 6;
-  const fieldLabelMT    = isTablet ? 6    : isSmall ? 2    : 4;
-  const textareaH       = isTablet ? 130  : isSmall ? 82   : 104;
-  const textareaRadius  = isTablet ? 12   : isSmall ? 6    : 8;
-  const textareaGap     = isTablet ? 16   : isSmall ? 8    : 12;
-  const textareaTextFs  = isTablet ? 16   : isSmall ? 11   : 13;
-  const textareaPad     = isTablet ? 16   : isSmall ? 8    : 12;
-  const textareaBW      = isTablet ? 2    : 2;
-  const presetToggleW   = isTablet ? 140  : isSmall ? 90   : 112;
-  const presetToggleH   = isTablet ? 46   : isSmall ? 28   : 36;
-  const presetToggleR   = isTablet ? 12   : isSmall ? 6    : 8;
-  const presetTogglePH  = isTablet ? 14   : isSmall ? 8    : 10;
-  const presetToggleFs  = isTablet ? 15   : isSmall ? 10   : 12;
-  const singleInputH    = isTablet ? 56   : isSmall ? 38   : 45;
-  const singleInputR    = isTablet ? 12   : isSmall ? 6    : 8;
-  const singleInputPH   = isTablet ? 16   : isSmall ? 10   : 12;
-  const singleInputMB   = isTablet ? 30   : isSmall ? 18   : 24;
-  const singleInputBW   = isTablet ? 2    : 2;
-  const singleInputFs   = isTablet ? 17   : isSmall ? 12   : 14;
-  const voidFooterPT    = isTablet ? 16   : isSmall ? 8    : 12;
-  const confirmBtnW     = '47%' as const;
-  const confirmBtnH     = isTablet ? 66   : isSmall ? 44   : 54;
-  const confirmBtnR     = isTablet ? 12   : isSmall ? 6    : 8;
-  const confirmBtnFs    = isTablet ? 20   : isSmall ? 13   : 16;
-  const confirmIconSz   = isTablet ? 30   : isSmall ? 20   : 24;
-  const confirmIconMR   = isTablet ? 12   : isSmall ? 5    : 8;
-  const cancelBtnBW     = isTablet ? 2    : 2;
+  const remarkModalPadH = isTablet ? 28 : isSmall ? 14 : 20;
+  const remarkCardRadius = isTablet ? 28 : isSmall ? 16 : 20;
+  const remarkCardPad = isTablet ? 22 : isSmall ? 12 : 16;
+  const remarkCardH = isTablet ? 400 : isSmall ? 260 : 320;
+  const remarkHdrMB = isTablet ? 12 : isSmall ? 5 : 8;
+  const remarkHdrTitleFs = isTablet ? 20 : isSmall ? 13 : 16;
+  const remarkHdrIconSz = isTablet ? 42 : isSmall ? 28 : 36;
+  const remarkInputH = isTablet ? 60 : isSmall ? 38 : 48;
+  const remarkInputPH = isTablet ? 16 : isSmall ? 8 : 12;
+  const remarkInputFs = isTablet ? 20 : isSmall ? 13 : 16;
+  const saveRemarkBtnH = isTablet ? 60 : isSmall ? 38 : 48;
+  const saveRemarkR = isTablet ? 12 : isSmall ? 6 : 8;
+  const saveRemarkMT = isTablet ? 18 : isSmall ? 10 : 14;
+  const saveRemarkFs = isTablet ? 20 : isSmall ? 13 : 16;
+  const tagPadH = isTablet ? 14 : isSmall ? 7 : 10;
+  const tagPadV = isTablet ? 9 : isSmall ? 4 : 6;
+  const tagRadius = isTablet ? 22 : isSmall ? 12 : 16;
+  const tagMR = isTablet ? 12 : isSmall ? 6 : 8;
+  const tagMB = isTablet ? 12 : isSmall ? 5 : 8;
+  const tagFs = isTablet ? 16 : isSmall ? 10 : 13;
+  const tagCloseSz = isTablet ? 24 : isSmall ? 14 : 18;
+  const tagCloseR = isTablet ? 12 : isSmall ? 7 : 9;
+  const tagsWrapGap = isTablet ? 12 : isSmall ? 5 : 8;
+  const tagsWrapMB = isTablet ? 16 : isSmall ? 8 : 12;
+  const addTagPH = isTablet ? 16 : isSmall ? 8 : 12;
+  const addTagPV = isTablet ? 12 : isSmall ? 5 : 8;
+  const addTagRadius = isTablet ? 12 : isSmall ? 6 : 8;
+  const addTagFs = isTablet ? 15 : isSmall ? 12 : 14;
+  const remarkInputRowGap = isTablet ? 14 : isSmall ? 7 : 10;
+  const remarkInputRowMT = isTablet ? 4 : isSmall ? 1 : 2;
+  const presetsRowPadV = isTablet ? 16 : isSmall ? 8 : 12;
+  const presetsRowFs = isTablet ? 17 : isSmall ? 12 : 14;
+  const presetsLoaderPadV = isTablet ? 26 : isSmall ? 12 : 18;
 
-  // Remark modal
-  const remarkModalPadH = isTablet ? 28   : isSmall ? 14   : 20;
-  const remarkCardRadius= isTablet ? 28   : isSmall ? 16   : 20;
-  const remarkCardPad   = isTablet ? 22   : isSmall ? 12   : 16;
-  const remarkCardH     = isTablet ? 400  : isSmall ? 260  : 320;
-  const remarkHdrMB     = isTablet ? 12   : isSmall ? 5    : 8;
-  const remarkHdrTitleFs= isTablet ? 20   : isSmall ? 13   : 16;
-  const remarkHdrIconSz = isTablet ? 42   : isSmall ? 28   : 36;
-  const remarkInputH    = isTablet ? 60   : isSmall ? 38   : 48;
-  const remarkInputPH   = isTablet ? 16   : isSmall ? 8    : 12;
-  const remarkInputFs   = isTablet ? 20   : isSmall ? 13   : 16;
-  const saveRemarkBtnH  = isTablet ? 60   : isSmall ? 38   : 48;
-  const saveRemarkR     = isTablet ? 12   : isSmall ? 6    : 8;
-  const saveRemarkMT    = isTablet ? 18   : isSmall ? 10   : 14;
-  const saveRemarkFs    = isTablet ? 20   : isSmall ? 13   : 16;
-  const tagPadH         = isTablet ? 14   : isSmall ? 7    : 10;
-  const tagPadV         = isTablet ? 9    : isSmall ? 4    : 6;
-  const tagRadius       = isTablet ? 22   : isSmall ? 12   : 16;
-  const tagMR           = isTablet ? 12   : isSmall ? 6    : 8;
-  const tagMB           = isTablet ? 12   : isSmall ? 5    : 8;
-  const tagFs           = isTablet ? 16   : isSmall ? 10   : 13;
-  const tagCloseSz      = isTablet ? 24   : isSmall ? 14   : 18;
-  const tagCloseR       = isTablet ? 12   : isSmall ? 7    : 9;
-  const tagsWrapGap     = isTablet ? 12   : isSmall ? 5    : 8;
-  const tagsWrapMB      = isTablet ? 16   : isSmall ? 8    : 12;
-  const addTagPH        = isTablet ? 16   : isSmall ? 8    : 12;
-  const addTagPV        = isTablet ? 12   : isSmall ? 5    : 8;
-  const addTagRadius    = isTablet ? 12   : isSmall ? 6    : 8;
-  const addTagFs        = isTablet ? 15   : isSmall ? 12   : 14;
-  const remarkInputRowGap = isTablet ? 14 : isSmall ? 7    : 10;
-  const remarkInputRowMT  = isTablet ? 4  : isSmall ? 1    : 2;
-  const presetsRowPadV    = isTablet ? 16 : isSmall ? 8    : 12;
-  const presetsRowFs      = isTablet ? 17 : isSmall ? 12   : 14;
-  const presetsLoaderPadV = isTablet ? 26 : isSmall ? 12   : 18;
-
-  // ── StyleSheet ─────────────────────────────────────────────────────────────
   return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: '#FFF',
-    },
+    container: { flex: 1, backgroundColor: '#FFF' },
 
-    // ── Header ──────────────────────────────────────────────────────────────
     header: {
-      height: scale(headerH) + 0, // insets.top added in JSX via paddingTop
+      height: scale(headerH),
       paddingHorizontal: scale(hPad),
       flexDirection: 'row',
       alignItems: 'center',
@@ -1514,7 +2195,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       letterSpacing: 0.2,
     },
 
-    // ── Toast ────────────────────────────────────────────────────────────────
     toastBanner: {
       position: 'absolute',
       left: scale(toastLR),
@@ -1539,21 +2219,14 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       elevation: 3,
     },
 
-    // ── Fixed Info ───────────────────────────────────────────────────────────
     fixedInfo: {
       backgroundColor: '#FFF',
       paddingTop: scale(fixedInfoPadT),
       paddingBottom: scale(fixedInfoPadB),
       paddingHorizontal: scale(hPad),
     },
-    logoContainer: {
-      alignItems: 'center',
-      marginBottom: scale(logoMB),
-    },
-    logo: {
-      width: scale(logoW),
-      height: scale(logoH),
-    },
+    logoContainer: { alignItems: 'center', marginBottom: scale(logoMB) },
+    logo: { width: scale(logoW), height: scale(logoH) },
     tableNumber: {
       fontWeight: '500',
       color: '#000',
@@ -1569,16 +2242,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontSize: scale(dateFs),
     },
 
-    // ── Scrollable Content ───────────────────────────────────────────────────
     content: {
       flexGrow: 1,
       paddingTop: scale(contentPadT),
       paddingBottom: scale(contentPadB),
       paddingHorizontal: scale(hPad),
     },
-    billItemBlock: {
-      marginBottom: scale(billItemMB),
-    },
+    billItemBlock: { marginBottom: scale(billItemMB) },
     itemRow: {
       flexDirection: 'row',
       alignItems: 'flex-start',
@@ -1593,10 +2263,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       marginRight: scale(itemNameMR),
       fontSize: scale(itemFs),
     },
-    itemRightBlock: {
-      flexShrink: 0,
-      alignItems: 'flex-end',
-    },
+    itemRightBlock: { flexShrink: 0, alignItems: 'flex-end' },
     itemPrice: {
       fontWeight: '400',
       color: '#000',
@@ -1674,7 +2341,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontWeight: '700',
     },
 
-    // ── Footer ───────────────────────────────────────────────────────────────
     footer: {
       backgroundColor: '#FFF',
       paddingTop: scale(footerPadT),
@@ -1692,16 +2358,8 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       alignItems: 'center',
       marginTop: scale(totalMT),
     },
-    totalLabel: {
-      fontWeight: '500',
-      color: '#000',
-      fontSize: scale(totalFs),
-    },
-    totalValue: {
-      fontWeight: '500',
-      color: '#000',
-      fontSize: scale(totalFs),
-    },
+    totalLabel: { fontWeight: '500', color: '#000', fontSize: scale(totalFs) },
+    totalValue: { fontWeight: '500', color: '#000', fontSize: scale(totalFs) },
     printBtn: {
       height: scale(printBtnH),
       borderRadius: scale(printBtnRadius),
@@ -1711,13 +2369,8 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       gap: scale(printBtnGap),
       marginTop: scale(12),
     },
-    printText: {
-      color: '#FFF',
-      fontWeight: '700',
-      fontSize: scale(printFs),
-    },
+    printText: { color: '#FFF', fontWeight: '700', fontSize: scale(printFs) },
 
-    // ── Loading overlay ──────────────────────────────────────────────────────
     loadingOverlay: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: 'rgba(0, 0, 0, 0.25)',
@@ -1745,7 +2398,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       textAlign: 'center',
     },
 
-    // ── Void Modal ───────────────────────────────────────────────────────────
     voidModalOverlay: {
       flex: 1,
       backgroundColor: 'rgba(0,0,0,0.6)',
@@ -1767,25 +2419,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       shadowOpacity: 0.22,
       shadowRadius: scale(voidCardShadR),
     },
-    voidCardBody: {
-      flex: 1,
-    },
-    voidCardScroll: {
-      flex: 1,
-    },
-    voidCardContent: {
-      flexGrow: 1,
-      paddingBottom: scale(8),
-    },
-    voidCardFooter: {
-      paddingTop: scale(voidFooterPT),
-    },
+    voidCardBody: { flex: 1 },
+    voidCardScroll: { flex: 1 },
+    voidCardContent: { flexGrow: 1, paddingBottom: scale(8) },
+    voidCardFooter: { paddingTop: scale(voidFooterPT) },
 
-    // Manager auth
-    managerAuthCardBody: {
-      flex: 1,
-      paddingTop: scale(4),
-    },
+    managerAuthCardBody: { flex: 1, paddingTop: scale(4) },
     managerAuthHeaderRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1796,17 +2435,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       flex: 1,
       color: '#000',
       fontSize: scale(managerTitleFs),
-      fontFamily: 'Roboto',
       fontWeight: '600',
     },
-    managerAuthFieldGroup: {
-      marginBottom: scale(managerFieldMB),
-    },
+    managerAuthFieldGroup: { marginBottom: scale(managerFieldMB) },
     managerAuthLabel: {
       opacity: 0.75,
       color: 'rgba(0, 0, 0, 0.80)',
       fontSize: scale(managerLabelFs),
-      fontFamily: 'Inter',
       fontWeight: '500',
       marginBottom: scale(managerLabelMB),
     },
@@ -1819,14 +2454,11 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       paddingHorizontal: scale(managerInputPH),
       justifyContent: 'center',
     },
-    managerAuthInputBoxError: {
-      borderColor: '#FF4D4D',
-    },
+    managerAuthInputBoxError: { borderColor: '#FF4D4D' },
     managerAuthInput: {
       flex: 1,
       color: 'black',
       fontSize: scale(managerInputFs),
-      fontFamily: 'Roboto',
       fontWeight: '500',
       padding: 0,
       margin: 0,
@@ -1835,7 +2467,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       marginTop: scale(managerErrMT),
       color: '#FF4D4D',
       fontSize: scale(managerErrFs),
-      fontFamily: 'Inter',
       fontWeight: '500',
     },
     managerAuthFooter: {
@@ -1843,11 +2474,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       alignItems: 'center',
     },
 
-    // Preset list
-    presetListCardBody: {
-      flex: 1,
-      paddingTop: scale(4),
-    },
+    presetListCardBody: { flex: 1, paddingTop: scale(4) },
     presetListHeaderRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1870,13 +2497,10 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       flex: 1,
       color: '#000',
       fontSize: scale(presetTitleFs),
-      fontFamily: 'Roboto',
       fontWeight: '600',
       textAlign: 'center',
     },
-    presetListContent: {
-      paddingBottom: scale(presetListPB),
-    },
+    presetListContent: { paddingBottom: scale(presetListPB) },
     presetListRow: {
       minHeight: scale(presetRowMinH),
       borderRadius: scale(presetRowRadius),
@@ -1895,7 +2519,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       flex: 1,
       color: '#002748',
       fontSize: scale(presetRowFs),
-      fontFamily: 'Roboto',
       fontWeight: '500',
     },
     presetListEmptyWrap: {
@@ -1910,27 +2533,21 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       textAlign: 'center',
     },
 
-    // Void card internals
     metaSpecificationsStack: {
       gap: scale(metaStackGap),
       marginBottom: scale(metaStackMB),
     },
-    metaRowInline: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
+    metaRowInline: { flexDirection: 'row', alignItems: 'center' },
     metaLabelStyle: {
       opacity: 0.75,
       color: 'rgba(0, 0, 0, 0.80)',
       fontSize: scale(metaLabelFs),
-      fontFamily: 'Inter',
       fontWeight: '500',
       width: scale(metaLabelW),
     },
     metaValueStyle: {
       color: 'black',
       fontSize: scale(metaValueFs),
-      fontFamily: 'Roboto',
       fontWeight: '500',
     },
     voidQtyBtn: {
@@ -1946,7 +2563,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       opacity: 0.75,
       color: 'rgba(0, 0, 0, 0.80)',
       fontSize: scale(fieldLabelFs),
-      fontFamily: 'Inter',
       fontWeight: '500',
       marginBottom: scale(fieldLabelMB),
       marginTop: scale(fieldLabelMT),
@@ -1971,7 +2587,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       flex: 1,
       color: 'black',
       fontSize: scale(textareaTextFs),
-      fontFamily: 'Roboto',
       fontWeight: '500',
       textAlignVertical: 'top',
       padding: 0,
@@ -1991,7 +2606,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     presetToggleButtonText: {
       color: '#FFF',
       fontSize: scale(presetToggleFs),
-      fontFamily: 'Roboto',
       fontWeight: '600',
     },
     singleLineInputBoxWrapper: {
@@ -2007,7 +2621,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       paddingHorizontal: scale(singleInputPH),
       color: 'black',
       fontSize: scale(singleInputFs),
-      fontFamily: 'Roboto',
       fontWeight: '500',
     },
     ctaButtonControlRowGroup: {
@@ -2035,7 +2648,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     confirmButtonLabelInlineText: {
       color: 'white',
       fontSize: scale(confirmBtnFs),
-      fontFamily: 'Roboto',
       fontWeight: '500',
     },
     cancelActionButtonOutlineSecondary: {
@@ -2051,11 +2663,9 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       opacity: 0.5,
       color: 'black',
       fontSize: scale(confirmBtnFs),
-      fontFamily: 'Roboto',
       fontWeight: '500',
     },
 
-    // ── Billing Remark Modal ─────────────────────────────────────────────────
     remarkModalOverlay: {
       flex: 1,
       backgroundColor: 'rgba(0,0,0,0.6)',
@@ -2096,15 +2706,9 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       alignItems: 'center',
       justifyContent: 'center',
     },
-    remarkCardBody: {
-      flex: 1,
-    },
-    remarkScrollArea: {
-      flex: 1,
-    },
-    remarkCardContent: {
-      paddingBottom: scale(4),
-    },
+    remarkCardBody: { flex: 1 },
+    remarkScrollArea: { flex: 1 },
+    remarkCardContent: { paddingBottom: scale(4) },
     presetsDivider: {
       height: 1,
       backgroundColor: '#E2E8F0',
@@ -2152,9 +2756,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       marginRight: scale(tagMR),
       marginBottom: scale(tagMB),
     },
-    tagLabelBtn: {
-      paddingRight: scale(4),
-    },
+    tagLabelBtn: { paddingRight: scale(4) },
     tagText: {
       color: '#FFF',
       fontSize: scale(tagFs),
@@ -2174,10 +2776,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       gap: scale(remarkInputRowGap),
       marginTop: scale(remarkInputRowMT),
     },
-    remarkInputShell: {
-      flex: 1,
-      position: 'relative',
-    },
+    remarkInputShell: { flex: 1, position: 'relative' },
     remarkDropdownIconBtn: {
       position: 'absolute',
       right: scale(8),
@@ -2198,9 +2797,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontWeight: '700',
       fontSize: scale(addTagFs),
     },
-    presetsListContent: {
-      paddingVertical: scale(2),
-    },
+    presetsListContent: { paddingVertical: scale(2) },
     presetsRow: {
       paddingVertical: scale(presetsRowPadV),
       borderBottomWidth: 1,
@@ -2212,7 +2809,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontSize: scale(presetsRowFs),
     },
 
-    // ── Category section header (billing list) ─────────────────────────────
     billingSectionHeader: {
       flexDirection: 'row',
       alignItems: 'center',

@@ -455,7 +455,7 @@ const ItemCard = ({
 
 export default function ItemSelection() {
   const router = useRouter();
-  const { tableName, localPax, foreignPax, status, floor, fromBilling, tableNo, invoiceNo } =
+  const { tableName, localPax, foreignPax, status, floor, fromBilling, tableNo, invoiceNo, orderType: routeOrderType } =
     useLocalSearchParams<{
       tableName: string;
       localPax: string;
@@ -463,8 +463,10 @@ export default function ItemSelection() {
       status?: string;
       floor?: string;
       fromBilling?: string;
-      tableNo?: string;      
+      tableNo?: string;
       invoiceNo?: string;
+      // BUG FIX: receive orderType from BillingScreen so TA orders preserve their type
+      orderType?: string;
     }>();
 
   const { width, height } = useWindowDimensions();
@@ -483,6 +485,7 @@ export default function ItemSelection() {
   const upsertCartItem = useCartStore((state) => state.upsertCartItem);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const orderType      = useCartStore((state) => state.orderType);
+  const setOrderType   = useCartStore((state) => state.setOrderType);
   const clearCart      = useCartStore((state) => state.clearCart);
 
   // When arriving from billing ("Add More"), lastConfirmedOrder holds the
@@ -491,6 +494,21 @@ export default function ItemSelection() {
   //  • compute the DELTA qty the user is adding on top
   const lastConfirmedOrder = useOrderStore((state) => state.lastConfirmedOrder);
   const isFromBilling = fromBilling === '1';
+
+  // BUG FIX: When coming from BillingScreen via "Add More", restore the
+  // orderType into cartStore so cart.tsx sees 'TA' instead of null/'DI'.
+  // This runs once on mount — routeOrderType comes from BillingScreen params.
+  useEffect(() => {
+    if (!isFromBilling) return;
+    const resolvedOrderType =
+      (lastConfirmedOrder as any)?.orderType ||
+      routeOrderType ||
+      '';
+    if (resolvedOrderType === 'TA') {
+      setOrderType('TA');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFromBilling]);
 
   // Build a quick lookup: menuItemCode → existing qty on the current bill
   const existingQtyByCode = useMemo<Record<string, number>>(() => {
@@ -1366,13 +1384,15 @@ export default function ItemSelection() {
                 pathname: '/Screens/cart',
                 params: {
                   tableName:   tableName   || '',
-                  tableNo:     String(tableNo || tableName || ''), 
-                  invoiceNo:   String(invoiceNo || ''),           
+                  tableNo:     String(tableNo || tableName || ''),
+                  invoiceNo:   String(invoiceNo || ''),
                   localPax:    localPax    || '0',
                   foreignPax:  foreignPax  || '0',
                   floor:       floor       || '',
                   status:      status      || '',
                   fromBilling: fromBilling || '',
+                  // BUG FIX: carry orderType so cart.tsx doesn't lose TA type
+                  orderType:   routeOrderType || '',
                 },
               })
             }
