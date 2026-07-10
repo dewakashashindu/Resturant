@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Image,
   ImageSourcePropType,
   Modal,
@@ -20,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient, getCachedOrderDescriptions } from '../../services/api';
 import { useCartStore } from '../../services/cartStore';
 import useItemStore from '../../services/itemStore';
+import { useOrderStore } from '../../services/orderStore';
 import { storage } from '../../services/storage';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -347,6 +349,7 @@ interface ItemCardProps {
   icon?: ImageSourcePropType;
   onAdd?: () => void;
   quantity?: number;
+  existingQty?: number;   // items already on the bill (read-only, shown as grey badge)
   remarks?: string;
   onIncrement?: () => void;
   onDecrement?: () => void;
@@ -361,6 +364,7 @@ const ItemCard = ({
   icon,
   onAdd,
   quantity,
+  existingQty = 0,
   remarks,
   onIncrement,
   onDecrement,
@@ -372,7 +376,7 @@ const ItemCard = ({
   const insets = useSafeAreaInsets();
   const cs = getDynamicStyles(width, height, insets.bottom);
 
-  const displayQuantity = quantity ?? 0;
+  const displayQuantity = quantity ?? 0;   // new qty (delta)
   const remarkTags      = normalizeRemarkTags(splitRemarkTags(remarks));
   const imgSize         = cardWidth - 4;
 
@@ -417,6 +421,13 @@ const ItemCard = ({
         </View>
       )}
 
+      {/* Existing-on-bill badge (grey, read-only) */}
+      {existingQty > 0 && (
+        <View style={cs.existingQtyBadge}>
+          <Text style={cs.existingQtyText}>On bill: {existingQty}</Text>
+        </View>
+      )}
+
       <View style={cs.qtyRow}>
         {displayQuantity > 0 ? (
           <>
@@ -430,7 +441,7 @@ const ItemCard = ({
           </>
         ) : (
           <TouchableOpacity style={cs.qtyAddBtn} onPress={() => onAdd?.()} activeOpacity={0.8}>
-            <Text style={cs.addBtnText}>ADD +</Text>
+            <Text style={cs.addBtnText}>{existingQty > 0 ? 'ADD MORE +' : 'ADD +'}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -474,6 +485,23 @@ export default function ItemSelection() {
   const orderType      = useCartStore((state) => state.orderType);
   const clearCart      = useCartStore((state) => state.clearCart);
 
+  // When arriving from billing ("Add More"), lastConfirmedOrder holds the
+  // items already on the bill.  We use this to:
+  //  • show existing qty on each card (grey, read-only)
+  //  • compute the DELTA qty the user is adding on top
+  const lastConfirmedOrder = useOrderStore((state) => state.lastConfirmedOrder);
+  const isFromBilling = fromBilling === '1';
+
+  // Build a quick lookup: menuItemCode → existing qty on the current bill
+  const existingQtyByCode = useMemo<Record<string, number>>(() => {
+    if (!isFromBilling || !lastConfirmedOrder?.items?.length) return {};
+    const map: Record<string, number> = {};
+    for (const it of lastConfirmedOrder.items) {
+      map[it.menuItemCode] = (map[it.menuItemCode] ?? 0) + Number(it.quantity ?? 0);
+    }
+    return map;
+  }, [isFromBilling, lastConfirmedOrder]);
+
   // ── Cache state ──────────────────────────────────────────────────────────
   const [cachedItems, setCachedItems]           = useState<Record<string, any>[]>([]);
   const [cachedCategories, setCachedCategories] = useState<Record<string, any>[]>([]);
@@ -506,7 +534,14 @@ export default function ItemSelection() {
 
   // ── Derived ──────────────────────────────────────────────────────────────
   const normalizedSearch  = searchQuery.trim().toLowerCase();
-  const selectedItemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+  // When fromBilling, show only the count of NEWLY added items (delta)
+  const selectedItemCount = cartItems.reduce((sum, item) => {
+    if (isFromBilling) {
+      const existingQty = existingQtyByCode[item.menuItemCode] ?? 0;
+      return sum + Math.max(0, item.quantity - existingQty);
+    }
+    return sum + item.quantity;
+  }, 0);
 
   const headerTitle =
     viewMode === 'categories'
@@ -600,6 +635,34 @@ export default function ItemSelection() {
     setRemarkOptions(getCachedOrderDescriptions());
   }, []);
 
+  // ── Search expand state ──────────────────────────────────────────────────
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchBarAnim = useRef(new Animated.Value(0)).current;
+  const searchInputRef = useRef<TextInput>(null);
+
+  const openSearchBar = () => {
+    setIsSearchOpen(true);
+    Animated.timing(searchBarAnim, {
+      toValue: 1,
+      duration: 280,
+      useNativeDriver: false,
+    }).start(() => {
+      searchInputRef.current?.focus();
+    });
+  };
+
+  const closeSearchBar = () => {
+    setSearchQuery('');
+    searchInputRef.current?.blur();
+    Animated.timing(searchBarAnim, {
+      toValue: 0,
+      duration: 240,
+      useNativeDriver: false,
+    }).start(() => {
+      setIsSearchOpen(false);
+    });
+  };
+
   const prevTableRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     const prev = prevTableRef.current;
@@ -692,7 +755,19 @@ export default function ItemSelection() {
 
   const getCartQuantity = (menuItemCode: string) => {
     const normalizedCode = normalizeMenuItemCode(menuItemCode);
-    return cartItems.find((item) => item.menuItemCode === normalizedCode)?.quantity ?? 0;
+    const totalQty = cartItems.find((item) => item.menuItemCode === normalizedCode)?.quantity ?? 0;
+    if (isFromBilling) {
+      // Show only the NEW qty added on top of what's already on the bill
+      const existingQty = existingQtyByCode[normalizedCode] ?? 0;
+      return Math.max(0, totalQty - existingQty);
+    }
+    return totalQty;
+  };
+
+  // How many items are already on the bill for this code (shown as a grey badge)
+  const getExistingQty = (menuItemCode: string) => {
+    if (!isFromBilling) return 0;
+    return existingQtyByCode[normalizeMenuItemCode(menuItemCode)] ?? 0;
   };
 
   const getCartRemarks = (menuItemCode: string) => {
@@ -958,26 +1033,101 @@ export default function ItemSelection() {
           </TouchableOpacity>
         </View>
 
-        {/* ── Search bar with clear button ── */}
-        <View style={s.searchWrap}>
-          <View style={s.searchInputRow}>
-            <TextInput
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Search by item name or code..."
-              placeholderTextColor="rgba(255,255,255,0.75)"
-              style={s.searchInput}
-            />
-            {searchQuery.length > 0 && (
+
+
+        {/* ── Tabs (left, scrollable) + Search icon (right, fixed) ── */}
+        <View style={s.searchTabsRow}>
+
+          {/* Tabs — shrink out to the left when search opens */}
+          <Animated.View
+            style={{
+              width: searchBarAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [width - s.hPad * 3 - 38, 0],
+              }),
+              opacity: searchBarAnim.interpolate({
+                inputRange: [0, 0.3, 1],
+                outputRange: [1, 0, 0],
+              }),
+              overflow: 'hidden',
+            }}
+            pointerEvents={isSearchOpen ? 'none' : 'auto'}
+          >
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.tabsInHeaderContent}
+            >
+              {tabsList.map((tab) => {
+                const isActive = selectedTabCode === tab.code;
+                return (
+                  <TouchableOpacity
+                    key={tab.code}
+                    activeOpacity={0.8}
+                    onPress={() => handleTabPress(tab.code)}
+                    style={[s.headerTab, isActive && s.headerTabActive]}
+                  >
+                    <Text style={[s.headerTabLabel, isActive && s.headerTabLabelActive]}>
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </Animated.View>
+
+          {/* Search input — expand in from the right */}
+          <Animated.View
+            style={{
+              width: searchBarAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, width - s.hPad * 2 - 46],
+              }),
+              opacity: searchBarAnim.interpolate({
+                inputRange: [0, 0.5, 1],
+                outputRange: [0, 0, 1],
+              }),
+              overflow: 'hidden',
+            }}
+            pointerEvents={isSearchOpen ? 'auto' : 'none'}
+          >
+            <View style={s.searchExpandInner}>
+              <TextInput
+                ref={searchInputRef}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search by item name or code..."
+                placeholderTextColor="rgba(255,255,255,0.55)"
+                style={s.searchExpandInput}
+                returnKeyType="search"
+              />
               <TouchableOpacity
-                onPress={() => setSearchQuery('')}
+                onPress={closeSearchBar}
                 activeOpacity={0.7}
-                style={s.searchClearBtn}
+                style={s.searchCloseBtn}
               >
-                <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.85)" />
+                <Ionicons name="close-circle" size={20} color="rgba(255,255,255,0.9)" />
               </TouchableOpacity>
-            )}
-          </View>
+            </View>
+          </Animated.View>
+
+          {/* Search icon — always fixed right, never scrolls */}
+          <TouchableOpacity
+            style={s.searchIconBtn}
+            activeOpacity={0.8}
+            onPress={openSearchBar}
+          >
+            <Ionicons name="search" size={20} color="#FFF" />
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Section label inside header (blue area) ── */}
+        <View style={s.sectionLabelInHeader}>
+          <Text style={s.sectionTitleInHeader}>
+            {normalizedSearch
+              ? `SEARCH RESULTS — ${globalSearchResults.length} ITEMS`
+              : sectionLabel}
+          </Text>
         </View>
       </View>
 
@@ -1023,39 +1173,6 @@ export default function ItemSelection() {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
-
-      {/* ── TABS BAR ── */}
-      <View style={s.fixedTabsArea}>
-        <View style={s.scrollContainer}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={s.horizontalTabsRow}
-          >
-            {tabsList.map((tab) => {
-              const isActive = selectedTabCode === tab.code;
-              return (
-                <TouchableOpacity
-                  key={tab.code}
-                  activeOpacity={0.8}
-                  onPress={() => handleTabPress(tab.code)}
-                  style={[s.scrollTab, isActive && s.scrollTabActive]}
-                >
-                  <Text style={[s.scrollTabLabel, isActive && s.scrollTabLabelActive]}>
-                    {tab.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        <Text style={[s.sectionTitle, { marginTop: 10, marginBottom: 0 }]}>
-          {normalizedSearch
-            ? `SEARCH RESULTS — ${globalSearchResults.length} ITEMS`
-            : sectionLabel}
-        </Text>
-      </View>
 
       {/* ── Main scrollable content ── */}
       <ScrollView
@@ -1134,6 +1251,7 @@ export default function ItemSelection() {
                     path={item.path}
                     cardWidth={cardWidth}
                     quantity={getCartQuantity(item.code)}
+                    existingQty={getExistingQty(item.code)}
                     remarks={getCartRemarks(item.code)}
                     onPressDetails={() =>
                       openItemDetails({
@@ -1200,6 +1318,7 @@ export default function ItemSelection() {
                     icon={row.icon}
                     cardWidth={cardWidth}
                     quantity={getCartQuantity(row.Level)}
+                    existingQty={getExistingQty(row.Level)}
                     remarks={getCartRemarks(row.Level)}
                     onPressDetails={() =>
                       openItemDetails({
@@ -1334,42 +1453,45 @@ export default function ItemSelection() {
                             </View>
                           )}
 
-                          <View style={s.remarkSectionWrap}>
-                            <View style={s.remarkInputRow}>
-                              <View style={s.remarkInputShell}>
-                                <TextInput
-                                  value={currentTypedText}
-                                  onChangeText={setCurrentTypedText}
-                                  placeholder="Type a custom remark"
-                                  placeholderTextColor="rgba(0,0,0,0.42)"
-                                  style={s.remarkInput}
-                                  multiline={false}
-                                  returnKeyType="done"
-                                  onSubmitEditing={handleAddTypedTag}
-                                />
-                                <TouchableOpacity
-                                  style={s.remarkDropdownIconBtn}
-                                  activeOpacity={0.8}
-                                  onPress={() => setIsViewingPresets(true)}
-                                >
-                                  <Ionicons
-                                    name="chevron-down"
-                                    size={18}
-                                    color="#0062AA"
-                                  />
-                                </TouchableOpacity>
-                              </View>
-                              <TouchableOpacity
-                                style={s.addTagBtn}
-                                activeOpacity={0.9}
-                                onPress={handleAddTypedTag}
-                              >
-                                <Text style={s.addTagBtnText}>+ ADD TAG</Text>
-                              </TouchableOpacity>
-                            </View>
-                          </View>
                         </View>
                       </ScrollView>
+
+                      {/* Input row - always visible, never scrolls away */}
+                      <View style={s.remarkSectionWrap}>
+                        <View style={s.remarkInputRow}>
+                          <View style={s.remarkInputShell}>
+                            <TextInput
+                              value={currentTypedText}
+                              onChangeText={setCurrentTypedText}
+                              placeholder="Type a custom remark"
+                              placeholderTextColor="rgba(0,0,0,0.42)"
+                              style={s.remarkInput}
+                              multiline={false}
+                              returnKeyType="done"
+                              onSubmitEditing={handleAddTypedTag}
+                            />
+                            <TouchableOpacity
+                              style={s.remarkDropdownIconBtn}
+                              activeOpacity={0.8}
+                              onPress={() => setIsViewingPresets(true)}
+                            >
+                              <Ionicons
+                                name="chevron-down"
+                                size={18}
+                                color="#0062AA"
+                              />
+                            </TouchableOpacity>
+                          </View>
+                          <TouchableOpacity
+                            style={s.addTagBtn}
+                            activeOpacity={0.9}
+                            onPress={handleAddTypedTag}
+                          >
+                            <Text style={s.addTagBtnText}>+ ADD TAG</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+
 
                       <TouchableOpacity
                         style={s.saveBtn}
@@ -1445,7 +1567,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
   const scale      = (size: number): number => (width / BASE_WIDTH) * size;
 
   const hPad               = isTablet ? 24  : isSmall ? 12  : 16;
-  const headerH            = isTablet ? 250 : isSmall ? 65  : 200;
+  const headerH            = isTablet ? 170 : isSmall ? 130 : 150;
   const contentBottomPad   = isTablet ? 180 : isSmall ? 120 : 140;
   const cartPanelBottomPad = isTablet ? 28  : isSmall ? 20  : 24;
   const gridGap            = isTablet ? 16  : isSmall ? 10  : 12;
@@ -1583,92 +1705,106 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         borderTopColor: '#FFF',
       },
 
-      // ── Search bar ────────────────────────────────────────────────────────
-      searchWrap: {
-        marginTop: scale(searchMt),
-      },
-      searchInputRow: {
+      // ── Search icon + tabs row (inside header) ───────────────────────────
+      searchTabsRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        position: 'relative',
+        marginTop: scale(isSmall ? 10 : 14),
+        gap: scale(8),
       },
-      searchInput: {
-        width: '100%',
-        height: scale(searchH),
-        borderRadius: scale(searchBr),
-        backgroundColor: 'rgba(255,255,255,0.16)',
-        color: '#FFF',
-        paddingHorizontal: scale(searchPadH),
-        paddingRight: scale(searchPadH + 28),  // ← room for the clear button
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.28)',
-        fontSize: scale(searchFs),
-      },
-      searchClearBtn: {
-        position: 'absolute',
-        right: scale(searchPadH),
-        height: scale(searchH),
-        justifyContent: 'center',
+      searchIconBtn: {
+        width: scale(isSmall ? 34 : 38),
+        height: scale(isSmall ? 34 : 38),
+        borderRadius: scale(19),
+        backgroundColor: 'rgba(255,255,255,0.18)',
         alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        marginRight: hPad,
       },
-
-      // ── Tabs ─────────────────────────────────────────────────────────────
-      fixedTabsArea: {
-        backgroundColor: '#FFF',
-        borderBottomWidth: 1,
-        borderBottomColor: '#E2E8F0',
-        paddingHorizontal: scale(hPad),
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 3,
+      tabsInHeaderScroll: {
+        flex: 1,
       },
-      scrollContainer: {
-        backgroundColor: '#FFF',
-        paddingVertical: scale(12),
-      },
-      horizontalTabsRow: {
+      tabsInHeaderContent: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: scale(8),
       },
-      scrollTab: {
+      headerTab: {
         minHeight: scale(scrollTabMinH),
         paddingHorizontal: scale(scrollTabPadH),
         paddingVertical: scale(scrollTabPadV),
         borderRadius: scale(scrollTabBr),
-        backgroundColor: '#F8FAFC',
-        borderWidth: 1,
-        borderColor: '#CBD5E1',
+        borderWidth: 1.5,
+        borderColor: 'rgba(255,255,255,0.35)',
+        backgroundColor: 'transparent',
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 2,
-        elevation: 1,
       },
-      scrollTabActive: {
-        backgroundColor: '#002748',
-        borderColor: '#002748',
-        shadowOpacity: 0.12,
-        elevation: 3,
+      headerTabActive: {
+        backgroundColor: '#FFF',
+        borderColor: '#FFF',
       },
-      scrollTabLabel: {
+      headerTabLabel: {
         fontSize: scale(13),
         fontWeight: '700',
-        color: '#64748B',
+        color: 'rgba(255,255,255,0.75)',
         textAlign: 'center',
       },
-      scrollTabLabelActive: {
+      headerTabLabelActive: {
+        color: '#002748',
+      },
+      searchExpandWrap: {
+        flex: 1,
+        overflow: 'hidden',
+      },
+      searchExpandInner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255,255,255,0.16)',
+        borderRadius: scale(searchBr),
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.28)',
+        height: scale(searchH),
+        paddingHorizontal: scale(searchPadH),
+      },
+      searchExpandInput: {
+        flex: 1,
         color: '#FFF',
+        fontSize: scale(searchFs),
+        paddingRight: scale(8),
+        height: '100%',
+      },
+      searchCloseBtn: {
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingLeft: scale(4),
+      },
+
+      // ── Section label inside header ───────────────────────────────────────
+      sectionLabelInHeader: {
+        marginTop: scale(isSmall ? 8 : 10),
+        paddingBottom: scale(isSmall ? 6 : 8),
+      },
+      sectionTitleInHeader: {
+        fontSize: scale(sectionFont),
+        fontWeight: '700',
+        color: 'rgba(255,255,255,0.75)',
+        letterSpacing: 0.4,
+      },
+
+      // ── Section label (kept for reference, unused) ────────────────────────
+      sectionLabelWrap: {
+        paddingHorizontal: scale(hPad),
+        paddingTop: scale(10),
+        paddingBottom: scale(2),
+        backgroundColor: '#F4F6F8',
       },
       sectionTitle: {
         fontSize: scale(sectionFont),
         fontWeight: '700',
         color: '#666',
-        marginBottom: scale(12),
+        marginBottom: scale(4),
       },
 
       modalOverlay: {
@@ -1921,6 +2057,21 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         fontWeight: '700',
       },
 
+      // "On bill: N" grey badge shown below item image when fromBilling=1
+      existingQtyBadge: {
+        backgroundColor: '#F1F5F9',
+        borderRadius: scale(5),
+        paddingHorizontal: scale(8),
+        paddingVertical: scale(2),
+        marginTop: scale(4),
+        alignSelf: 'center',
+      },
+      existingQtyText: {
+        fontSize: scale(10),
+        color: '#64748B',
+        fontWeight: '600',
+      },
+
       goToCartPanel: {
         position: 'absolute',
         left: 0,
@@ -1980,7 +2131,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingHorizontal: scale(20),
       },
       centerDetailsCard: {
-        width: scale(centerCardW),
+        width: '100%',
         maxWidth: scale(centerCardW),
         height: scale(centerCardH),
         backgroundColor: '#FFF',

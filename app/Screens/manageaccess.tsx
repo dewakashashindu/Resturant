@@ -157,8 +157,10 @@ export default function ManageAccessScreen() {
 
   useEffect(() => {
     if (workers.length === 0 || tableGroups.length === 0) return;
+    // Normalize key: trim whitespace + lowercase so "Ground Floor " === "ground floor"
+    const normalizeKey = (s: string) => String(s ?? '').trim().toLowerCase();
     const nameToId = new Map<string, number | string>();
-    tableGroups.forEach((g) => nameToId.set(g.GroupName, g.GroupId));
+    tableGroups.forEach((g) => nameToId.set(normalizeKey(g.GroupName), g.GroupId));
     const initialMap: Record<string, (number | string)[]> = {};
     workers.forEach((w) => {
       if (!w.assignedFloors) return;
@@ -169,7 +171,7 @@ export default function ManageAccessScreen() {
           : JSON.parse(w.assignedFloors);
       } catch { names = []; }
       const ids = names
-        .map((name) => nameToId.get(name))
+        .map((name) => nameToId.get(normalizeKey(name)))
         .filter((id): id is number | string => id !== undefined);
       initialMap[String(w.UserId)] = ids;
     });

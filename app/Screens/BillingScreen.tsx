@@ -42,7 +42,7 @@ const VOID_REMARK_PRESETS = [
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function BillingScreen() {
   const router = useRouter();
-  const { tableName, tableNo, localPax, foreignPax, floor, invoiceNo: routeInvoiceNo } =
+  const { tableName, tableNo, localPax, foreignPax, floor, invoiceNo: routeInvoiceNo, fromCart } =
     useLocalSearchParams<{
       tableName?: string;
       tableNo?: string;
@@ -51,6 +51,7 @@ export default function BillingScreen() {
       floor?: string;
       invoiceNo?: string;
       fromBilling?: string;
+      fromCart?: string;   // '1' when navigating back from cart after "Add More" confirm
     }>();
 
   const { width, height } = useWindowDimensions();
@@ -378,16 +379,22 @@ export default function BillingScreen() {
     resetVoidState();
   }, [cartItems, clearPendingChanges, lastConfirmedOrder, resetVoidState, setCartItemsInStore]);
 
-  const adjustPendingAddition = (menuItemCode: string, delta: number) => {
-    setPendingAdditions((current) => {
-      const next = { ...current };
-      const nextValue = Math.max(0, (next[menuItemCode] ?? 0) + delta);
-      if (nextValue > 0) next[menuItemCode] = nextValue;
-      else delete next[menuItemCode];
-      return next;
-    });
-  };
 
+const adjustPendingAddition = (menuItemCode: string, delta: number) => {
+  
+  if (!menuItemCode || menuItemCode === 'undefined' || menuItemCode === 'null') {
+    console.warn('[BillingScreen] Prevented pending addition for an invalid/undefined item code.');
+    return;
+  }
+
+  setPendingAdditions((current) => {
+    const next = { ...current };
+    const nextValue = Math.max(0, (next[menuItemCode] ?? 0) + delta);
+    if (nextValue > 0) next[menuItemCode] = nextValue;
+    else delete next[menuItemCode];
+    return next;
+  });
+};
   const handleNewOrder = useCallback(() => {
     // DB-driven flow: no MMKV hold needed. Just clear local state and go back
     // so the user can start a fresh order. The DB still holds the current bill.
@@ -545,55 +552,91 @@ export default function BillingScreen() {
       void (async () => {
         try {
           const voidCandidates = displayedItems.filter((item: any) => {
-            return (Number(item.quantity ?? 0) || 0) < getBaselineQuantity(item.menuItemCode);
+            return (Number(item.quantity ?? 0) || 0) < getBaselineQuantity(item.menuItemCode || item.ItemCode || item.itemCode);
           });
+
           const voidCandidateMissingMeta = voidCandidates.some((candidate: any) => {
-            const itemMeta = voidMetadata[candidate.menuItemCode] || { remark: '', manager: '' };
+            const itemCode = candidate.menuItemCode || candidate.ItemCode || candidate.itemCode;
+            const itemMeta = voidMetadata[itemCode] || { remark: '', manager: '' };
             return !String(itemMeta.remark).trim() || !String(itemMeta.manager).trim();
           });
+
           if (voidCandidateMissingMeta) {
             Alert.alert('Validation Error', 'Void Remark and Manager Approval are required');
             return;
           }
-          const pendingEntries = Object.entries(pendingAdditions).filter(([, qty]) => qty > 0);
+
+          
+          const pendingEntries = Object.entries(pendingAdditions).filter(
+  ([code, qty]) => qty > 0 && code && code !== 'undefined' && code !== 'null'
+);
+
           if (pendingEntries.length === 0 && voidCandidates.length === 0) {
             clearPendingChanges();
             Alert.alert('Confirmed', 'No pending changes to save.');
             return;
           }
+
           const tNo = lastConfirmedOrder?.tableNo ?? String(tableName ?? '').trim();
           const tableGrpId = lastConfirmedOrder?.tableGrpId ?? '';
           const lPax = Number(lastConfirmedOrder?.lPax ?? Number(localPax ?? dbLPax ?? 0));
           const fPax = Number(lastConfirmedOrder?.fPax ?? Number(foreignPax ?? dbFPax ?? 0));
           const userId = lastConfirmedOrder?.userId ?? 'SYSTEM';
           const addBillingItem = apiClient.addBillingItem;
+
           if (typeof addBillingItem !== 'function') throw new Error('Billing sync API is unavailable.');
+
+          
           const requests = pendingEntries.map(([menuItemCode, qty]) => {
-            const currentItem = displayedItems.find((item: any) => item.menuItemCode === menuItemCode);
-            if (!currentItem) throw new Error(`Missing item details for ${menuItemCode}`);
-            return addBillingItem({
-              tableNo: tNo, itemCode: menuItemCode, qty,
-              salesPrice: Number(currentItem.salesPrice ?? 0) || 0,
-              itemRemarks: currentItem.itemRemarks ?? '',
-              userId, tableGrpId, lPax, fPax,
-              mgrId: String(voidMetadata[menuItemCode]?.manager ?? managerName).trim(),
-            });
-          });
+  const currentItem = displayedItems.find((item: any) => 
+    item.menuItemCode === menuItemCode || 
+    item.ItemCode === menuItemCode || 
+    item.itemCode === menuItemCode
+  );
+
+  if (!currentItem) {
+    console.error(`[BillingScreen] Missing details for: ${menuItemCode}`);
+    return Promise.resolve({ ok: true, data: {} } as any); 
+  }
+  
+  return addBillingItem({
+    tableNo: tNo, 
+    itemCode: menuItemCode, 
+    qty,
+    salesPrice: Number(currentItem.salesPrice ?? 0) || 0,
+    itemRemarks: currentItem.itemRemarks ?? '',
+    userId, 
+    tableGrpId, 
+    
+    orderType: (lastConfirmedOrder as any)?.orderType || 'DI', 
+    lPax, 
+    fPax,
+    mgrId: String(voidMetadata[menuItemCode]?.manager ?? managerName).trim(),
+  } as any); 
+});
           const voidRequests = voidCandidates.map((item: any) => {
-            const baselineQty = getBaselineQuantity(item.menuItemCode);
-            const currentQty = Number(item.quantity ?? 0) || 0;
-            const qtyDifference = Math.max(0, baselineQty - currentQty);
-            const itemMeta = voidMetadata[item.menuItemCode] || { remark: '', manager: '' };
-            if (qtyDifference <= 0) return Promise.resolve({ ok: true, data: {} });
-            return apiClient.removeBillingItem({
-              tableNo: tNo, itemCode: item.menuItemCode, qtyDifference,
-              salesPrice: Number(item.salesPrice ?? 0) || 0,
-              itemRemarks: '',
-              voidRemark: String(itemMeta.remark).trim(),
-              userId, tableGrpId, lPax, fPax,
-              mgrId: String(itemMeta.manager).trim(),
-            });
-          });
+  const baselineQty = getBaselineQuantity(item.menuItemCode);
+  const currentQty = Number(item.quantity ?? 0) || 0;
+  const qtyDifference = Math.max(0, baselineQty - currentQty);
+  const itemMeta = voidMetadata[item.menuItemCode] || { remark: '', manager: '' };
+  if (qtyDifference <= 0) return Promise.resolve({ ok: true, data: {} });
+  
+  return apiClient.removeBillingItem({
+    tableNo: tNo, 
+    itemCode: item.menuItemCode, 
+    qtyDifference,
+    salesPrice: Number(item.salesPrice ?? 0) || 0,
+    itemRemarks: '',
+    voidRemark: String(itemMeta.remark).trim(),
+    userId, 
+    tableGrpId, 
+   
+    orderType: (lastConfirmedOrder as any)?.orderType || 'DI', 
+    lPax, 
+    fPax,
+    mgrId: String(itemMeta.manager).trim(),
+  } as any); 
+});
           const results = await Promise.all([...requests, ...voidRequests]);
           const failed = results.find((result) => !result.ok);
           if (failed) {
@@ -618,34 +661,43 @@ export default function BillingScreen() {
       })();
       return;
     }
-    (async () => {
-      try {
-        if (hasQuantityChangesFromBaseline()) rollbackAllToBaseline();
-        const tNo = lastConfirmedOrder?.tableNo ?? String(tableName ?? '').trim();
-        let result: any = { ok: true, data: {} };
-        if (typeof (apiClient as any).finalizeBill === 'function') {
-          result = await (apiClient as any).finalizeBill({ tableNo: tNo });
-        } else if (typeof (apiClient as any).printBill === 'function') {
-          result = await (apiClient as any).printBill({ tableNo: tNo });
-        }
-        if (!result.ok) {
-          const serverMsg = result.data && (result.data.message || JSON.stringify(result.data));
-          throw new Error(serverMsg || 'Failed to finalize/print bill');
-        }
-        if (dbInvoiceNo) {
-          const payResult = await apiClient.payBill({
-            invoiceNo: dbInvoiceNo,
-            tableNo: String(lastConfirmedOrder?.tableNo ?? tableName ?? tableNo ?? '').trim() || undefined,
-          });
-          if (!payResult.ok) console.log('[BillingScreen] payBill failed', payResult.error);
-        }
-        useOrderStore.getState().clearLastConfirmedOrder();
-        Alert.alert('Done', 'Payment completed and cart cleared.');
-        router.push('/');
-      } catch (error) {
-        Alert.alert('Finalize failed', error instanceof Error ? error.message : 'Failed to finalize/print bill');
-      }
-    })();
+   (async () => {
+  try {
+    if (hasQuantityChangesFromBaseline()) rollbackAllToBaseline();
+    const tNo = lastConfirmedOrder?.tableNo ?? String(tableName ?? '').trim();
+    let result: any = { ok: true, data: {} };
+    
+    if (typeof (apiClient as any).finalizeBill === 'function') {
+      result = await (apiClient as any).finalizeBill({ tableNo: tNo });
+    } else if (typeof (apiClient as any).printBill === 'function') {
+      result = await (apiClient as any).printBill({ tableNo: tNo });
+    }
+    
+    if (!result.ok) {
+      const serverMsg = result.data && (result.data.message || JSON.stringify(result.data));
+      throw new Error(serverMsg || 'Failed to finalize/print bill');
+    }
+    
+    if (dbInvoiceNo) {
+      
+      const payResult = await apiClient.payBill({
+        invoiceNo: dbInvoiceNo,
+        tableNo: String(lastConfirmedOrder?.tableNo ?? tableName ?? tableNo ?? '').trim() || undefined,
+        
+        orderType: (lastConfirmedOrder as any)?.orderType || 'DI',
+        tableGrpId: lastConfirmedOrder?.tableGrpId || '',
+      } as any); 
+      
+      if (!payResult.ok) console.log('[BillingScreen] payBill failed', payResult.error);
+    }
+    
+    useOrderStore.getState().clearLastConfirmedOrder();
+    Alert.alert('Done', 'Payment completed and cart cleared.');
+    router.push('/');
+  } catch (error) {
+    Alert.alert('Finalize failed', error instanceof Error ? error.message : 'Failed to finalize/print bill');
+  }
+})();
   };
 
   // ── Effects ────────────────────────────────────────────────────────────────
@@ -668,32 +720,54 @@ export default function BillingScreen() {
     };
   }, []);
 
-  useEffect(() => {
-    const targetTableNo  = String(tableName ?? tableNo ?? '').trim();
-    const targetInvoiceNo = String(routeInvoiceNo ?? '').trim() || undefined;
-    // Always fetch from DB when arriving via the bill list.
-    // Do NOT skip because cartItems is non-empty — the previous bill's items
-    // may still be in the cart (Zustand in-memory), so clear first then fetch.
-    if (!targetTableNo || lastConfirmedOrder) return;
-    let isMounted = true;
-    setIsLoadingBillFromDb(true);
-    setCartItemsInStore([]);   // clear stale items immediately
-    void (async () => {
-      try {
-        const response = await apiClient.getActiveBillItems(targetTableNo, targetInvoiceNo);
-        if (!isMounted || !response.ok || !response.data?.data) return;
-        const data = response.data.data;
-        setCartItemsInStore(Array.isArray(data.items) ? data.items : []);
-        setDbInvoiceNo(targetInvoiceNo ?? data.invoiceNo ?? null);
-        setDbLPax(typeof data.lPax === 'number' ? data.lPax : null);
-        setDbFPax(typeof data.fPax === 'number' ? data.fPax : null);
-      } catch { /* Non-fatal */ } finally {
-        if (isMounted) setIsLoadingBillFromDb(false);
-      }
-    })();
-    return () => { isMounted = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableName, tableNo, routeInvoiceNo]);
+ useEffect(() => {
+  const targetTableNo = String(tableName ?? tableNo ?? '').trim();
+  const targetInvoiceNo = String(routeInvoiceNo ?? '').trim() || undefined;
+  const returningFromCart = fromCart === '1';
+
+  // 1. මුලික පරීක්ෂාවන්
+  if (!targetTableNo) return;
+
+  // 2. දැනටමත් memory එකේ දත්ත තිබේ නම් සහ "Add More" නැතිනම් fetch කිරීම නවත්වන්න
+  if (!returningFromCart && lastConfirmedOrder && String(lastConfirmedOrder.tableNo ?? '').trim() === targetTableNo) {
+    return;
+  }
+
+  let isMounted = true;
+
+  // 3. Billing screen එකට ඇතුල් වන විට stale state වහාම ඉවත් කිරීම
+  if (returningFromCart) {
+    useOrderStore.getState().clearLastConfirmedOrder();
+  }
+  
+  setIsLoadingBillFromDb(true);
+  setCartItemsInStore([]); // පැරණි දත්ත ඉවත් කිරීම
+
+  // 4. Async දත්ත ලබා ගැනීම (Nested useEffect භාවිතා නොකර අලුත් async function එකක් සාදා කෝල් කරන්න)
+  const fetchBillData = async () => {
+    try {
+      const response = await apiClient.getActiveBillItems(targetTableNo, targetInvoiceNo);
+      
+      if (!isMounted || !response.ok || !response.data?.data) return;
+
+      const data = response.data.data;
+      setCartItemsInStore(Array.isArray(data.items) ? data.items : []);
+      setDbInvoiceNo(targetInvoiceNo ?? data.invoiceNo ?? null);
+      setDbLPax(typeof data.lPax === 'number' ? data.lPax : null);
+      setDbFPax(typeof data.fPax === 'number' ? data.fPax : null);
+    } catch (error) {
+      console.error('[BillingScreen] Error fetching bill:', error);
+    } finally {
+      if (isMounted) setIsLoadingBillFromDb(false);
+    }
+  };
+
+  fetchBillData(); // 🌟 මෙලෙස කෝල් කිරීමෙන් Argument Error එක විසඳේ
+
+  return () => { 
+    isMounted = false; 
+  };
+}, [tableName, tableNo, routeInvoiceNo, fromCart]); // eslint-disable-next-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!activeTableNo) { originalQuantitiesRef.current = {}; originalTableNoRef.current = ''; return; }

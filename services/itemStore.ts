@@ -133,49 +133,57 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
   syncError: null,
 
   hydrateItems: async () => {
+    // ── Decision table ─────────────────────────────────────────────────────
+    // Login flow (login.tsx) already calls prefetchMenuBootstrapData() and
+    // AWAITS it before navigating to tabs.  So by the time any tab mounts
+    // and calls hydrateItems(), the MMKV cache is already populated for
+    // today.  We therefore only need a fresh pull here when:
+    //   (a) The calendar day has rolled over since the last sync, OR
+    //   (b) There is no cache at all (very first ever launch, cleared storage)
+    // The FRESH_LOGIN_FLAG is cleared by login.tsx after the prefetch, so
+    // we no longer rely on it here — avoids the old race-condition where the
+    // flag was still '1' when hydrateItems ran concurrently with the prefetch.
     try {
       const snapshot = readSnapshot(storage.getString(ITEM_CACHE_KEY));
       const storedSyncDate = readStoredSyncDate();
       const todayDate = getTodayDate();
 
-      // Fresh login flag — set by authStore.setSession() on every login
-      const isFreshLogin = storage.getString(FRESH_LOGIN_FLAG_KEY) === '1';
+      // Always clear the flag here so a crash in the login prefetch doesn't
+      // cause an infinite re-sync loop.
+      storage.set(FRESH_LOGIN_FLAG_KEY, '0');
 
-      const needsFullRefresh = storedSyncDate !== todayDate || isFreshLogin;
+      const cacheEmpty = snapshot.items.length === 0;
+      const dateStale  = storedSyncDate !== todayDate;
 
-      if (needsFullRefresh) {
-        console.log('[ItemStore] hydrateItems: full refresh needed', {
-          reason: isFreshLogin ? 'fresh_login' : 'stale_date',
+      if (cacheEmpty || dateStale) {
+        console.log('[ItemStore] hydrateItems: fetching from API', {
+          reason: cacheEmpty ? 'empty_cache' : 'new_day',
           storedSyncDate,
           todayDate,
         });
 
-        // Clear the flag before the API call so a crash doesn't loop forever
-        storage.set(FRESH_LOGIN_FLAG_KEY, '0');
-
         const refreshed = await get().prefetchMenuBootstrapData();
         if (!refreshed) {
-          // API unreachable — fall back to stale cache so app still works
+          // Server unreachable — use whatever stale cache exists so the app
+          // remains usable offline.
+          console.log('[ItemStore] hydrateItems: API failed, using stale cache');
           set({ items: snapshot.items, lastSyncTime: snapshot.lastSyncTime, isHydrated: true });
           return;
         }
 
-        const refreshedSnapshot = readSnapshot(storage.getString(ITEM_CACHE_KEY));
-        set({
-          items: refreshedSnapshot.items,
-          lastSyncTime: refreshedSnapshot.lastSyncTime,
-          isHydrated: true,
-        });
+        // prefetchMenuBootstrapData already called set() — just mark hydrated.
+        set((s) => ({ ...s, isHydrated: true }));
         return;
       }
 
-      // Cache is fresh for today and no new login — load from MMKV, no API call
-      console.log('[ItemStore] hydrateItems: cache is fresh', {
+      // Cache is fresh for today — load from MMKV, zero API calls.
+      console.log('[ItemStore] hydrateItems: cache hit', {
         lastSyncTime: snapshot.lastSyncTime,
-        cachedItems: snapshot.items.length,
+        itemCount: snapshot.items.length,
       });
       set({ items: snapshot.items, lastSyncTime: snapshot.lastSyncTime, isHydrated: true });
     } catch (err) {
+      console.log('[ItemStore] hydrateItems: unexpected error', err);
       set({ items: [], lastSyncTime: null, isHydrated: true });
     }
   },

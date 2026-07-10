@@ -46,6 +46,7 @@ const dbConfig = {
     encrypt: false,
     trustServerCertificate: true,
     enableArithAbort: true,
+    requestTimeout: 60000,
   },
   pool: {
     max: 10,
@@ -145,19 +146,19 @@ app.post('/api/auth/login', async (req, res) => {
 
   
     const floorResult = await pool.request()
-      .input('UserId', sql.VarChar, String(user.UserId))
+      .input('UserId', sql.VarChar, String(user.UserId).trim())
       .query(`
-        SELECT g.GroupName
+        SELECT DISTINCT RTRIM(LTRIM(a.FloorName)) AS GroupName
         FROM Tbl_TableGroupAccess a
-        INNER JOIN Tbl_TableGroup g ON g.GroupId = a.TableGroupId
-        WHERE a.UserId = @UserId
+        WHERE RTRIM(LTRIM(CAST(a.UserId AS NVARCHAR(50)))) = RTRIM(LTRIM(@UserId))
+          AND a.FloorName IS NOT NULL AND LTRIM(RTRIM(a.FloorName)) != ''
       `);
 
     const assignedFloors = floorResult.recordset.map(row => row.GroupName);
     
    
     const token = jwt.sign(
-      { userId: user.UserId, username: user.LoginName, groupId: user.GroupId, assignedFloors },
+      { userId: user.UserId, username: user.LoginName, userName: user.UserName || user.LoginName, groupId: user.GroupId, assignedFloors },
       JWT_SECRET_KEY || 'YOUR_SECRET_KEY',
       { expiresIn: '7d' }
     );
@@ -955,21 +956,29 @@ const pickNumber = (value, fallback = 0) => {
 };
 
 const getBearerUserId = (req, fallbackUserId = 'SYSTEM') => {
+  return getBearerUserInfo(req, fallbackUserId).userId;
+};
+
+// Returns { userId, loginName } from JWT token.
+// userId    = UserId PK (e.g. U001)  → goes into UserID column in HoldUps tables
+// loginName = LoginName (e.g. john)  → goes into UserName column in HoldUpsCloudTemp
+const getBearerUserInfo = (req, fallbackUserId = 'SYSTEM') => {
   const fallback = pickString(fallbackUserId, 50) || 'SYSTEM';
   try {
     const authHeader = (req.get && req.get('authorization')) || req.headers.authorization || '';
     if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
       const token = authHeader.slice(7).trim();
-      
       const decoded = jwt.verify(token, JWT_SECRET_KEY);
-      if (decoded && typeof decoded === 'object' && decoded.userId) {
-        return pickString(decoded.userId, 50) || fallback;
+      if (decoded && typeof decoded === 'object') {
+        const userId    = pickString(decoded.userId,   50) || fallback;
+        const loginName = pickString(decoded.username, 50) || userId;
+        return { userId, loginName };
       }
     }
   } catch (error) {
     console.warn('Bearer token verification failed:', error && error.message ? error.message : error);
   }
-  return fallback;
+  return { userId: fallback, loginName: fallback };
 };
 
 const getSqlErrorNumber = (error) => {
@@ -1041,7 +1050,7 @@ const confirmCartHandler = async (req, res) => {
     const orderTypeVal = pickString(body.orderType ?? body.OrderType ?? '', 10) || 'DI';
     let tableNo = pickString(body.tableNo ?? body.TableNo ?? body.TabelNo ?? body.tableName ?? body.TableName, 50);
     const tableGrpId = pickString(body.tableGrpId ?? body.TableGrpId ?? body.TableGrpID ?? body.TabelGrpID ?? body.tableGroupId, 50);
-    const userId = getBearerUserId(req, body.userId ?? body.UserID ?? 'SYSTEM');
+    const { userId, loginName: userFullName } = getBearerUserInfo(req, body.userId ?? body.UserID ?? 'SYSTEM');
     const lPax = pickNumber(body.lPax ?? body.LPax ?? 0, 0);
     const fPax = pickNumber(body.fPax ?? body.FPax ?? 0, 0);
 
@@ -1153,11 +1162,11 @@ const confirmCartHandler = async (req, res) => {
           updateReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId);
           updateReq.input('LPax', sql.Float, lPax);
           updateReq.input('FPax', sql.Float, fPax);
-          updateReq.input('OderType', sql.VarChar(5), orderTypeVal); 
+          updateReq.input('OrderType', sql.VarChar(5), orderTypeVal);
 
           await updateReq.query(`
             UPDATE dbo.Tbl_HoldUpsCloud
-            SET QTY = @QTY, SalesPrice = @SalesPrice, ItemRemarks = @ItemRemarks, UserID = @UserID, TabelGrpID = @TabelGrpID, LPax = @LPax, FPax = @FPax, OderType = @OderType, InvoiceNo = @InvoiceNo, TxnDateTime = ${SQL_SRI_LANKA_NOW}
+            SET QTY = @QTY, SalesPrice = @SalesPrice, ItemRemarks = @ItemRemarks, UserID = @UserID, TabelGrpID = @TabelGrpID, LPax = @LPax, FPax = @FPax, OrderType = @OrderType, InvoiceNo = @InvoiceNo, TxnDateTime = ${SQL_SRI_LANKA_NOW}
             WHERE TabelNo = @TabelNo AND InvoiceNo = @InvoiceNo AND ItemCode = @ItemCode
           `);
         } else {
@@ -1171,13 +1180,13 @@ const confirmCartHandler = async (req, res) => {
           insertReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId);
           insertReq.input('LPax', sql.Float, lPax);
           insertReq.input('FPax', sql.Float, fPax);
-          insertReq.input('OderType', sql.VarChar(5), orderTypeVal); 
-          insertReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo); 
+          insertReq.input('OrderType', sql.VarChar(5), orderTypeVal);
+          insertReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
           insertReq.input('IsPaid', sql.Bit, 0);
 
           await insertReq.query(`
-            INSERT INTO dbo.Tbl_HoldUpsCloud (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, OderType, InvoiceNo, IsPaid, TxnDateTime) 
-            VALUES (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, @OderType, @InvoiceNo, @IsPaid, ${SQL_SRI_LANKA_NOW})
+            INSERT INTO dbo.Tbl_HoldUpsCloud (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, OrderType, InvoiceNo, IsPaid, TxnDateTime) 
+            VALUES (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, @OrderType, @InvoiceNo, @IsPaid, ${SQL_SRI_LANKA_NOW})
           `);
         }
 
@@ -1195,19 +1204,20 @@ const confirmCartHandler = async (req, res) => {
           tempReq.input('LPax', sql.Float, lPax);
           tempReq.input('FPax', sql.Float, fPax);
           tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
-          tempReq.input('OderType', sql.VarChar(5), orderTypeVal); 
+          tempReq.input('OrderType', sql.VarChar(5), orderTypeVal);
+          tempReq.input('UserName', sql.VarChar(50), userFullName);
 
           await tempReq.query(`
-            INSERT INTO dbo.Tbl_HoldUpsCloudTemp (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, MgrID, OderType, AoR)
-            VALUES (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, '0', @OderType, 'A')
+            INSERT INTO dbo.Tbl_HoldUpsCloudTemp (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, MgrID, OrderType, AoR, UserName)
+            VALUES (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, '0', @OrderType, 'A', @UserName)
           `);
         }
       }
 
-      if (orderTypeVal !== 'TA' && tableNo) {
-        await setTableVaccantState(transaction, tableNo, 'N');
-      }
-
+    const isTakeAwayTable = tableNo && tableNo.toString().toUpperCase().startsWith('TA');
+if (orderTypeVal !== 'TA' && tableNo && !isTakeAwayTable && tableNo !== 'TA-PENDING') {
+  await setTableVaccantState(transaction, tableNo, 'N');
+}
       await transaction.commit();
       return res.status(200).json({
         ok: true,
@@ -1227,8 +1237,12 @@ const billingAddItemHandler = async (req, res) => {
   try {
     const body = req.body || {};
     const tableNo = pickString(body.tableNo ?? body.TableNo ?? body.TabelNo, 50);
-    const userId = getBearerUserId(req, body.userId ?? body.UserID ?? 'SYSTEM');
-    const tableGrpId = pickString(body.tableGrpId ?? body.TableGrpID ?? body.TabelGrpID ?? '', 50);
+    const { userId, loginName: userFullName } = getBearerUserInfo(req, body.userId ?? body.UserID ?? 'SYSTEM');
+    
+    
+    const orderTypeVal = pickString(body.orderType ?? body.OrderType ?? '', 10) || 'DI';
+    
+    let tableGrpId = pickString(body.tableGrpId ?? body.TableGrpID ?? body.TabelGrpID ?? '', 50);
     const lPax = pickNumber(body.lPax ?? body.LPax ?? 0, 0);
     const fPax = pickNumber(body.fPax ?? body.FPax ?? 0, 0);
     const mgrId = pickString(body.mgrId ?? body.MgrID ?? '0', 50) || '0';
@@ -1253,6 +1267,21 @@ const billingAddItemHandler = async (req, res) => {
 
     try {
       await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
+      
+      if (orderTypeVal === 'TA') {
+        tableGrpId = " ";
+      } else if (!tableGrpId && tableNo) {
+        try {
+          const tblGrpReq = new sql.Request(transaction);
+          tblGrpReq.input('TableNo', sql.NVarChar(50), tableNo);
+          const tblGrpResult = await tblGrpReq.query('SELECT TableGroup FROM dbo.Tbl_Tables WHERE TableNo = @TableNo');
+          if (tblGrpResult.recordset.length > 0 && tblGrpResult.recordset[0].TableGroup != null) {
+            tableGrpId = pickString(tblGrpResult.recordset[0].TableGroup, 50);
+          }
+        } catch (_) {}
+      }
+
       for (const item of normalizedItems) {
         try {
           const tempReq = new sql.Request(transaction);
@@ -1262,16 +1291,21 @@ const billingAddItemHandler = async (req, res) => {
           tempReq.input('QTY', sql.Float, item.QTY);
           tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
           tempReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
-          tempReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId || null);
+          
+         
+          tempReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId === " " ? " " : (tableGrpId || null));
+          
           tempReq.input('LPax', sql.Float, lPax);
           tempReq.input('FPax', sql.Float, fPax);
           tempReq.input('MgrID', sql.NVarChar(50), mgrId || '0');
+          tempReq.input('OrderType', sql.VarChar(5), orderTypeVal); // <-- OrderType එක Temp ටේබල් එකට එකතු කළා
+          tempReq.input('UserName', sql.VarChar(50), userFullName);
 
           await tempReq.query(`
             INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-              (TabelNo, UserID, ItemCode, QTY, SalesPrice, ItemRemarks, TabelGrpID, LPax, FPax, AoR, TxnDateTime, MgrID)
+              (TabelNo, UserID, ItemCode, QTY, SalesPrice, ItemRemarks, TabelGrpID, LPax, FPax, AoR, TxnDateTime, MgrID, OrderType, UserName)
             VALUES
-              (@TabelNo, @UserID, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @TabelGrpID, @LPax, @FPax, 'A', ${SQL_SRI_LANKA_NOW}, @MgrID)
+              (@TabelNo, @UserID, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @TabelGrpID, @LPax, @FPax, 'A', ${SQL_SRI_LANKA_NOW}, @MgrID, @OrderType, @UserName)
           `);
 
           const lookupReq = new sql.Request(transaction);
@@ -1293,9 +1327,10 @@ const billingAddItemHandler = async (req, res) => {
             updateReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
             updateReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
             updateReq.input('UserID', sql.NVarChar(50), userId);
-            updateReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId);
+            updateReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId === " " ? " " : tableGrpId);
             updateReq.input('LPax', sql.Float, lPax);
             updateReq.input('FPax', sql.Float, fPax);
+            updateReq.input('OrderType', sql.VarChar(5), orderTypeVal); // <-- OrderType එක එකතු කළා
 
             await updateReq.query(`
               UPDATE dbo.Tbl_HoldUpsCloud
@@ -1310,6 +1345,7 @@ const billingAddItemHandler = async (req, res) => {
                   TabelGrpID = @TabelGrpID,
                   LPax = @LPax,
                   FPax = @FPax,
+                  OrderType = @OrderType, -- <-- Update එකට එකතු කළා
                   TxnDateTime = ${SQL_SRI_LANKA_NOW}
               WHERE TabelNo = @TabelNo
                 AND ItemCode = @ItemCode
@@ -1322,21 +1358,22 @@ const billingAddItemHandler = async (req, res) => {
             insertReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
             insertReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
             insertReq.input('UserID', sql.NVarChar(50), userId);
-            insertReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId);
+            insertReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId === " " ? " " : tableGrpId);
             insertReq.input('LPax', sql.Float, lPax);
             insertReq.input('FPax', sql.Float, fPax);
+            insertReq.input('OrderType', sql.VarChar(5), orderTypeVal); 
 
             await insertReq.query(`
               INSERT INTO dbo.Tbl_HoldUpsCloud
-                (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, TxnDateTime)
+                (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, OrderType, TxnDateTime)
               VALUES
-                (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, ${SQL_SRI_LANKA_NOW})
+                (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, @OrderType, ${SQL_SRI_LANKA_NOW})
             `);
           }
-        }  catch (err) {
-  console.error(`[DB ERROR] Failed to save item: ${item.ItemCode} -> Error:`, err.message);
-  throw err; 
-}
+        } catch (err) {
+          console.error(`[DB ERROR] Failed to save item: ${item.ItemCode} -> Error:`, err.message);
+          throw err; 
+        }
       }
 
       await transaction.commit();
@@ -1368,19 +1405,24 @@ const billingRemoveItemHandler = async (req, res) => {
     const LPax = body.LPax || body.lPax || 0;
     const FPax = body.FPax || body.fPax || 0;
     const SalesPrice = body.SalesPrice || body.salesPrice || 0;
+    
+   
+    const orderTypeVal = pickString(body.orderType ?? body.OrderType ?? '', 10) || 'DI';
 
     if (!TabelNo) return res.status(400).json({ success: false, message: 'TabelNo is required.' });
     if (!QTY || parseFloat(QTY) <= 0) return res.status(400).json({ success: false, message: 'QTY must be greater than zero.' });
     if (!ItemCode) return res.status(400).json({ success: false, message: 'ItemCode is required.' });
 
     const tableNoValue = pickString(TabelNo, 50);
-    const userIdValue = pickString(UserID ?? getBearerUserId(req, 'SYSTEM'), 50) || 'SYSTEM';
+    const { userId: _userId, loginName: userFullName } = getBearerUserInfo(req, 'SYSTEM');
+    const userIdValue = pickString(UserID ?? _userId, 50) || 'SYSTEM';
     const itemCodeValue = pickString(ItemCode, 50);
     const qtyValue = Math.abs(pickNumber(QTY, 0));
     const itemRemarksValue = pickString(ItemRemarks ?? '', 500);
     const voidRemarkValue = pickString(VoidRemark ?? '', 500);
     const mgrIdValue = pickString(MgrID ?? '', 50);
-    const tableGrpIdValue = pickString(TabelGrpID ?? '', 50);
+    
+    let tableGrpIdValue = pickString(TabelGrpID ?? '', 50);
     const lPaxValue = pickNumber(LPax, 0);
     const fPaxValue = pickNumber(FPax, 0);
     const salesPriceValue = pickNumber(SalesPrice, 0);
@@ -1390,6 +1432,20 @@ const billingRemoveItemHandler = async (req, res) => {
 
     try {
       await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
+     
+      if (orderTypeVal === 'TA') {
+        tableGrpIdValue = " ";
+      } else if (!tableGrpIdValue && tableNoValue) {
+        try {
+          const tblGrpReq = new sql.Request(transaction);
+          tblGrpReq.input('TableNo', sql.NVarChar(50), tableNoValue);
+          const tblGrpResult = await tblGrpReq.query('SELECT TableGroup FROM dbo.Tbl_Tables WHERE TableNo = @TableNo');
+          if (tblGrpResult.recordset.length > 0 && tblGrpResult.recordset[0].TableGroup != null) {
+            tableGrpIdValue = pickString(tblGrpResult.recordset[0].TableGroup, 50);
+          }
+        } catch (_) {}
+      }
 
       const checkReq = new sql.Request(transaction);
       checkReq.input('TabelNo', sql.NVarChar(50), tableNoValue);
@@ -1420,16 +1476,21 @@ const billingRemoveItemHandler = async (req, res) => {
       logReq.input('ItemRemarks', sql.NVarChar(500), itemRemarksValue);
       logReq.input('VoidRemark', sql.NVarChar(500), voidRemarkValue);
       logReq.input('MgrID', sql.NVarChar(50), mgrIdValue);
-      logReq.input('TabelGrpID', sql.NVarChar(50), tableGrpIdValue);
+      
+     
+      logReq.input('TabelGrpID', sql.NVarChar(50), tableGrpIdValue === " " ? " " : (tableGrpIdValue || null));
+      
       logReq.input('LPax', sql.Float, lPaxValue);
       logReq.input('FPax', sql.Float, fPaxValue);
       logReq.input('SalesPrice', sql.Decimal(18, 2), salesPriceValue);
+      logReq.input('OrderType', sql.VarChar(5), orderTypeVal); 
+      logReq.input('UserName', sql.VarChar(50), userFullName);
 
       await logReq.query(`
         INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-          (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, LPax, FPax, SalesPrice, MgrID, TxnDateTime, AoR)
+          (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, LPax, FPax, SalesPrice, MgrID, TxnDateTime, AoR, OrderType, UserName)
         VALUES
-          (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, @LPax, @FPax, @SalesPrice, @MgrID, ${SQL_SRI_LANKA_NOW}, 'R')
+          (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, @LPax, @FPax, @SalesPrice, @MgrID, ${SQL_SRI_LANKA_NOW}, 'R', @OrderType, @UserName)
       `);
 
       const updReq = new sql.Request(transaction);
@@ -1865,9 +1926,11 @@ app.get('/api/auth/workers', async (req, res) => {
     `);
 
     const floorResult = await pool.request().query(`
-      SELECT a.UserId, g.GroupName
+      SELECT DISTINCT
+        RTRIM(LTRIM(CAST(a.UserId AS NVARCHAR(50)))) AS UserId,
+        RTRIM(LTRIM(a.FloorName)) AS GroupName
       FROM Tbl_TableGroupAccess a
-      INNER JOIN Tbl_TableGroup g ON g.GroupId = a.TableGroupId
+      WHERE a.FloorName IS NOT NULL AND LTRIM(RTRIM(a.FloorName)) != ''
     `);
 
     const floorsByUser = {};
@@ -2066,9 +2129,10 @@ app.post('/api/user-floor-access/save', async (req, res) => {
 
 // Device Check-in Endpoint
 app.post('/api/devices/check-in', async (req, res) => {
-  const { deviceId } = req.body;
+  const { deviceId, locCode } = req.body;
+  const resolvedLocCode = String(locCode || '1').trim();
 
-  console.log(`[Backend] Received device verification request for ID: ${deviceId}`);
+  console.log(`[Backend] Received device verification request for ID: ${deviceId}, locCode: ${resolvedLocCode}`);
 
   if (!deviceId) {
     return res.status(400).json({ allowed: false, message: "Device ID is required." });
@@ -2077,30 +2141,30 @@ app.post('/api/devices/check-in', async (req, res) => {
   try {
     const pool = await poolPromise;
 
-  
     const checkResult = await pool.request()
       .input('deviceId', sql.VarChar, deviceId)
-      .query('SELECT Warkstation, IsApproved FROM Tbl_Warkstation WHERE Warkstation = @deviceId');
+      .query('SELECT Warkstation, IsApproved, LocCode FROM Tbl_Warkstation WHERE Warkstation = @deviceId');
 
-    const rows = checkResult.recordset; 
+    const rows = checkResult.recordset;
 
     if (rows.length > 0) {
       const device = rows[0];
 
       if (device.IsApproved === 1 || device.IsApproved === true || device.IsApproved === '1') {
-        console.log(`[Backend] Device ${deviceId} is APPROVED.`);
-        return res.json({ allowed: true, status: "approved" });
+        const deviceLocCode = String(device.LocCode || resolvedLocCode || '1').trim();
+        console.log(`[Backend] Device ${deviceId} is APPROVED. LocCode: ${deviceLocCode}`);
+        return res.json({ allowed: true, status: "approved", locCode: deviceLocCode });
       } else {
         console.log(`[Backend] Device ${deviceId} is PENDING approval.`);
         return res.json({ allowed: false, status: "pending", deviceId: deviceId });
       }
     }
 
-  
-    console.log(`[Backend] First time device detected. Inserting default config for ID: ${deviceId}`);
-    
+    console.log(`[Backend] First time device detected. Inserting default config for ID: ${deviceId}, locCode: ${resolvedLocCode}`);
+
     await pool.request()
       .input('deviceId', sql.VarChar, deviceId)
+      .input('locCode', sql.VarChar, resolvedLocCode)
       .query(`
         INSERT INTO Tbl_Warkstation (
           Warkstation, LocCode, DirectPrinting, CrystalPrinting, PrinterPort, 
@@ -2115,7 +2179,7 @@ app.post('/api/devices/check-in', async (req, res) => {
           BAY2FONTSIZE, BAY3FONTSIZE, BAY4FONTSIZE, BAY5FONTSIZE, HeapFONTSIZE, 
           Bay5Printer, ProIncOrders, IsApproved
         ) VALUES (
-          @deviceId, '1', 0, 0, '0', 
+          @deviceId, @locCode, 0, 0, '0', 
           '0', '0', '0', 0, 0, 
           0, 0, 0, 0, 0, 
           0, 0, 0, 0, 0, 
@@ -2125,7 +2189,7 @@ app.post('/api/devices/check-in', async (req, res) => {
           0, 0, 0, 0, '0', 
           '0', '0', '0', '0', 0, 
           0, 0, 0, 0, 0, 
-          ' ', 0, 0 -- 
+          ' ', 0, 0
         )
       `);
 

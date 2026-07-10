@@ -303,9 +303,19 @@ const parseResponseBody = async (response: Response) => {
   }
 };
 
+const REQUEST_TIMEOUT_MS = 60_000; // 60 seconds
+
+const fetchWithTimeout = (url: string, init?: RequestInit): Promise<Response> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() =>
+    clearTimeout(timer)
+  );
+};
+
 const requestJson = async <T = any>(url: string, init?: RequestInit): Promise<ApiResponse<T>> => {
   try {
-    const response = await fetch(url, init);
+    const response = await fetchWithTimeout(url, init);
     const data = await parseResponseBody(response);
 
     if (!response.ok) {
@@ -328,7 +338,10 @@ const requestJson = async <T = any>(url: string, init?: RequestInit): Promise<Ap
       data,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const isTimeout = (error as any)?.name === 'AbortError';
+    const message = isTimeout
+      ? 'Unable to reach the server (Timeout). Please check your internet connection.'
+      : error instanceof Error ? error.message : String(error);
     return {
       success: false,
       ok: false,
@@ -406,13 +419,18 @@ const normalizeConfirmCartPayload = (payload: ConfirmCartPayloadInput): any => {
 const normalizeAddBillingPayload = (payload: AddBillingItemPayload | {
   tableNo?: string;
   userId?: number | string;
+  orderType?: string;    
+  OrderType?: string;    
+  tableGrpId?: string;   
+  TableGrpID?: string;   
+  TabelGrpID?: string;   
   itemCode?: string;
   ItemCode?: string;
   qty?: number;
   QTY?: number;
   salesPrice?: number;
   SalesPrice?: number;
-  items: Array<{ ItemCode?: string; itemCode?: string; QTY?: number; qty?: number; quantity?: number; SalesPrice?: number; salesPrice?: number }>;
+  items: Array<{ ItemCode?: string; itemCode?: string; QTY?: number; qty?: number; quantity?: number; SalesPrice?: number; salesPrice?: number; ItemRemarks?: string; itemRemarks?: string }>;
 }) => {
   const sourceItems = Array.isArray((payload as any).items)
     ? (payload as any).items
@@ -421,6 +439,11 @@ const normalizeAddBillingPayload = (payload: AddBillingItemPayload | {
   return {
     TabelNo: toString((payload as any).TabelNo ?? (payload as any).tableNo, '').trim(),
     UserID: toNumber((payload as any).UserID ?? (payload as any).userId, 0),
+    
+    
+    OrderType: toString((payload as any).OrderType ?? (payload as any).orderType ?? 'DI', '').trim(),
+    TabelGrpID: toString((payload as any).TabelGrpID ?? (payload as any).TableGrpID ?? (payload as any).tableGrpId ?? '', '').trim(),
+    
     items: sourceItems
       .map((item: any) => ({
         ItemCode: toString((item as any).ItemCode ?? (item as any).itemCode, '').trim(),
@@ -435,6 +458,11 @@ const normalizeAddBillingPayload = (payload: AddBillingItemPayload | {
 const normalizeRemoveBillingPayload = (payload: RemoveBillingItemPayload | {
   tableNo?: string;
   userId?: number | string;
+  orderType?: string;     
+  OrderType?: string;     
+  tableGrpId?: string;    
+  TableGrpID?: string;    
+  TabelGrpID?: string;    
   itemCode?: string;
   ItemCode?: string;
   qty?: number;
@@ -446,14 +474,22 @@ const normalizeRemoveBillingPayload = (payload: RemoveBillingItemPayload | {
   MgrID?: string;
   voidRemark?: string;
   VoidRemark?: string;
+  salesPrice?: number;    
+  SalesPrice?: number;
 }) => ({
   TabelNo: toString((payload as any).TabelNo ?? (payload as any).tableNo, '').trim(),
   UserID: toNumber((payload as any).UserID ?? (payload as any).userId, 0),
+  
+  
+  OrderType: toString((payload as any).OrderType ?? (payload as any).orderType ?? 'DI', '').trim(),
+  TabelGrpID: toString((payload as any).TabelGrpID ?? (payload as any).TableGrpID ?? (payload as any).tableGrpId ?? '', '').trim(),
+  
   ItemCode: toString((payload as any).ItemCode ?? (payload as any).itemCode, '').trim(),
   QTY: toPositiveQuantity((payload as any).QTY ?? (payload as any).qty ?? (payload as any).qtyDifference ?? (payload as any).quantity, 0),
-  ItemRemarks: '',
+  ItemRemarks: toString((payload as any).ItemRemarks ?? (payload as any).itemRemarks, ''),
   VoidRemark: toString((payload as any).VoidRemark ?? (payload as any).voidRemark ?? (payload as any).ItemRemarks ?? (payload as any).itemRemarks, ''),
   MgrID: toString((payload as any).MgrID ?? (payload as any).mgrId, '').trim(),
+  SalesPrice: toNumber((payload as any).SalesPrice ?? (payload as any).salesPrice, 0),   
 });
 
 export const apiClient = {
@@ -612,7 +648,7 @@ export const apiClient = {
   },
 
   getCategories: async () => {
-    const response = await fetch(`${getDynamicApiBaseUrl()}/api/menu/categories`);
+    const response = await fetchWithTimeout(`${getDynamicApiBaseUrl()}/api/menu/categories`);
     const contentType = response.headers.get('content-type') || '';
     let data: any = null;
     try {
@@ -698,7 +734,7 @@ export const apiClient = {
     try {
       const url = `${getDynamicApiBaseUrl()}/api/menu/items`;
       console.log('[api] getMenuItems URL=', url);
-      const response = await fetch(url);
+      const response = await fetchWithTimeout(url);
       const contentType = response.headers.get('content-type') || '';
       let data: any = null;
       try {
@@ -936,7 +972,7 @@ confirmCart: async (payload: ConfirmCartPayloadInput) => {
 getWorkers: async () => {
   return requestJson(`${getDynamicApiBaseUrl()}/api/auth/workers`, {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await buildAuthHeaders(),
   });
 },
 
@@ -955,7 +991,7 @@ getWorkers: async () => {
   saveUserFloorAccess: async (payload: { UserId: number | string; TableGroupIds: (number | string)[]; AssignedBy: number | string }) => {
     return requestJson(`${getDynamicApiBaseUrl()}/api/user-floor-access/save`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await buildAuthHeaders(),
       body: JSON.stringify(payload),
     });
   },

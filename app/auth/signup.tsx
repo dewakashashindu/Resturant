@@ -3,15 +3,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    Image,
-    SafeAreaView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    useWindowDimensions,
-    View,
+  Alert,
+  Image,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
 } from 'react-native';
 
 export default function SignUpScreen() {
@@ -174,17 +175,29 @@ export default function SignUpScreen() {
 
       if (!result.ok) {
         const msg: string = result.data?.message ?? '';
-        if (msg.toLowerCase().includes('username')) {
+
+        // Server returns 401 when username+phone don't match the same DB row
+        if (
+          msg.toLowerCase().includes('do not match') ||
+          msg.toLowerCase().includes('contact number')
+        ) {
+          setUsernameError('Username and contact number do not match our records.');
+          setPhoneError(' '); // highlights the phone field too
+        } else if (msg.toLowerCase().includes('username')) {
           setUsernameError(msg);
         } else {
-          setPasswordError(msg || 'Signup failed. Please try again.');
+          setPasswordError(msg || 'Sign up failed. Please try again.');
         }
         return;
       }
 
-      router.push('/auth/login');
-    } catch (e) {
-      const err: any = e as any;
+      // Success — password has been saved; take user to login
+      Alert.alert(
+        'Password Set',
+        'Your password has been saved successfully. You can now log in.',
+        [{ text: 'OK', onPress: () => router.replace('/auth/login') }]
+      );
+    } catch (_e) {
       setPasswordError('Something went wrong. Please try again.');
     }
   };
@@ -213,9 +226,9 @@ export default function SignUpScreen() {
       </View>
 
       <View style={{ marginTop: headerMT }}>
-        <Text style={[styles.title, { fontSize: titleFs }]}>Create Account</Text>
+        <Text style={[styles.title, { fontSize: titleFs }]}>Set Password</Text>
         <Text style={[styles.subtitle, { fontSize: subtitleFs }]}>
-          Enter your details to sign up.
+          Enter your username and registered contact number to set your password.
         </Text>
       </View>
 

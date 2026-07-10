@@ -391,8 +391,16 @@ export default function TableSelectionScreen() {
                             return;
                           }
 
+                          // Load existing bill items into cart so they show in selectitems
+                          clearCart();
+                          if (Array.isArray(data?.items) && data.items.length > 0) {
+                            const { setCartItems } = useCartStore.getState();
+                            setCartItems(data.items);
+                          }
+
+                          // Navigate to selectitems — cart will show existing items
                           router.push({
-                            pathname: '/Screens/BillingScreen',
+                            pathname: '/Screens/selectitems',
                             params: {
                               tableName: table.id,
                               tableNo: table.id,
@@ -400,6 +408,7 @@ export default function TableSelectionScreen() {
                               invoiceNo,
                               localPax: String(data?.lPax ?? '0'),
                               foreignPax: String(data?.fPax ?? '0'),
+                              status: 'occupied',
                             },
                           });
                           return;

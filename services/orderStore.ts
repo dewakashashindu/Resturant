@@ -17,6 +17,7 @@ export type ConfirmedOrder = {
   items: ConfirmedOrderItem[];
   createdAt?: string;
   invoiceNo?: string;
+  orderType?: string;
 };
 
 type OrderStore = {

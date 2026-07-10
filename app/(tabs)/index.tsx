@@ -91,7 +91,7 @@ export default function HomeScreen() {
       subtitle: 'Live Overview',
       color: 'rgba(151,173,210,0.5)',
       iconBg: 'rgba(151,173,210,0.6)',
-      route: '/Screens/dashboard',
+      route: '/Screens/Dashboard',
       ionIcon: 'grid-outline',
     },
     {
@@ -157,9 +157,16 @@ export default function HomeScreen() {
 
         {/* GREETING ROW */}
         <View style={styles.headerRow}>
-          <View>
+          <View style={styles.greetingBlock}>
             <Text style={[styles.greeting, { fontSize: greetSize }]}>{greetingText}</Text>
-            <Text style={[styles.name,     { fontSize: nameSize  }]}>{displayName}</Text>
+            <Text
+              style={[styles.name, { fontSize: nameSize }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.55}
+            >
+              {displayName}
+            </Text>
           </View>
 
           <View style={styles.dateContainer}>
@@ -257,6 +264,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
+  },
+  greetingBlock: {
+    flex: 1,
+    marginRight: 10,
   },
   greeting: {
     color: '#fff',

@@ -333,7 +333,6 @@ export default function CartScreen() {
   };
 
 const handleConfirm = async () => {
-  
   if (!displayCartItems || displayCartItems.length === 0) {
     Alert.alert('Cart is empty', 'Please add items before confirming.');
     return;
@@ -342,18 +341,18 @@ const handleConfirm = async () => {
   const isFromBilling = fromBilling === '1';
   const confirmItems = isFromBilling ? newCartItemsForConfirm : displayCartItems;
 
+  // 1. Billing flow එකේදී items නැත්නම් කෙලින්ම යන්න
   if (isFromBilling && confirmItems.length === 0) {
-    // Items add කළේ නෑ — API call නොකර කෙලින්ම billing ෙකට ආපහු යනවා.
     router.push({
       pathname: '/Screens/BillingScreen',
       params: {
-        tableName:  tableName ?? displayTable,
-        tableNo:    String(lastConfirmedOrder?.tableNo ?? tableName ?? ''),
-        invoiceNo:  String(currentInvoiceNo ?? ''),
-        localPax:   displayLocalPax,
+        tableName: tableName ?? displayTable,
+        tableNo: String(lastConfirmedOrder?.tableNo ?? tableName ?? ''),
+        invoiceNo: String(currentInvoiceNo ?? ''),
+        localPax: displayLocalPax,
         foreignPax: displayForeignPax,
-        floor:      floor ?? '',
-        status:     status ?? '',
+        floor: floor ?? '',
+        status: status ?? '',
       },
     });
     return;
@@ -361,24 +360,51 @@ const handleConfirm = async () => {
 
   let finalTableNo = lastConfirmedOrder?.tableNo 
     ? lastConfirmedOrder.tableNo 
-    : (orderType === 'TA' ? 'TA-PENDING' : (tableName ?? displayTable));
+    : (orderType === 'TA' ? '' : (tableName ?? displayTable));
+
+  const consolidatedItems = confirmItems.reduce((acc: any[], current: any) => {
+    const existing = acc.find(item => item.menuItemCode === current.menuItemCode);
+    if (existing) {
+      existing.quantity += current.quantity; 
+    } else {
+      acc.push({ ...current });
+    }
+    return acc;
+  }, []);
+
+  const finalOrderType = isFromBilling 
+    ? (lastConfirmedOrder?.orderType || 'DI') 
+    : (orderType || 'DI');
+
+  const finalTableGrpID = isFromBilling 
+    ? (lastConfirmedOrder?.tableGrpId ?? (tableId === 'TA-PENDING' ? ' ' : ''))
+    : (tableId === 'TA-PENDING' ? ' ' : (tableId ?? ''));
 
   const payload = {
-    orderType: orderType || 'DI',
+    OrderType: finalOrderType,
+    orderType: finalOrderType, 
+    TableNo: finalTableNo,
     tableNo: finalTableNo,
-    userId: currentUser?.userId ? String(currentUser.userId) : '1',
-    tableGrpId: tableId ?? '',
+    tableId: finalTableNo,
+    UserID: currentUser?.userName ? String(currentUser.userName) : (currentUser?.userId ? String(currentUser.userId) : 'SYSTEM'),
+    userId: currentUser?.userName ? String(currentUser.userName) : (currentUser?.userId ? String(currentUser.userId) : 'SYSTEM'),
+    TabelGrpID: finalTableGrpID,
+    TableGrpID: finalTableGrpID,
+    tableGrpId: finalTableGrpID,
     lPax: Number(localPax ?? 0),
     fPax: Number(foreignPax ?? 0),
     existingInvoiceNo: isFromBilling ? currentInvoiceNo : null,
-
-    items: confirmItems.map((i) => ({
-      menuItemCode: i.menuItemCode,
-      quantity: i.quantity,
-      salesPrice: i.salesPrice,
+    items: consolidatedItems.map((i: any) => ({
+      ItemCode: i.menuItemCode,   
+      itemCode: i.menuItemCode,   
+      QTY: i.quantity,            
+      quantity: i.quantity,       
+      SalesPrice: i.salesPrice,   
+      salesPrice: i.salesPrice,   
+      ItemRemarks: i.itemRemarks || remarksByCode[i.menuItemCode] || '', 
       itemRemarks: i.itemRemarks || remarksByCode[i.menuItemCode] || '',
     })),
-    customerDetails: orderType === 'TA' ? {
+    customerDetails: finalOrderType === 'TA' ? {
       regTel: customerInfo?.contactNumber || '',
       cusName: customerInfo?.customerName || '',
       rmks: customerInfo?.remark || ''
@@ -387,19 +413,16 @@ const handleConfirm = async () => {
 
   try {
     setConfirming(true);
-
     let generatedTableNo = lastConfirmedOrder?.tableNo;
     let finalInvoiceNo = currentInvoiceNo; 
 
     const isPending = !generatedTableNo || generatedTableNo === 'TA-PENDING';
 
     if (isPending || isFromBilling) {
-      const res = await apiClient.confirmCart(payload);
-      console.log('confirmCart response', res);
-
+      const res = await apiClient.confirmCart(payload as any);
       if (res.ok || (res.data && res.data.ok)) {
-        generatedTableNo = res.data?.data?.tableNo || generatedTableNo;
-        finalInvoiceNo = res.data?.data?.invoiceNo || res.data?.invoiceNo || currentInvoiceNo;
+        generatedTableNo = res.data?.data?.tableNo || res.data?.data?.TableNo || generatedTableNo;
+        finalInvoiceNo = res.data?.data?.invoiceNo || res.data?.data?.InvoiceNo || res.data?.invoiceNo || currentInvoiceNo;
       } else {
         const serverMsg = res.data && (res.data.message || JSON.stringify(res.data));
         Alert.alert('Error', serverMsg || 'Failed to save order');
@@ -408,37 +431,35 @@ const handleConfirm = async () => {
       }
     }
 
-    const currentNewItems = payload.items.map((it) => ({
-      ...it,
-      salesPrice: confirmItems.find(c => c.menuItemCode === it.menuItemCode)?.salesPrice ?? 0,
-      menuItmDes: confirmItems.find(c => c.menuItemCode === it.menuItemCode)?.menuItmDes ?? '',
-    }));
+    // 🌟 Billing එකෙන් ආවා නම් Memory එක Merge කරන්නේ නැත (Duplicate වැළැක්වීමට)
+    if (!isFromBilling) {
+      const currentNewItems = (payload.items as any[]).map((it) => ({
+        ...it,
+        salesPrice: confirmItems.find(c => c.menuItemCode === (it.ItemCode || it.itemCode))?.salesPrice ?? 0,
+        menuItmDes: confirmItems.find(c => c.menuItemCode === (it.ItemCode || it.itemCode))?.menuItmDes ?? '',
+      }));
 
-    const finalItemsList = isFromBilling 
-      ? [...(lastConfirmedOrder?.items || []), ...currentNewItems]
-      : currentNewItems;
+      (useOrderStore.getState() as any).setLastConfirmedOrder({
+        ...payload,
+        tableNo: generatedTableNo ?? '', 
+        items: currentNewItems,
+        createdAt: lastConfirmedOrder?.createdAt ?? new Date().toISOString(),
+        invoiceNo: finalInvoiceNo, 
+      });
+    }
 
-    // TypeScript එක බ්ලොක් නොකරන්න (as any) කැස්ට් එක දාලා සේව් කරනවා
-    (useOrderStore.getState() as any).setLastConfirmedOrder({
-      ...payload,
-      tableNo: generatedTableNo ?? '', 
-      items: finalItemsList,
-      createdAt: lastConfirmedOrder?.createdAt ?? new Date().toISOString(),
-      invoiceNo: finalInvoiceNo, 
-    });
-
-    // ඊළඟ ස්ක්‍රීන් එකට නිවැරදි පැරාම්ස් ටික යවනවා
     router.push({
       pathname: '/Screens/BillingScreen',
       params: {
         tableName: tableName ?? displayTable,
         tableNo: generatedTableNo,
-        invoiceNo: finalInvoiceNo || '', 
+        invoiceNo: finalInvoiceNo || '',
         localPax: displayLocalPax,
         foreignPax: displayForeignPax,
         floor: floor ?? '',
         status: status ?? '',
         fromBilling: isFromBilling ? '1' : undefined,
+        fromCart: isFromBilling ? '1' : undefined, // මෙය BillingScreen එකේදී fresh DB fetch එකක් trigger කරයි
       },
     });
 
@@ -468,89 +489,98 @@ const handleConfirm = async () => {
     const itemTotal = item.salesPrice * item.quantity;
     const remarkText = (item.itemRemarks || remarksByCode[item.menuItemCode] || '').trim();
     const isReadOnly = Boolean(item.isExisting);
+    // New items added via "Add More" get a highlighted border
+    const isNewAddition = isFromBilling && !item.isExisting;
 
-    return (
-      <View style={[styles.itemContainer, isReadOnly && styles.itemContainerReadOnly]}>
-        <View style={styles.itemHeader}>
-          <Text
-            style={[
-              styles.itemName,
-              { fontSize: itemTitleFs },
-              isReadOnly && styles.itemNameReadOnly,
-            ]}
-          >
-            {item.menuItmDes}
-          </Text>
-          <TouchableOpacity onPress={() => removeItem(item)} disabled={isReadOnly}>
-            <Ionicons name="trash-outline" size={isTablet ? 28 : 22} color="rgba(0,0,0,0.5)" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Updated Price Layout: Single Price x Qty = Total Price */}
-        <Text style={[styles.itemPrice, { fontSize: priceFs }, isReadOnly && styles.itemPriceReadOnly]}>
-          Lkr {item.salesPrice.toFixed(2)} × {item.quantity} = Lkr {itemTotal.toFixed(2)}
+ return (
+  <View style={[
+    styles.itemContainer,
+    isReadOnly && styles.itemContainerReadOnly,
+   
+  ]}>
+    <View style={styles.itemHeader}>
+      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', flexShrink: 1, minWidth: 0, marginRight: 8, gap: 6 }}>
+        <Text
+          style={[
+            styles.itemName,
+            { fontSize: itemTitleFs, flex: 1 },
+            isReadOnly && styles.itemNameReadOnly,
+          ]}
+        >
+          {item.menuItmDes}
         </Text>
-
-        {!!remarkText && (
-          <TouchableOpacity
-            style={styles.itemRemarkBlock}
-            activeOpacity={0.8}
-            onPress={() => (!isReadOnly ? openRemarkModal(item) : undefined)}
-            disabled={isReadOnly}
-          >
-            <Text
-              style={[
-                styles.remarkPreview,
-                { fontSize: remarkFs - 1 },
-                isReadOnly && styles.remarkPreviewReadOnly,
-              ]}
-              numberOfLines={2}
-            >
-              {remarkText}
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        <View style={styles.itemFooter}>
-          <TouchableOpacity
-            style={styles.remarkBtn}
-            onPress={() => (!isReadOnly ? openRemarkModal(item) : undefined)}
-            disabled={isReadOnly}
-          >
-            <Text style={[styles.remarkText, { fontSize: remarkFs }, isReadOnly && styles.remarkTextReadOnly]}>
-              {remarkText ? 'Edit Order Remark' : 'Add Order Remark'}
-            </Text>
-          </TouchableOpacity>
-
-          <View style={styles.quantityContainer}>
-            <TouchableOpacity
-              style={[
-                styles.qtyBtn,
-                { width: qtyBtnSize, height: qtyBtnSize, borderRadius: qtyBtnSize / 2 },
-                isReadOnly && styles.qtyBtnDisabled,
-              ]}
-              disabled={isReadOnly}
-              onPress={() => decrementItem(item)}
-            >
-              <Text style={[styles.qtyText, isReadOnly && styles.qtyTextDisabled]}>-</Text>
-            </TouchableOpacity>
-            <Text style={[styles.qtyValue, { fontSize: qtyFs }, isReadOnly && styles.qtyValueReadOnly]}>{item.quantity}</Text>
-            <TouchableOpacity
-              style={[
-                styles.qtyBtn,
-                { width: qtyBtnSize, height: qtyBtnSize, borderRadius: qtyBtnSize / 2 },
-                isReadOnly && styles.qtyBtnDisabled,
-              ]}
-              disabled={isReadOnly}
-              onPress={() => incrementItem(item)}
-            >
-              <Text style={[styles.qtyText, isReadOnly && styles.qtyTextDisabled]}>+</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-        <View style={styles.divider} />
+        
       </View>
-    );
+      <TouchableOpacity onPress={() => removeItem(item)} disabled={isReadOnly}>
+        <Ionicons name="trash-outline" size={isTablet ? 28 : 22} color="rgba(0,0,0,0.5)" />
+      </TouchableOpacity>
+    </View>
+
+    {/* Updated Price Layout: Single Price x Qty = Total Price */}
+    <Text style={[styles.itemPrice, { fontSize: priceFs }, isReadOnly && styles.itemPriceReadOnly]}>
+      Lkr {item.salesPrice.toFixed(2)} × {item.quantity} = Lkr {itemTotal.toFixed(2)}
+    </Text>
+
+    {!!remarkText && (
+      <TouchableOpacity
+        style={styles.itemRemarkBlock}
+        activeOpacity={0.8}
+        onPress={() => (!isReadOnly ? openRemarkModal(item) : undefined)}
+        disabled={isReadOnly}
+      >
+        <Text
+          style={[
+            styles.remarkPreview,
+            { fontSize: remarkFs - 1 },
+            isReadOnly && styles.remarkPreviewReadOnly,
+          ]}
+          numberOfLines={2}
+        >
+          {remarkText}
+        </Text>
+      </TouchableOpacity>
+    )}
+
+    <View style={styles.itemFooter}>
+      <TouchableOpacity
+        style={styles.remarkBtn}
+        onPress={() => (!isReadOnly ? openRemarkModal(item) : undefined)}
+        disabled={isReadOnly}
+      >
+        <Text style={[styles.remarkText, { fontSize: remarkFs }, isReadOnly && styles.remarkTextReadOnly]}>
+          {remarkText ? 'Edit Order Remark' : 'Add Order Remark'}
+        </Text>
+      </TouchableOpacity>
+
+      <View style={styles.quantityContainer}>
+        <TouchableOpacity
+          style={[
+            styles.qtyBtn,
+            { width: qtyBtnSize, height: qtyBtnSize, borderRadius: qtyBtnSize / 2 },
+            isReadOnly && styles.qtyBtnDisabled,
+          ]}
+          disabled={isReadOnly}
+          onPress={() => decrementItem(item)}
+        >
+          <Text style={[styles.qtyText, isReadOnly && styles.qtyTextDisabled]}>-</Text>
+        </TouchableOpacity>
+        <Text style={[styles.qtyValue, { fontSize: qtyFs }, isReadOnly && styles.qtyValueReadOnly]}>{item.quantity}</Text>
+        <TouchableOpacity
+          style={[
+            styles.qtyBtn,
+            { width: qtyBtnSize, height: qtyBtnSize, borderRadius: qtyBtnSize / 2 },
+            isReadOnly && styles.qtyBtnDisabled,
+          ]}
+          disabled={isReadOnly}
+          onPress={() => incrementItem(item)}
+        >
+          <Text style={[styles.qtyText, isReadOnly && styles.qtyTextDisabled]}>+</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+    <View style={styles.divider} />
+  </View>
+);
   };
 
   return (
@@ -905,8 +935,29 @@ const styles = StyleSheet.create({
   addMoreWrap:        { marginTop: 8, marginBottom: 4 },
   addMoreBtn:         { height: 52, borderRadius: 12, borderWidth: 1.5, borderColor: '#002748', backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   addMoreText:        { color: '#002748', fontSize: 16, fontWeight: '700' },
-  itemContainer:      { marginTop: 24 },
+  itemContainer:         { marginTop: 24 },
   itemContainerReadOnly: { opacity: 0.55 },
+  itemContainerNew:      {
+    borderWidth: 1.5,
+    borderColor: '#0062AA',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 16,
+    backgroundColor: 'rgba(0,98,170,0.04)',
+  },
+  newBadge: {
+    backgroundColor: '#0062AA',
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    flexShrink: 0,
+  },
+  newBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
   itemHeader:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   itemName:           { fontWeight: '500', color: 'black', flex: 1, flexShrink: 1, minWidth: 0, marginRight: 8 },
   itemNameReadOnly:    { color: '#6B7280' },

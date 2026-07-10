@@ -231,7 +231,13 @@ export const useCartStore = create<CartStore>((set, get) => ({
 
   setCartItems: (items) => set({ cartItems: normalizeCartItems(items), isDirty: false }),
 
-  clearCart: () => set({ cartItems: [], isDirty: false, customerInfo: null, orderType: null }),
+  clearCart: () => set((state) => ({ 
+  cartItems: [], 
+  isDirty: false, 
+  customerInfo: null, 
+  
+  orderType: state.orderType 
+})),
 
   saveCurrentOrderToHold: (tableNumber, snapshot) => {
     const normalizedItems = normalizeCartItems(snapshot.items || []);

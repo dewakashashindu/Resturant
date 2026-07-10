@@ -27,13 +27,14 @@ export default function LoginScreen() {
   const [usernameError, setUsernameError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [usernameChecking, setUsernameChecking] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const [devIP, setDevIP] = useState((global as any).backendIP || '192.168.8.100');
 
   const router = useRouter();
   const { width, height } = useWindowDimensions();
   const setSession = useAuthStore((state) => state.setSession);
-  const prefetchMenuBootstrapData = useItemStore((state) => state.prefetchMenuBootstrapData);
+  const hydrateItems = useItemStore((state) => state.hydrateItems);
 
   const isTablet = width >= 600;
   const isSmall  = height < 700;
@@ -135,81 +136,7 @@ export default function LoginScreen() {
       return;
     }
 
-    // ─── DEVICE CHECK ───────────────────────────────────────────────────────────
-    try {
-      console.log('[Login] Fetching Unique Device ID...');
-      const deviceId = await getUniqueDeviceId();
-
-      if (!deviceId) {
-        Alert.alert(
-          'Device Error',
-          'Could not identify this device. Please check app permissions and try again.'
-        );
-        return;
-      }
-
-      console.log('[Login] Calling device check-in...');
-
-      // ✅ SINGLE call only — removed duplicate apiClient.checkDeviceStatus()
-      // Previously two calls were made causing a race condition:
-      //   Call 1: apiClient.checkDeviceStatus(deviceId) → POST /check-in (result ignored)
-      //   Call 2: fetch('/check-in') → same endpoint (result used)
-      // Race condition: Call 1 inserts device as "pending", Call 2 reads it as "pending"
-      // Fix: Remove Call 1 entirely, use only Call 2 result
-      const baseIP = (global as any).backendIP || devIP.trim() || '192.168.8.100';
-      let deviceData: any = null;
-      let deviceCheckOk   = false;
-
-      try {
-        const deviceCheckResponse = await fetch(
-          `http://${baseIP}:3000/api/devices/check-in`,
-          {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ deviceId }),
-          }
-        );
-        deviceData    = await deviceCheckResponse.json();
-        deviceCheckOk = deviceCheckResponse.ok;
-
-        console.log('[Login] Device check-in response received:', {
-          httpStatus:   deviceCheckResponse.status,
-          deviceData,
-          deviceCheckOk,
-        });
-
-      } catch (fetchError) {
-        console.log('[Login] Device check-in fetch failed (server unreachable):', fetchError);
-        Alert.alert(
-          'Connection Error',
-          'Unable to reach the server. Please check your network connection and try again.'
-        );
-        return;
-      }
-
-      // ✅ Approval status check from the SINGLE call result
-      if (!deviceCheckOk || deviceData?.status === 'pending') {
-        Alert.alert(
-          'Approval Pending',
-          `This device has been successfully registered in the system.\n\nYour Device ID:\n${deviceId}\n\nPlease inform your manager to approve this device to proceed.`
-        );
-        return;
-      }
-
-      // ✅ Reaches here only when deviceData.allowed === true (Admin Approved)
-      console.log('[Login] Device authorized! Proceeding to user authentication.');
-
-    } catch (deviceError) {
-      console.log('[Login] Device Check Error:', deviceError);
-      Alert.alert(
-        'Connection Error',
-        'Unable to verify device identity. Please ensure the backend server is running.'
-      );
-      return;
-    }
-    // ─── END DEVICE CHECK ───────────────────────────────────────────────────────
-
-    // ─── USER AUTHENTICATION ────────────────────────────────────────────────────
+    // ─── STEP 1: USER AUTHENTICATION (credentials verified FIRST) ───────────────
     try {
       console.log('[Login] calling apiClient.login');
       const result = await apiClient.login(username, password);
@@ -249,6 +176,77 @@ export default function LoginScreen() {
       }
 
       if (result.data?.token) {
+        // ─── STEP 2: DEVICE CHECK (only runs after credentials are confirmed valid) ──
+        try {
+          console.log('[Login] Credentials OK. Now checking device authorization...');
+          const deviceId = await getUniqueDeviceId();
+
+          if (!deviceId) {
+            Alert.alert(
+              'Device Error',
+              'Could not identify this device. Please check app permissions and try again.'
+            );
+            return;
+          }
+
+          const baseIP = (global as any).backendIP || devIP.trim() || '192.168.8.100';
+          let deviceData: any  = null;
+          let deviceCheckOk    = false;
+
+          try {
+            const deviceCheckResponse = await fetch(
+              `http://${baseIP}:3000/api/devices/check-in`,
+              {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // Pass the user's locCode so the server can store it correctly.
+                // Try every known field name the server might use.
+                body:    JSON.stringify({
+                  deviceId,
+                  locCode: (
+                    result.data?.user?.locCode ??
+                    result.data?.user?.LocCode ??
+                    result.data?.locCode       ??
+                    null
+                  ),
+                }),
+              }
+            );
+            deviceData    = await deviceCheckResponse.json();
+            deviceCheckOk = deviceCheckResponse.ok;
+
+            console.log('[Login] Device check-in response:', {
+              httpStatus: deviceCheckResponse.status,
+              deviceData,
+            });
+          } catch (fetchError) {
+            console.log('[Login] Device check-in fetch failed:', fetchError);
+            Alert.alert(
+              'Connection Error',
+              'Unable to reach the server. Please check your network connection and try again.'
+            );
+            return;
+          }
+
+          if (!deviceCheckOk || deviceData?.status === 'pending') {
+            Alert.alert(
+              'Approval Pending',
+              `Your credentials are correct, but this device is not yet approved.\n\nDevice ID:\n${deviceId}\n\nPlease ask your manager to approve this device.`
+            );
+            return;
+          }
+
+          console.log('[Login] Device authorized! Saving session...');
+        } catch (deviceError) {
+          console.log('[Login] Device Check Error:', deviceError);
+          Alert.alert(
+            'Connection Error',
+            'Unable to verify device identity. Please ensure the backend server is running.'
+          );
+          return;
+        }
+        // ─── END DEVICE CHECK ────────────────────────────────────────────────────
+
         const loggedInUserName = String(
           result.data?.user?.username ?? username
         ).trim();
@@ -286,9 +284,19 @@ export default function LoginScreen() {
           },
         });
 
-        void prefetchMenuBootstrapData().catch((error) => {
-          console.log('[Login] menu prefetch failed (non-fatal, cache used)', error);
-        });
+        // ── STEP 3: SYNC MENU DATA (await before navigating) ──────────────────
+        // First login of the day OR fresh login flag → full API pull.
+        // Same-day re-login → MMKV cache still fresh, prefetch is fast no-op.
+        // Either way we wait so items are ready when tabs mount.
+        try {
+          setIsSyncing(true);
+          await hydrateItems();  // checks flag+date — skips API if same-day re-login
+        } catch (syncError) {
+          // Non-fatal — stale cache (or empty on first ever launch) is fine.
+          console.log('[Login] menu prefetch failed (non-fatal, cache used)', syncError);
+        } finally {
+          setIsSyncing(false);
+        }
 
         router.replace('/(tabs)');
         return;
@@ -480,10 +488,14 @@ export default function LoginScreen() {
         style={[
           styles.loginButton,
           { height: btnH, borderRadius: btnRadius, marginTop: btnMT },
+          isSyncing && { opacity: 0.7 },
         ]}
         onPress={handleLogin}
+        disabled={isSyncing}
       >
-        <Text style={[styles.loginText, { fontSize: btnFs }]}>Login</Text>
+        <Text style={[styles.loginText, { fontSize: btnFs }]}>
+          {isSyncing ? 'Syncing menu...' : 'Login'}
+        </Text>
       </TouchableOpacity>
 
       {/* SIGN UP */}
