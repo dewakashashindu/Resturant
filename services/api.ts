@@ -303,19 +303,9 @@ const parseResponseBody = async (response: Response) => {
   }
 };
 
-const REQUEST_TIMEOUT_MS = 60_000; // 60 seconds
-
-const fetchWithTimeout = (url: string, init?: RequestInit): Promise<Response> => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  return fetch(url, { ...init, signal: controller.signal }).finally(() =>
-    clearTimeout(timer)
-  );
-};
-
 const requestJson = async <T = any>(url: string, init?: RequestInit): Promise<ApiResponse<T>> => {
   try {
-    const response = await fetchWithTimeout(url, init);
+    const response = await fetch(url, init);
     const data = await parseResponseBody(response);
 
     if (!response.ok) {
@@ -338,10 +328,7 @@ const requestJson = async <T = any>(url: string, init?: RequestInit): Promise<Ap
       data,
     };
   } catch (error) {
-    const isTimeout = (error as any)?.name === 'AbortError';
-    const message = isTimeout
-      ? 'Unable to reach the server (Timeout). Please check your internet connection.'
-      : error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
     return {
       success: false,
       ok: false,
@@ -419,31 +406,34 @@ const normalizeConfirmCartPayload = (payload: ConfirmCartPayloadInput): any => {
 const normalizeAddBillingPayload = (payload: AddBillingItemPayload | {
   tableNo?: string;
   userId?: number | string;
-  orderType?: string;    
-  OrderType?: string;    
-  tableGrpId?: string;   
-  TableGrpID?: string;   
-  TabelGrpID?: string;   
   itemCode?: string;
   ItemCode?: string;
   qty?: number;
   QTY?: number;
   salesPrice?: number;
   SalesPrice?: number;
-  items: Array<{ ItemCode?: string; itemCode?: string; QTY?: number; qty?: number; quantity?: number; SalesPrice?: number; salesPrice?: number; ItemRemarks?: string; itemRemarks?: string }>;
+  items: Array<{ ItemCode?: string; itemCode?: string; QTY?: number; qty?: number; quantity?: number; SalesPrice?: number; salesPrice?: number }>;
 }) => {
   const sourceItems = Array.isArray((payload as any).items)
     ? (payload as any).items
     : ((payload as any).ItemCode || (payload as any).itemCode ? [payload as any] : []);
 
+  // Resolve orderType at payload level — TA orders must keep 'TA' all the way to the server.
+  const rawOrderType = toString((payload as any).orderType ?? (payload as any).OrderType, '').trim();
+  const orderType = rawOrderType === 'TA' ? 'TA' : (rawOrderType || 'DI');
+
+  // tableGrpId: TA orders use a single space " " (DB constraint); DI orders pass whatever came in.
+  const rawTableGrpId = toString((payload as any).tableGrpId ?? (payload as any).TabelGrpID ?? (payload as any).TableGrpID, '');
+  const tableGrpId = orderType === 'TA' ? ' ' : rawTableGrpId;
+
   return {
     TabelNo: toString((payload as any).TabelNo ?? (payload as any).tableNo, '').trim(),
     UserID: toNumber((payload as any).UserID ?? (payload as any).userId, 0),
-    
-    
-    OrderType: toString((payload as any).OrderType ?? (payload as any).orderType ?? 'DI', '').trim(),
-    TabelGrpID: toString((payload as any).TabelGrpID ?? (payload as any).TableGrpID ?? (payload as any).tableGrpId ?? '', '').trim(),
-    
+    orderType,
+    tableGrpId,
+    lPax: toNumber((payload as any).lPax ?? (payload as any).LPax, 0),
+    fPax: toNumber((payload as any).fPax ?? (payload as any).FPax, 0),
+    mgrId: toString((payload as any).mgrId ?? (payload as any).MgrID, '').trim(),
     items: sourceItems
       .map((item: any) => ({
         ItemCode: toString((item as any).ItemCode ?? (item as any).itemCode, '').trim(),
@@ -458,11 +448,6 @@ const normalizeAddBillingPayload = (payload: AddBillingItemPayload | {
 const normalizeRemoveBillingPayload = (payload: RemoveBillingItemPayload | {
   tableNo?: string;
   userId?: number | string;
-  orderType?: string;     
-  OrderType?: string;     
-  tableGrpId?: string;    
-  TableGrpID?: string;    
-  TabelGrpID?: string;    
   itemCode?: string;
   ItemCode?: string;
   qty?: number;
@@ -474,23 +459,29 @@ const normalizeRemoveBillingPayload = (payload: RemoveBillingItemPayload | {
   MgrID?: string;
   voidRemark?: string;
   VoidRemark?: string;
-  salesPrice?: number;    
-  SalesPrice?: number;
-}) => ({
-  TabelNo: toString((payload as any).TabelNo ?? (payload as any).tableNo, '').trim(),
-  UserID: toNumber((payload as any).UserID ?? (payload as any).userId, 0),
-  
-  
-  OrderType: toString((payload as any).OrderType ?? (payload as any).orderType ?? 'DI', '').trim(),
-  TabelGrpID: toString((payload as any).TabelGrpID ?? (payload as any).TableGrpID ?? (payload as any).tableGrpId ?? '', '').trim(),
-  
-  ItemCode: toString((payload as any).ItemCode ?? (payload as any).itemCode, '').trim(),
-  QTY: toPositiveQuantity((payload as any).QTY ?? (payload as any).qty ?? (payload as any).qtyDifference ?? (payload as any).quantity, 0),
-  ItemRemarks: toString((payload as any).ItemRemarks ?? (payload as any).itemRemarks, ''),
-  VoidRemark: toString((payload as any).VoidRemark ?? (payload as any).voidRemark ?? (payload as any).ItemRemarks ?? (payload as any).itemRemarks, ''),
-  MgrID: toString((payload as any).MgrID ?? (payload as any).mgrId, '').trim(),
-  SalesPrice: toNumber((payload as any).SalesPrice ?? (payload as any).salesPrice, 0),   
-});
+}) => {
+  const rawOrderType = toString((payload as any).orderType ?? (payload as any).OrderType, '').trim();
+  const orderType = rawOrderType === 'TA' ? 'TA' : (rawOrderType || 'DI');
+
+  // tableGrpId: TA orders must use a single space " " per DB constraint.
+  const rawTableGrpId = toString((payload as any).tableGrpId ?? (payload as any).TabelGrpID ?? (payload as any).TableGrpID, '');
+  const tableGrpId = orderType === 'TA' ? ' ' : rawTableGrpId;
+
+  return {
+    TabelNo: toString((payload as any).TabelNo ?? (payload as any).tableNo, '').trim(),
+    UserID: toNumber((payload as any).UserID ?? (payload as any).userId, 0),
+    ItemCode: toString((payload as any).ItemCode ?? (payload as any).itemCode, '').trim(),
+    QTY: toPositiveQuantity((payload as any).QTY ?? (payload as any).qty ?? (payload as any).qtyDifference ?? (payload as any).quantity, 0),
+    ItemRemarks: '',
+    VoidRemark: toString((payload as any).VoidRemark ?? (payload as any).voidRemark ?? (payload as any).ItemRemarks ?? (payload as any).itemRemarks, ''),
+    MgrID: toString((payload as any).MgrID ?? (payload as any).mgrId, '').trim(),
+    SalesPrice: toNumber((payload as any).SalesPrice ?? (payload as any).salesPrice, 0),
+    orderType,
+    tableGrpId,
+    lPax: toNumber((payload as any).lPax ?? (payload as any).LPax, 0),
+    fPax: toNumber((payload as any).fPax ?? (payload as any).FPax, 0),
+  };
+};
 
 export const apiClient = {
   login: async (username: string, password: string) => {
@@ -648,7 +639,7 @@ export const apiClient = {
   },
 
   getCategories: async () => {
-    const response = await fetchWithTimeout(`${getDynamicApiBaseUrl()}/api/menu/categories`);
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/menu/categories`);
     const contentType = response.headers.get('content-type') || '';
     let data: any = null;
     try {
@@ -734,7 +725,7 @@ export const apiClient = {
     try {
       const url = `${getDynamicApiBaseUrl()}/api/menu/items`;
       console.log('[api] getMenuItems URL=', url);
-      const response = await fetchWithTimeout(url);
+      const response = await fetch(url);
       const contentType = response.headers.get('content-type') || '';
       let data: any = null;
       try {
@@ -994,6 +985,18 @@ getWorkers: async () => {
       headers: await buildAuthHeaders(),
       body: JSON.stringify(payload),
     });
+  },
+
+  getUserFloorAccess: async (userId: string) => {
+    try {
+      const url = `${getDynamicApiBaseUrl()}/api/user-floor-access/${encodeURIComponent(userId)}`;
+      const response = await fetch(url, { headers: await buildAuthHeaders() });
+      const data = await response.json();
+      return { ok: response.ok, data };
+    } catch (error: any) {
+      console.log('[api] getUserFloorAccess error:', error?.message || error);
+      return { ok: false, data: { assignedFloors: [] } };
+    }
   },
 
 

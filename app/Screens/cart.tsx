@@ -40,6 +40,9 @@ export default function CartScreen() {
     fromBilling,
     invoiceNo: routeInvoiceNo,
     orderType: routeOrderType, // ← BUG FIX: passed by BillingScreen→selectitems for TA
+    contactNumber: routeContactNumber,
+    customerName:  routeCustomerName,
+    remark:        routeRemark,
   } = useLocalSearchParams<{
     tableName?: string;
     tableId?: string;
@@ -50,7 +53,10 @@ export default function CartScreen() {
     status?: string;
     fromBilling?: string;
     invoiceNo?: string;
-    orderType?: string; // ← preserves TA type through the Add More flow
+    orderType?: string;
+    contactNumber?: string;
+    customerName?: string;
+    remark?: string;
   }>();
 
   const isFromBilling = fromBilling === '1';
@@ -480,6 +486,9 @@ export default function CartScreen() {
       lPax: Number(localPax ?? 0),
       fPax: Number(foreignPax ?? 0),
       existingInvoiceNo: isFromBilling ? currentInvoiceNo : null,
+      // Tell the server this is a brand-new order — do NOT reuse any old open
+      // invoice for this table (prevents stale-bill append after app restart).
+      forceNewInvoice: !isFromBilling,
       items: consolidatedItems.map((i: any) => ({
         ItemCode: i.menuItemCode,
         itemCode: i.menuItemCode,
@@ -493,9 +502,10 @@ export default function CartScreen() {
       customerDetails:
         finalOrderType === 'TA'
           ? {
-              regTel: customerInfo?.contactNumber || '',
-              cusName: customerInfo?.customerName || '',
-              rmks: customerInfo?.remark || '',
+              // Fall back to route params if cartStore.customerInfo was cleared
+              regTel: customerInfo?.contactNumber || routeContactNumber || '',
+              cusName: customerInfo?.customerName || routeCustomerName || '',
+              rmks:    customerInfo?.remark       || routeRemark       || '',
             }
           : null,
     };

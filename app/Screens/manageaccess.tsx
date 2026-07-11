@@ -38,6 +38,7 @@ interface TableGroupOption {
 export default function ManageAccessScreen() {
   const router      = useRouter();
   const managerUser = useAuthStore((state) => state.user);
+  const setUser     = useAuthStore((state) => state.setUser);
 
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -62,6 +63,7 @@ export default function ManageAccessScreen() {
   const [manageModalVisible, setManageModalVisible] = useState(false);
   const [activeWaiter,       setActiveWaiter]       = useState<WorkerRecord | null>(null);
   const [floorAccessMap,     setFloorAccessMap]     = useState<Record<string, (number | string)[]>>({});
+  const [loadingAccess,      setLoadingAccess]      = useState(false);
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const selectedGroupDes = useMemo(
@@ -157,10 +159,8 @@ export default function ManageAccessScreen() {
 
   useEffect(() => {
     if (workers.length === 0 || tableGroups.length === 0) return;
-    // Normalize key: trim whitespace + lowercase so "Ground Floor " === "ground floor"
-    const normalizeKey = (s: string) => String(s ?? '').trim().toLowerCase();
     const nameToId = new Map<string, number | string>();
-    tableGroups.forEach((g) => nameToId.set(normalizeKey(g.GroupName), g.GroupId));
+    tableGroups.forEach((g) => nameToId.set(g.GroupName, g.GroupId));
     const initialMap: Record<string, (number | string)[]> = {};
     workers.forEach((w) => {
       if (!w.assignedFloors) return;
@@ -171,7 +171,7 @@ export default function ManageAccessScreen() {
           : JSON.parse(w.assignedFloors);
       } catch { names = []; }
       const ids = names
-        .map((name) => nameToId.get(normalizeKey(name)))
+        .map((name) => nameToId.get(name))
         .filter((id): id is number | string => id !== undefined);
       initialMap[String(w.UserId)] = ids;
     });
@@ -184,9 +184,29 @@ export default function ManageAccessScreen() {
     setWaiterName('');
   };
 
-  const handleManage = (waiter: WorkerRecord) => {
+  const handleManage = async (waiter: WorkerRecord) => {
     setActiveWaiter(waiter);
     setManageModalVisible(true);
+    // Fetch fresh floor access from DB so checkboxes always reflect
+    // what is currently saved — not stale local state.
+    setLoadingAccess(true);
+    try {
+      const res = await apiClient.getUserFloorAccess(String(waiter.UserId));
+      if (res.ok && Array.isArray(res.data?.assignedFloors)) {
+        const assignedNames: string[] = res.data.assignedFloors;
+        // Convert floor names → GroupIds using the already-loaded tableGroups list
+        const nameToId = new Map<string, number | string>();
+        tableGroups.forEach((g) => nameToId.set(g.GroupName.trim(), g.GroupId));
+        const ids = assignedNames
+          .map((name) => nameToId.get(name.trim()))
+          .filter((id): id is number | string => id !== undefined);
+        setFloorAccessMap((prev) => ({ ...prev, [String(waiter.UserId)]: ids }));
+      }
+    } catch {
+      // fall back to whatever is already in floorAccessMap
+    } finally {
+      setLoadingAccess(false);
+    }
   };
 
   const closeManageModal = () => setManageModalVisible(false);
@@ -226,6 +246,11 @@ export default function ManageAccessScreen() {
               : w,
           ),
         );
+        // If we just updated the currently logged-in user,
+        // refresh authStore so Settings + TableSelection see new floors immediately.
+        if (managerUser && String(managerUser.userId).trim() === String(activeWaiter.UserId).trim()) {
+          setUser({ ...managerUser, assignedFloors: selectedGroupNames });
+        }
       } else {
         Alert.alert('Error', response.error || 'Could not update floor access.');
       }
@@ -357,19 +382,19 @@ export default function ManageAccessScreen() {
             </Text>
 
             <ScrollView style={s.modalOptionsList}>
-              {tableGroupsLoading && (
+              {(tableGroupsLoading || loadingAccess) && (
                 <ActivityIndicator size="small" color="#002748" style={s.modalLoader} />
               )}
 
-              {!tableGroupsLoading && tableGroupsError && (
+              {!tableGroupsLoading && !loadingAccess && tableGroupsError && (
                 <Text style={s.modalErrorText}>{tableGroupsError}</Text>
               )}
 
-              {!tableGroupsLoading && !tableGroupsError && tableGroups.length === 0 && (
+              {!tableGroupsLoading && !loadingAccess && !tableGroupsError && tableGroups.length === 0 && (
                 <Text style={s.modalEmptyText}>No floor groups found.</Text>
               )}
 
-              {!tableGroupsLoading && !tableGroupsError && tableGroups.map((group) => {
+              {!tableGroupsLoading && !loadingAccess && !tableGroupsError && tableGroups.map((group) => {
                 const waiterId  = activeWaiter ? String(activeWaiter.UserId) : '';
                 const isChecked = (floorAccessMap[waiterId] ?? []).some(
                   (id) => String(id) === String(group.GroupId),

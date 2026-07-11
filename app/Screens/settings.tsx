@@ -47,6 +47,20 @@ export default function SettingsScreen() {
   console.log('Current User Group ID is:', user?.groupId);
 
   // ── Effects ────────────────────────────────────────────────────────────────
+  const [floors, setFloors] = useState<string[]>([]);
+
+  useEffect(() => {
+    const fetchFloors = async () => {
+      if (!user?.userId) return;
+      console.log('[Settings] Fetching floors directly from DB (bypassing authStore)');
+      const res = await apiClient.getUserFloorAccess(String(user.userId));
+      if (res.ok && res.data?.assignedFloors) {
+        setFloors(res.data.assignedFloors);
+      }
+    };
+    fetchFloors();
+  }, [user?.userId]);
+
   useEffect(() => {
     if (user?.assignedFloors) setSelectedFloors(user.assignedFloors);
   }, [user]);
@@ -352,13 +366,13 @@ export default function SettingsScreen() {
 
             {/* ── Assigned Floors ── */}
             <Text style={s.sectionLabel}>Assigned Floors</Text>
-            {selectedFloors.length === 0 ? (
+            {floors.length === 0 ? (
               <View style={s.emptyBox}>
                 <Text style={s.emptyText}>No floors assigned yet.</Text>
               </View>
             ) : (
               <View style={s.chipGrid}>
-                {selectedFloors.map((floor, i) => (
+                {floors.map((floor, i) => (
                   <View key={i} style={s.chip}>
                     <Text style={s.chipText}>✓  {floor}</Text>
                   </View>

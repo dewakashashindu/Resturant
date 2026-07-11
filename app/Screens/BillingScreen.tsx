@@ -1076,6 +1076,10 @@ export default function BillingScreen() {
 
     setIsLoadingBillFromDb(true);
 
+    // Capture as a stable local boolean so the async closure always reads
+    // the value from *this* effect invocation — avoids stale-closure lint errors.
+    const isFromCart = returningFromCart;
+
     const fetchBillData = async () => {
       try {
         const response = await apiClient.getActiveBillItems(
@@ -1111,6 +1115,22 @@ export default function BillingScreen() {
           })),
         });
 
+        // ✅ FIX: When coming from cart, establish fresh baseline and clear changes flag
+        if (isFromCart && isMounted) {
+          originalQuantitiesRef.current = freshItems.reduce(
+            (acc: Record<string, number>, item: any) => {
+              const code = item.menuItemCode || item.ItemCode || item.itemCode;
+              acc[code] = Number(item.quantity ?? item.QTY ?? 0) || 0;
+              return acc;
+            },
+            {} as Record<string, number>,
+          );
+          originalTableNoRef.current = resolvedTableNo;
+          setBillingHasChanges(false);
+          setPendingAdditions({});
+          setVoidMetadata({});
+        }
+
         setDbInvoiceNo(targetInvoiceNo ?? data.invoiceNo ?? null);
         setDbLPax(typeof data.lPax === 'number' ? data.lPax : null);
         setDbFPax(typeof data.fPax === 'number' ? data.fPax : null);
@@ -1134,14 +1154,18 @@ export default function BillingScreen() {
       originalTableNoRef.current = '';
       return;
     }
+    
+    // ✅ FIX: Don't reinitialize baseline if already set for this table
     const hasBaseline =
       originalTableNoRef.current === activeTableNo &&
       Object.keys(originalQuantitiesRef.current).length > 0;
     if (hasBaseline) return;
+    
     const sourceItems = lastConfirmedOrder?.items?.length
       ? lastConfirmedOrder.items
       : cartItems;
     if (!sourceItems.length) return;
+    
     originalQuantitiesRef.current = sourceItems.reduce<Record<string, number>>(
       (acc, item) => {
         acc[item.menuItemCode] = Number(item.quantity ?? 0) || 0;
@@ -1150,6 +1174,9 @@ export default function BillingScreen() {
       {},
     );
     originalTableNoRef.current = activeTableNo;
+    
+    // ✅ FIX: Ensure changes flag is false when baseline is freshly set
+    setBillingHasChanges(false);
   }, [activeTableNo, cartItems, lastConfirmedOrder?.items]);
 
   useEffect(() => {
@@ -1217,14 +1244,28 @@ export default function BillingScreen() {
             resizeMode="contain"
           />
         </View>
+
+        {/* Show DB-resolved tableNo (TA-XXXX for take-away, table name for dine-in) */}
         <Text style={s.tableNumber}>
-          Table Number - {tableName || tableNo || 'GF 05'}
+          {(lastConfirmedOrder as any)?.orderType === 'TA'
+            ? `Take Away - ${activeTableNo || lastConfirmedOrder?.tableNo || '—'}`
+            : `Table - ${activeTableNo || tableName || tableNo || '—'}`}
         </Text>
-        <Text style={s.dateText}>
-          {timeStr}
-          {'  '}
-          {dateStr}
-        </Text>
+
+        {/* Invoice number — shown once confirmed */}
+        {!!(dbInvoiceNo || lastConfirmedOrder?.invoiceNo) && (
+          <Text style={[s.dateText, { fontSize: isTablet ? 14 : isSmall ? 10 : 11, marginTop: 2, opacity: 0.8 }]}>
+            Invoice: {dbInvoiceNo || lastConfirmedOrder?.invoiceNo}
+          </Text>
+        )}
+
+        {/* Order type badge */}
+        
+          
+          <Text style={s.dateText}>
+            {timeStr}{'  '}{dateStr}
+          </Text>
+        
       </View>
 
       {/* ITEMS LIST */}

@@ -103,11 +103,8 @@ export default function TableSelectionScreen() {
           console.log('allNames (from /api/floors):', JSON.stringify(allNames));
           console.log('userGroupId:', userGroupId);
 
-          //  Role Based Visibility Filter
-          const isAdmin = String(userGroupId) === '1';
-          const filteredFloors = isAdmin
-            ? allNames
-            : allNames.filter(floorName => assignedFloors.includes(floorName));
+          //  Role Based Visibility Filter — everyone sees only their assigned floors
+          const filteredFloors = allNames.filter(floorName => assignedFloors.includes(floorName));
 
           setFloors(filteredFloors);
 
@@ -391,16 +388,8 @@ export default function TableSelectionScreen() {
                             return;
                           }
 
-                          // Load existing bill items into cart so they show in selectitems
-                          clearCart();
-                          if (Array.isArray(data?.items) && data.items.length > 0) {
-                            const { setCartItems } = useCartStore.getState();
-                            setCartItems(data.items);
-                          }
-
-                          // Navigate to selectitems — cart will show existing items
                           router.push({
-                            pathname: '/Screens/selectitems',
+                            pathname: '/Screens/BillingScreen',
                             params: {
                               tableName: table.id,
                               tableNo: table.id,
@@ -408,7 +397,6 @@ export default function TableSelectionScreen() {
                               invoiceNo,
                               localPax: String(data?.lPax ?? '0'),
                               foreignPax: String(data?.fPax ?? '0'),
-                              status: 'occupied',
                             },
                           });
                           return;

@@ -32,9 +32,8 @@ const FACES     = ['😡', '😠', '😑', '🫤', '😐', '🙂', '😊', '😃
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function TakeAwayScreen() {
   const router     = useRouter();
-  const clearCart  = useCartStore((state) => state.clearCart);
-  const setCustomerInfo = useCartStore((state) => state.setCustomerInfo);
-  const setOrderType    = useCartStore((state) => state.setOrderType);
+  // customerInfo, orderType, and cart items are set via getState() in handleConfirm
+  // to guarantee correct ordering without stale closure issues.
 
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -111,14 +110,17 @@ export default function TakeAwayScreen() {
       console.log('Network Connection Warning: Backend might be unreachable.');
     } finally {
       setSerialLoading(false);
-      clearCart();
 
+      // Set customerInfo & orderType BEFORE clearing cart items.
+      // clearCart() wipes customerInfo to null, so we use setCartItems([]) instead
+      // which only resets the item list and leaves customerInfo/orderType intact.
       useCartStore.getState().setCustomerInfo({
         contactNumber: phoneVal,
         customerName:  nameVal,
         remark:        remarkVal,
       });
       useCartStore.getState().setOrderType('TA');
+      useCartStore.getState().setCartItems([]);
 
       router.push({
         pathname: '/Screens/selectitems',

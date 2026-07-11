@@ -118,6 +118,29 @@ const validatePassword = (password) => {
   return null;
 };
 
+// Fetch the floor (table-group) access assigned to a given user.
+// Returns an array of FloorName strings — the SAME floor names used by
+// Vw_Tables.GroupName and the app's floor filter (authStore.user.assignedFloors).
+const getAssignedFloorsForUser = async (pool, userId) => {
+  try {
+    const result = await pool.request()
+      .input('UserId', sql.NVarChar(50), String(userId))
+      .query(`
+        SELECT DISTINCT RTRIM(LTRIM(a.FloorName)) AS FloorName
+        FROM dbo.Tbl_TableGroupAccess a
+        WHERE RTRIM(LTRIM(CAST(a.UserId AS NVARCHAR(50)))) = RTRIM(LTRIM(@UserId))
+          AND a.FloorName IS NOT NULL
+          AND LTRIM(RTRIM(a.FloorName)) != ''
+      `);
+    return (result.recordset || [])
+      .map((row) => String(row.FloorName))
+      .filter(Boolean);
+  } catch (err) {
+    console.error('[getAssignedFloorsForUser] Error:', err);
+    return [];
+  }
+};
+
 // Auth: Login 
 app.post('/api/auth/login', async (req, res) => {
   try {
@@ -145,26 +168,33 @@ app.post('/api/auth/login', async (req, res) => {
     if (!passwordMatch) return res.status(401).json({ message: 'Invalid credentials' });
 
   
-    const floorResult = await pool.request()
-      .input('UserId', sql.VarChar, String(user.UserId).trim())
-      .query(`
-        SELECT DISTINCT RTRIM(LTRIM(a.FloorName)) AS GroupName
-        FROM Tbl_TableGroupAccess a
-        WHERE RTRIM(LTRIM(CAST(a.UserId AS NVARCHAR(50)))) = RTRIM(LTRIM(@UserId))
-          AND a.FloorName IS NOT NULL AND LTRIM(RTRIM(a.FloorName)) != ''
-      `);
+    // ── Load floor access so the app can filter floors/tables to only what
+    //    this user was assigned in the Manage Access screen. Without this,
+    //    authStore.user.assignedFloors stays empty and the floor/table list
+    //    shows nothing for the user. ──
+    let assignedFloors = [];
+    const isManager = ['3', '003'].includes(String(user.GroupId).trim());
+    if (isManager) {
+      // Managers see every floor. Use the master list (Tbl_TableGroup),
+      // not Vw_Tables — otherwise floors without tables would be missing
+      // from the manager's view too.
+      try {
+        const allFloors = await pool.request().query(
+          `SELECT DISTINCT GroupName FROM Tbl_TableGroup WHERE GroupName IS NOT NULL`
+        );
+        assignedFloors = (allFloors.recordset || [])
+          .map((row) => String(row.GroupName))
+          .filter(Boolean);
+      } catch (_) { /* fall back to empty below */ }
+    } else {
+      assignedFloors = await getAssignedFloorsForUser(pool, user.UserId);
+    }
 
-    const assignedFloors = floorResult.recordset.map(row => row.GroupName);
-    
-   
     const token = jwt.sign(
-      { userId: user.UserId, username: user.LoginName, userName: user.UserName || user.LoginName, groupId: user.GroupId, assignedFloors },
+      { userId: user.UserId, username: user.LoginName, userName: user.UserName || user.LoginName, groupId: user.GroupId },
       JWT_SECRET_KEY || 'YOUR_SECRET_KEY',
       { expiresIn: '7d' }
     );
-
-    console.log("LOGGED IN USER ID FROM OFFICIAL TBL:", user.UserId);
-    console.log("ASSIGNED FLOORS FROM DB:", assignedFloors);
 
     // Convert Picture buffer to base64 string if present
     let pictureBase64 = null;
@@ -181,13 +211,12 @@ app.post('/api/auth/login', async (req, res) => {
         username: user.LoginName,
         userId: user.UserId,
         groupId: user.GroupId,
-        assignedFloors,
         userName: user.UserName || user.LoginName,
         picture: pictureBase64,
         locCode: user.LOCCODE,
+        assignedFloors,
       },
       groupId: user.GroupId,
-      assignedFloors: assignedFloors
     });
 
   } catch (error) {
@@ -197,11 +226,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 
-
-
-
 // ── Profile Picture: GET ──────────────────────────────────────────────────────
-// Returns the current picture for a user (by userId + locCode) as base64
 app.get('/api/auth/profile-picture', async (req, res) => {
   const { userId, locCode } = req.query;
   if (!userId || !locCode) return res.status(400).json({ ok: false, message: 'userId and locCode required' });
@@ -227,7 +252,6 @@ app.get('/api/auth/profile-picture', async (req, res) => {
 });
 
 // ── Profile Picture: UPDATE ───────────────────────────────────────────────────
-// Accepts base64 picture string; saves as binary in Tbl_UserDetails
 app.post('/api/auth/update-picture', async (req, res) => {
   const { userId, locCode, picture } = req.body;
   if (!userId || !locCode || !picture) return res.status(400).json({ ok: false, message: 'userId, locCode and picture required' });
@@ -246,9 +270,6 @@ app.post('/api/auth/update-picture', async (req, res) => {
   }
 });
 
-// Username existence check — called on blur from the login screen.
-// Returns 200 { exists: true } if the username is in Tbl_UserDetails,
-// 404 { exists: false } if not found, and 503 if the DB pool is not connected.
 app.get('/api/auth/check-username', async (req, res) => {
   const { username } = req.query;
 
@@ -277,11 +298,6 @@ app.get('/api/auth/check-username', async (req, res) => {
   }
 });
 
-// Verifies that a given username/password belongs to a user with manager-level
-// privileges. Used by the billing screen before allowing a void override.
-// Matches against Tbl_UserGroups.GroupDes — confirmed values: Cashier, Steward,
-// Manager, Driver, Store Keeper, Chefs, Barmen. Only "Manager" (GroupId 003)
-// is authorized to approve voids.
 const MANAGER_ROLE_NAMES = ['manager'];
 
 app.post('/api/auth/verify-manager', async (req, res) => {
@@ -351,13 +367,11 @@ app.post('/api/auth/signup', async (req, res) => {
     try {
       await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
-      // 1. Check if phone number already exists
       const existingPhone = await new sql.Request(transaction)
         .input('phoneNumber', sql.VarChar, phoneNumber)
         .query('SELECT UserId FROM Tbl_UserDetails WHERE ContNo = @phoneNumber');
 
       if (existingPhone.recordset.length > 0) {
-        // Phone exists → just update LoginName and Password
         await new sql.Request(transaction)
           .input('phoneNumber', sql.VarChar, phoneNumber)
           .input('username', sql.VarChar, username)
@@ -372,7 +386,6 @@ app.post('/api/auth/signup', async (req, res) => {
         return res.json({ message: 'Account credentials updated successfully!' });
       }
 
-      // 2. Check if username already taken
       const existingUser = await new sql.Request(transaction)
         .input('username', sql.VarChar, username)
         .query('SELECT LoginName FROM Tbl_UserDetails WHERE LoginName = @username');
@@ -382,7 +395,6 @@ app.post('/api/auth/signup', async (req, res) => {
         return res.status(409).json({ message: 'Username already exists.' });
       }
 
-      // 3. Generate next UserId safely — skip any rows with non-numeric UserIds like 'Y      '
       const maxIdResult = await new sql.Request(transaction)
         .query(`
           SELECT ISNULL(MAX(CAST(SUBSTRING(UserId, 2, LEN(UserId)) AS INT)), 0) + 1 AS NextId 
@@ -392,7 +404,6 @@ app.post('/api/auth/signup', async (req, res) => {
         `);
       const nextId = 'U' + String(maxIdResult.recordset[0].NextId).padStart(3, '0');
 
-      // 4. Insert new user — all columns explicitly provided to avoid bad DB defaults firing
       await new sql.Request(transaction)
         .input('userId',      sql.Char(10),    nextId)
         .input('username',    sql.VarChar(400), username)
@@ -435,12 +446,10 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   try {
     const { username } = req.body;
 
-    
     const usernameErr = validateUsername(username);
     if (usernameErr) return res.status(400).json({ message: usernameErr });
 
     const pool = await poolPromise;
-    
    
     const result = await pool.request()
       .input('username', sql.VarChar, username)
@@ -449,7 +458,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     const user = result.recordset[0];
     if (!user) return res.status(404).json({ message: 'User not found.' });
 
-   
     return res.json({ 
       message: 'Verification code sent', 
       phoneNumber: user.ContNo 
@@ -474,7 +482,6 @@ app.post('/api/auth/reset-password', async (req, res) => {
     const pool = await poolPromise;
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     
-   
     const result = await pool.request()
       .input('username', sql.VarChar, username)
       .input('password', sql.VarChar, hashedPassword)
@@ -504,7 +511,6 @@ app.post('/api/auth/change-password', async (req, res) => {
 
     const pool = await poolPromise;
     
-   
     const result = await pool.request()
       .input('username', sql.VarChar, username)
       .query('SELECT LoginName, Password FROM Tbl_UserDetails WHERE LoginName = @username');
@@ -517,7 +523,6 @@ app.post('/api/auth/change-password', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     
-   
     const updateResult = await pool.request()
       .input('username', sql.VarChar, username)
       .input('password', sql.VarChar, hashedPassword)
@@ -538,11 +543,16 @@ app.post('/api/auth/change-password', async (req, res) => {
 app.get('/api/floors', async (req, res) => {
   try {
     const pool = await poolPromise;
+    // Use Tbl_TableGroup (the master floor list), NOT Vw_Tables.
+    // Vw_Tables only contains floors that currently have tables, so any
+    // assigned floor without tables (e.g. "C. SECOND FLOOR", "E. ROOM
+    // SERVICE", "F. EATS") was being dropped here — which made assigned
+    // floors disappear from the app's floor/table selection.
     const result = await pool.request()
       .query(`
-        SELECT DISTINCT GroupName
-        FROM Vw_Tables
-        WHERE Enable = 1
+        SELECT GroupId, GroupName
+        FROM Tbl_TableGroup
+        WHERE GroupName IS NOT NULL AND LTRIM(RTRIM(GroupName)) != ''
         ORDER BY GroupName
       `);
 
@@ -728,7 +738,6 @@ app.get('/api/menu/sub-categories', async (req, res) => {
 app.get('/api/remarks/order-descriptions', async (_req, res) => {
   let remarkPool;
   try {
-    
     const rmksDbConfig = {
       user: sysConfig.REMARKS_DB_USER || sysConfig.DB_USER,
       password: sysConfig.REMARKS_DB_PASS || sysConfig.DB_PASS,
@@ -819,7 +828,7 @@ const buildMenuLevelQuery = (intLevel) => {
         Select distinct(Level6) As Level, L6Des as LDes,'C' As Type,'0' As SalesPrice from Vw_MenuAssignment  Where DisplayInFront = '1' And MenuAssiEnable='1' And MenuItemEnable = '1' 
         And  Level1= @level1 And  Level2= @level2 And Level3= @level3 And Level4= @level4 And Level5= @level5 AND Level6 <>'' 
         UNION 
-        Select MenuItemCode,MenuItmDes,'I' As Type,SalesPrice  from Vw_MenuAssignment  Where DisplayInFront = '1' And MenuAssiEnable='1' And MenuItemEnable = '1' 
+        Select MenuItemCode,MenuItmDes,'I' As Type, SalesPrice  from Vw_MenuAssignment  Where DisplayInFront = '1' And MenuAssiEnable='1' And MenuItemEnable = '1' 
         And  Level1= @level1 And  Level2= @level2 And Level3= @level3 And Level4= @level4 And Level5= @level5 AND Level6 ='' 
     `;
   }
@@ -867,18 +876,12 @@ app.get('/api/menu/level', async (req, res) => {
   }
 });
 
-// Menu Items — always a full sync.
-// The app caches results in MMKV and only calls this endpoint once per day
-// (first login after midnight) or when the user manually triggers a sync from
-// the Settings screen. No incremental/since filter is needed.
 app.get('/api/menu/items', async (req, res) => {
   try {
     console.log('[Backend] GET /api/menu/items (full sync)');
 
     const pool = await poolPromise;
 
-    // Select only the columns the app uses — keeps the payload small and avoids
-    // pulling unused blob / text columns from the view on every request.
     const result = await pool.request().query(`
       SELECT
         MenuItemCode,
@@ -922,7 +925,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on 0.0.0.0:${PORT}`);
 });
 
-// Graceful shutdown 
 process.on('SIGINT', async () => {
   try {
     await sql.close();
@@ -959,9 +961,6 @@ const getBearerUserId = (req, fallbackUserId = 'SYSTEM') => {
   return getBearerUserInfo(req, fallbackUserId).userId;
 };
 
-// Returns { userId, loginName } from JWT token.
-// userId    = UserId PK (e.g. U001)  → goes into UserID column in HoldUps tables
-// loginName = LoginName (e.g. john)  → goes into UserName column in HoldUpsCloudTemp
 const getBearerUserInfo = (req, fallbackUserId = 'SYSTEM') => {
   const fallback = pickString(fallbackUserId, 50) || 'SYSTEM';
   try {
@@ -1047,15 +1046,16 @@ const confirmCartHandler = async (req, res) => {
       return res.status(400).json({ ok: false, message: 'No items to confirm' });
     }
 
-    const orderTypeVal = pickString(body.orderType ?? body.OrderType ?? '', 10) || 'DI';
+    // Normalize orderType — frontend may send DINING/DI/TA/Take Away
+    const rawOrderType = pickString(body.orderType ?? body.OrderType ?? "", 10);
+    const orderTypeVal = (rawOrderType === "TA" || rawOrderType === "Take Away" || rawOrderType === "TAKEAWAY") ? "TA" : "DI";
     let tableNo = pickString(body.tableNo ?? body.TableNo ?? body.TabelNo ?? body.tableName ?? body.TableName, 50);
-    const tableGrpId = pickString(body.tableGrpId ?? body.TableGrpId ?? body.TableGrpID ?? body.TabelGrpID ?? body.tableGroupId, 50);
+    const tableGrpId = pickString(body.tableGrpId ?? body.TableGrpID ?? body.TableGrpID ?? body.TabelGrpID ?? body.tableGroupId, 50);
     const { userId, loginName: userFullName } = getBearerUserInfo(req, body.userId ?? body.UserID ?? 'SYSTEM');
     const lPax = pickNumber(body.lPax ?? body.LPax ?? 0, 0);
     const fPax = pickNumber(body.fPax ?? body.FPax ?? 0, 0);
 
     let invoiceNo = pickString(body.existingInvoiceNo ?? body.invoiceNo ?? body.InvoiceNo, 50);
-    // ──────────────────────────────────────────────────────────────────────────
 
     if (orderTypeVal === 'TA' && !invoiceNo) {
       const serialResult = await pool.request().query("SELECT SeriNo FROM Tbl_Serials WHERE SeriCode = 'TA'");
@@ -1126,15 +1126,21 @@ const confirmCartHandler = async (req, res) => {
         invoiceNo = `INV-${datePart}-${String(seq).padStart(3, '0')}`;
       }
 
-      let resolvedTableGrpId = tableGrpId;
-      try {
-        const tblGrpReq = new sql.Request(transaction);
-        tblGrpReq.input('TableNo', sql.NVarChar(50), tableNo);
-        const tblGrpResult = await tblGrpReq.query('SELECT TableGroup FROM dbo.Tbl_Tables WHERE TableNo = @TableNo');
-        if (tblGrpResult.recordset.length > 0 && tblGrpResult.recordset[0].TableGroup != null) {
-          resolvedTableGrpId = pickString(tblGrpResult.recordset[0].TableGroup, 50);
-        }
-      } catch (_) {}
+      // ─── FIX: For TA orders, TableGrpID must be space " " ──────────────────
+      let resolvedTableGrpId;
+      if (orderTypeVal === 'TA') {
+        resolvedTableGrpId = " ";  // TA orders → space, never null
+      } else {
+        resolvedTableGrpId = tableGrpId;
+        try {
+          const tblGrpReq = new sql.Request(transaction);
+          tblGrpReq.input('TableNo', sql.NVarChar(50), tableNo);
+          const tblGrpResult = await tblGrpReq.query('SELECT TableGroup FROM dbo.Tbl_Tables WHERE TableNo = @TableNo');
+          if (tblGrpResult.recordset.length > 0 && tblGrpResult.recordset[0].TableGroup != null) {
+            resolvedTableGrpId = pickString(tblGrpResult.recordset[0].TableGroup, 50);
+          }
+        } catch (_) {}
+      }
 
       for (const item of normalizedItems) {
         const lookupReq = new sql.Request(transaction);
@@ -1156,7 +1162,9 @@ const confirmCartHandler = async (req, res) => {
           updateReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
           updateReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
           updateReq.input('QTY', sql.Float, item.QTY);
-          updateReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
+          // Store UNIT price — getActiveBillItemsHandler returns h.SalesPrice directly
+          // and the frontend multiplies by QTY for display. Do NOT multiply here.
+          updateReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
           updateReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
           updateReq.input('UserID', sql.NVarChar(50), userId);
           updateReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId);
@@ -1174,7 +1182,8 @@ const confirmCartHandler = async (req, res) => {
           insertReq.input('TabelNo', sql.NVarChar(50), tableNo);
           insertReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
           insertReq.input('QTY', sql.Float, item.QTY);
-          insertReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
+          // Store UNIT price — same reason as above
+          insertReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
           insertReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
           insertReq.input('UserID', sql.NVarChar(50), userId);
           insertReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId);
@@ -1190,7 +1199,6 @@ const confirmCartHandler = async (req, res) => {
           `);
         }
 
-        
         const deltaQty = rowExists ? (item.QTY - existingQty) : item.QTY;
         if (deltaQty !== 0) {
           const tempReq = new sql.Request(transaction);
@@ -1200,10 +1208,11 @@ const confirmCartHandler = async (req, res) => {
           tempReq.input('QTY', sql.Float, deltaQty);
           tempReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
           tempReq.input('VoidRemark', sql.NVarChar(500), '');
-          tempReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId || null);
+          tempReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId);
           tempReq.input('LPax', sql.Float, lPax);
           tempReq.input('FPax', sql.Float, fPax);
-          tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
+          // Temp table also stores unit price for consistency
+          tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
           tempReq.input('OrderType', sql.VarChar(5), orderTypeVal);
           tempReq.input('UserName', sql.VarChar(50), userFullName);
 
@@ -1229,7 +1238,7 @@ if (orderTypeVal !== 'TA' && tableNo && !isTakeAwayTable && tableNo !== 'TA-PEND
       return sendSqlError(res, error, 'Failed to confirm cart');
     }
   } catch (error) {
-    return res.status(500).json({ ok: false, message: error.message });
+    return res.status(500).json({ ok: false, error: error.message });
   }
 };
 
@@ -1292,13 +1301,12 @@ const billingAddItemHandler = async (req, res) => {
           tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice * item.QTY);
           tempReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
           
-         
           tempReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId === " " ? " " : (tableGrpId || null));
           
           tempReq.input('LPax', sql.Float, lPax);
           tempReq.input('FPax', sql.Float, fPax);
           tempReq.input('MgrID', sql.NVarChar(50), mgrId || '0');
-          tempReq.input('OrderType', sql.VarChar(5), orderTypeVal); // <-- OrderType එක Temp ටේබල් එකට එකතු කළා
+          tempReq.input('OrderType', sql.VarChar(5), orderTypeVal);
           tempReq.input('UserName', sql.VarChar(50), userFullName);
 
           await tempReq.query(`
@@ -1330,7 +1338,7 @@ const billingAddItemHandler = async (req, res) => {
             updateReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId === " " ? " " : tableGrpId);
             updateReq.input('LPax', sql.Float, lPax);
             updateReq.input('FPax', sql.Float, fPax);
-            updateReq.input('OrderType', sql.VarChar(5), orderTypeVal); // <-- OrderType එක එකතු කළා
+            updateReq.input('OrderType', sql.VarChar(5), orderTypeVal);
 
             await updateReq.query(`
               UPDATE dbo.Tbl_HoldUpsCloud
@@ -1345,7 +1353,7 @@ const billingAddItemHandler = async (req, res) => {
                   TabelGrpID = @TabelGrpID,
                   LPax = @LPax,
                   FPax = @FPax,
-                  OrderType = @OrderType, -- <-- Update එකට එකතු කළා
+                  OrderType = @OrderType,
                   TxnDateTime = ${SQL_SRI_LANKA_NOW}
               WHERE TabelNo = @TabelNo
                 AND ItemCode = @ItemCode
@@ -1402,11 +1410,10 @@ const billingRemoveItemHandler = async (req, res) => {
     const ItemRemarks = body.ItemRemarks || body.itemRemarks || '';
     const MgrID = body.MgrID || body.mgrId;
     const TabelGrpID = body.TabelGrpID || body.TableGrpID || body.tableGrpId || '';
-    const LPax = body.LPax || body.lPax || 0;
-    const FPax = body.FPax || body.fPax || 0;
-    const SalesPrice = body.SalesPrice || body.salesPrice || 0;
+    const LPax = body.LPax ?? body.lPax ?? 0;
+    const FPax = body.FPax ?? body.fPax ?? 0;
+    const SalesPrice = body.SalesPrice ?? body.salesPrice ?? 0;
     
-   
     const orderTypeVal = pickString(body.orderType ?? body.OrderType ?? '', 10) || 'DI';
 
     if (!TabelNo) return res.status(400).json({ success: false, message: 'TabelNo is required.' });
@@ -1433,7 +1440,6 @@ const billingRemoveItemHandler = async (req, res) => {
     try {
       await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
-     
       if (orderTypeVal === 'TA') {
         tableGrpIdValue = " ";
       } else if (!tableGrpIdValue && tableNoValue) {
@@ -1477,7 +1483,6 @@ const billingRemoveItemHandler = async (req, res) => {
       logReq.input('VoidRemark', sql.NVarChar(500), voidRemarkValue);
       logReq.input('MgrID', sql.NVarChar(50), mgrIdValue);
       
-     
       logReq.input('TabelGrpID', sql.NVarChar(50), tableGrpIdValue === " " ? " " : (tableGrpIdValue || null));
       
       logReq.input('LPax', sql.Float, lPaxValue);
@@ -1528,6 +1533,7 @@ const billingRemoveItemHandler = async (req, res) => {
   }
 };
 
+// ─── FIX: getActiveBillItemsHandler — now includes OrderType in SELECT & response ──
 const getActiveBillItemsHandler = async (req, res) => {
   try {
     const tableNo   = pickString(req.query?.tableNo   ?? req.body?.tableNo   ?? req.body?.TableNo,   50);
@@ -1542,22 +1548,21 @@ const getActiveBillItemsHandler = async (req, res) => {
     let whereClause = '';
 
     if (invoiceNo) {
-      // Exact invoice match — correct rows regardless of how many invoices
-      // exist for the same table number.
       request.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
       whereClause = 'WHERE h.InvoiceNo = @InvoiceNo AND (h.IsPaid = 0 OR h.IsPaid IS NULL)';
     } else {
-      // Fallback: tableNo only (backward compat)
       request.input('TabelNo', sql.NVarChar(50), tableNo);
       whereClause = 'WHERE h.TabelNo = @TabelNo AND (h.IsPaid = 0 OR h.IsPaid IS NULL)';
     }
 
+    // ─── FIX: Added h.OrderType to SELECT ──────────────────────────────────
     const result = await request.query(`
       SELECT
         h.TabelNo, h.ItemCode,
         COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), h.ItemCode) AS MenuItmDes,
         h.QTY, h.SalesPrice, COALESCE(h.ItemRemarks, '') AS ItemRemarks,
-        h.TabelGrpID, h.UserID, h.LPax, h.FPax, h.TxnDateTime, h.InvoiceNo, h.IsPaid
+        h.TabelGrpID, h.UserID, h.LPax, h.FPax, h.TxnDateTime, h.InvoiceNo, h.IsPaid,
+        h.OrderType
       FROM dbo.Tbl_HoldUpsCloud h
       LEFT JOIN Vw_MenuAssignment m ON m.MenuItemCode = h.ItemCode
       ${whereClause}
@@ -1575,6 +1580,8 @@ const getActiveBillItemsHandler = async (req, res) => {
         fPax: Number(first?.FPax ?? 0),
         tableGrpId: first?.TabelGrpID ?? '',
         userId: first?.UserID ?? '',
+        // ─── FIX: Return OrderType so frontend knows it's TA ────────────────
+        orderType: pickString(first?.OrderType, 10) || 'DI',
         isPaid: first ? Boolean(first.IsPaid) : false,
         items: result.recordset.map((row) => ({
           menuItemCode: row.ItemCode,
@@ -1594,8 +1601,6 @@ const getActiveBillItemsHandler = async (req, res) => {
 
 const getUnpaidBillsHandler = async (req, res) => {
   try {
-    // groupId '003' = Manager → sees ALL unpaid bills.
-    // All others → only their own bills (UserID = their userId).
     let callerUserId  = null;
     let callerGroupId = null;
     try {
@@ -1651,6 +1656,7 @@ const getUnpaidBillsHandler = async (req, res) => {
   }
 };
 
+// ─── FIX: getBillItemsHandler — now includes OrderType ─────────────────────────
 const getBillItemsHandler = async (req, res) => {
   try {
     const invoiceNo = pickString(req.query?.invoiceNo, 50);
@@ -1672,12 +1678,14 @@ const getBillItemsHandler = async (req, res) => {
       whereClause = 'WHERE h.TabelNo = @TabelNo AND h.IsPaid = 0';
     }
 
+    // ─── FIX: Added h.OrderType to SELECT ──────────────────────────────────
     const result = await request.query(`
       SELECT
         h.InvoiceNo, h.TabelNo, h.ItemCode,
         COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), h.ItemCode) AS MenuItmDes,
         h.QTY, h.SalesPrice, COALESCE(h.ItemRemarks, '') AS ItemRemarks,
-        h.TabelGrpID, h.UserID, h.LPax, h.FPax, h.TxnDateTime, h.IsPaid
+        h.TabelGrpID, h.UserID, h.LPax, h.FPax, h.TxnDateTime, h.IsPaid,
+        h.OrderType
       FROM dbo.Tbl_HoldUpsCloud h
       LEFT JOIN Vw_MenuAssignment m ON m.MenuItemCode = h.ItemCode
       ${whereClause}
@@ -1706,6 +1714,8 @@ const getBillItemsHandler = async (req, res) => {
         tableNo: first.TabelNo,
         lPax: Number(first.LPax ?? 0),
         fPax: Number(first.FPax ?? 0),
+        // ─── FIX: Return OrderType ──────────────────────────────────────────
+        orderType: pickString(first.OrderType, 10) || 'DI',
         orderTime: first.TxnDateTime,
         isPaid: Boolean(first.IsPaid),
         items,
@@ -1753,7 +1763,9 @@ const payBillHandler = async (req, res) => {
         throw new Error('No bill found for that invoice number.');
       }
 
-      if (billTableNo) {
+      // Only set table to vacant for non-TA orders
+      const isTakeAway = billTableNo && billTableNo.toString().toUpperCase().startsWith('TA');
+      if (billTableNo && !isTakeAway) {
         await setTableVaccantState(transaction, billTableNo, 'Y');
       }
 
@@ -1893,7 +1905,6 @@ app.post('/api/customer/save', async (req, res) => {
   }
 });
 
-// Get User Groups from Database
 app.get('/api/user-groups', async (req, res) => {
   try {
     const pool = await sql.connect(dbConfig);
@@ -1908,12 +1919,25 @@ app.get('/api/user-groups', async (req, res) => {
   }
 });
 
-//manage workers
+app.get('/api/user-floor-access/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) {
+      return res.status(400).json({ assignedFloors: [] });
+    }
+    const pool = await poolPromise;
+    const assignedFloors = await getAssignedFloorsForUser(pool, userId);
+    return res.json({ assignedFloors });
+  } catch (error) {
+    console.error('[user-floor-access GET]', error);
+    return res.status(500).json({ assignedFloors: [] });
+  }
+});
+
 app.get('/api/auth/workers', async (req, res) => {
   try {
     const pool = await poolPromise;
     
-   
     const result = await pool.request().query(`
       SELECT 
         UserId, 
@@ -1951,8 +1975,6 @@ app.get('/api/auth/workers', async (req, res) => {
   }
 });
 
-// Get Table Groups (Floor Access options) from Tbl_TableGroup — used for the
-// multi-select "Manage Access" dropdown on the Manage Floor Access screen.
 app.get('/api/table-groups', async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1969,7 +1991,6 @@ app.get('/api/table-groups', async (req, res) => {
 });
 
 
-// floor access management
 app.post('/api/user-floor-access/save', async (req, res) => {
   const body = req.body || {};
   const targetUserId = pickString(body.UserId ?? body.userId, 50);
@@ -2127,7 +2148,6 @@ app.post('/api/user-floor-access/save', async (req, res) => {
 });
 
 
-// Device Check-in Endpoint
 app.post('/api/devices/check-in', async (req, res) => {
   const { deviceId, locCode } = req.body;
   const resolvedLocCode = String(locCode || '1').trim();
