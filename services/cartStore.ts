@@ -28,7 +28,7 @@ export type HeldOrderSnapshot = {
   itemCount: number;
   items: CartItem[];
   itemRemarksByCode: Record<string, string>;
-  voidMetadata: Record<string, { remark: string; manager: string }>;
+  voidMetadata: Record<string, { remark: string; manager: string; managerId: string }>;
   pendingAdditions: Record<string, number>;
   billingHasChanges: boolean;
 };
@@ -231,13 +231,16 @@ export const useCartStore = create<CartStore>((set, get) => ({
 
   setCartItems: (items) => set({ cartItems: normalizeCartItems(items), isDirty: false }),
 
-  clearCart: () => set((state) => ({ 
-  cartItems: [], 
-  isDirty: false, 
-  customerInfo: null, 
-  
-  orderType: state.orderType 
-})),
+  clearCart: () => set({ 
+    cartItems: [], 
+    isDirty: false, 
+    customerInfo: null,
+    // FIX: Reset orderType on clearCart so a previous TA session does not
+    // bleed into the next Dining order.  callers that need to preserve the
+    // type (e.g. TakeAway screen) must call setCartItems([]) instead, which
+    // leaves orderType/customerInfo untouched.
+    orderType: null,
+  }),
 
   saveCurrentOrderToHold: (tableNumber, snapshot) => {
     const normalizedItems = normalizeCartItems(snapshot.items || []);

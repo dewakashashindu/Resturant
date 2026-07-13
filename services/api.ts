@@ -431,6 +431,10 @@ const normalizeAddBillingPayload = (payload: AddBillingItemPayload | {
     UserID: toNumber((payload as any).UserID ?? (payload as any).userId, 0),
     orderType,
     tableGrpId,
+    // invoiceNo MUST be forwarded — the PK on Tbl_HoldUpsCloud is (TabelNo, ItemCode, InvoiceNo).
+    // Without it the server cannot find the existing row, falls through to INSERT,
+    // and hits "Violation of PRIMARY KEY constraint PK_Tbl_HoldUpsCloud".
+    invoiceNo: toString((payload as any).invoiceNo ?? (payload as any).InvoiceNo, '').trim() || undefined,
     lPax: toNumber((payload as any).lPax ?? (payload as any).LPax, 0),
     fPax: toNumber((payload as any).fPax ?? (payload as any).FPax, 0),
     mgrId: toString((payload as any).mgrId ?? (payload as any).MgrID, '').trim(),

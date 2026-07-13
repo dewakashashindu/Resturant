@@ -16,7 +16,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
 import { useAuthStore } from '../../services/authStore';
-import { useCartStore } from '../../services/cartStore';
+import { CartItem, useCartStore } from '../../services/cartStore';
+import { useOrderStore } from '../../services/orderStore';
 import { storage } from '../../services/storage';
 
 type TableStatus = 'occupied' | 'reserved' | 'available';
@@ -42,6 +43,8 @@ const getApiBase = () => getApiBaseUrl().replace(/\/$/, '');
 export default function TableSelectionScreen() {
   const router = useRouter();
   const clearCart = useCartStore((state) => state.clearCart);
+  const setCartItems = useCartStore((state) => state.setCartItems);
+  const setOrderType = useCartStore((state) => state.setOrderType);
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -388,6 +391,78 @@ export default function TableSelectionScreen() {
                             return;
                           }
 
+                          const normalizeUserValue = (value: unknown) =>
+                            String(value ?? '').trim().toLowerCase();
+                          const billUserId = normalizeUserValue(data?.userId);
+                          const currentUserValues = [
+                            (user as any)?.userId,
+                            (user as any)?.UserId,
+                            (user as any)?.id,
+                            (user as any)?.username,
+                            (user as any)?.userName,
+                            (user as any)?.LoginName,
+                          ]
+                            .map(normalizeUserValue)
+                            .filter(Boolean);
+                          const isCurrentUsersBill =
+                            !!billUserId && currentUserValues.includes(billUserId);
+
+                          if (isCurrentUsersBill) {
+                            const existingItems: CartItem[] = Array.isArray(data?.items)
+                              ? data.items.map((item: any) => ({
+                                  menuItemCode: String(
+                                    item.menuItemCode ?? item.ItemCode ?? item.itemCode ?? '',
+                                  ).trim(),
+                                  menuItmDes: String(
+                                    item.menuItmDes ?? item.MenuItmDes ?? item.ItemDescription ?? '',
+                                  ),
+                                  salesPrice: Number(item.salesPrice ?? item.SalesPrice ?? 0) || 0,
+                                  quantity: Number(item.quantity ?? item.QTY ?? 0) || 0,
+                                  itemRemarks: String(item.itemRemarks ?? item.ItemRemarks ?? ''),
+                                })).filter((item: CartItem) => item.menuItemCode && item.quantity > 0)
+                              : [];
+
+                            const resolvedTableNo = String(data?.tableNo ?? table.id).trim();
+                            const resolvedOrderType = String(data?.orderType ?? 'DI').trim() || 'DI';
+
+                            useOrderStore.getState().setLastConfirmedOrder({
+                              orderType: resolvedOrderType,
+                              tableNo: resolvedTableNo,
+                              userId: String(data?.userId ?? (user as any)?.userId ?? 'SYSTEM'),
+                              tableGrpId: String(data?.tableGrpId ?? ''),
+                              lPax: Number(data?.lPax ?? data?.LPax ?? 0) || 0,
+                              fPax: Number(data?.fPax ?? data?.FPax ?? 0) || 0,
+                              invoiceNo,
+                              createdAt: String(data?.createdAt ?? new Date().toISOString()),
+                              items: existingItems.map((item) => ({
+                                menuItemCode: item.menuItemCode,
+                                menuItmDes: item.menuItmDes,
+                                salesPrice: item.salesPrice,
+                                quantity: item.quantity,
+                                itemRemarks: item.itemRemarks,
+                              })),
+                            });
+
+                            setCartItems(existingItems);
+                            setOrderType(resolvedOrderType === 'TA' ? 'TA' : 'DINING');
+
+                            router.push({
+                              pathname: '/Screens/selectitems',
+                              params: {
+                                tableName: table.id,
+                                tableNo: resolvedTableNo,
+                                floor: selectedFloor,
+                                invoiceNo,
+                                localPax: String(data?.lPax ?? data?.LPax ?? '0'),
+                                foreignPax: String(data?.fPax ?? data?.FPax ?? '0'),
+                                status: table.status,
+                                fromBilling: '1',
+                                orderType: resolvedOrderType,
+                              },
+                            });
+                            return;
+                          }
+
                           router.push({
                             pathname: '/Screens/BillingScreen',
                             params: {
@@ -395,8 +470,8 @@ export default function TableSelectionScreen() {
                               tableNo: table.id,
                               floor: selectedFloor,
                               invoiceNo,
-                              localPax: String(data?.lPax ?? '0'),
-                              foreignPax: String(data?.fPax ?? '0'),
+                              localPax: String(data?.lPax ?? data?.LPax ?? '0'),
+                              foreignPax: String(data?.fPax ?? data?.FPax ?? '0'),
                             },
                           });
                           return;

@@ -920,11 +920,6 @@ app.get('/api/menu/items', async (req, res) => {
 });
 
 
-const PORT = sysConfig.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on 0.0.0.0:${PORT}`);
-});
-
 process.on('SIGINT', async () => {
   try {
     await sql.close();
@@ -1052,10 +1047,19 @@ const confirmCartHandler = async (req, res) => {
     let tableNo = pickString(body.tableNo ?? body.TableNo ?? body.TabelNo ?? body.tableName ?? body.TableName, 50);
     const tableGrpId = pickString(body.tableGrpId ?? body.TableGrpID ?? body.TableGrpID ?? body.TabelGrpID ?? body.tableGroupId, 50);
     const { userId, loginName: userFullName } = getBearerUserInfo(req, body.userId ?? body.UserID ?? 'SYSTEM');
-    const lPax = pickNumber(body.lPax ?? body.LPax ?? 0, 0);
-    const fPax = pickNumber(body.fPax ?? body.FPax ?? 0, 0);
+    let lPax = pickNumber(body.lPax ?? body.LPax ?? 0, 0);
+    let fPax = pickNumber(body.fPax ?? body.FPax ?? 0, 0);
 
     let invoiceNo = pickString(body.existingInvoiceNo ?? body.invoiceNo ?? body.InvoiceNo, 50);
+
+    // forceNewInvoice: true means the frontend explicitly wants a brand-new
+    // invoice (e.g. first order after app restart, table cleared). Honour it
+    // by treating invoiceNo as empty so the server generates a fresh one and
+    // does NOT reuse any stale unpaid invoice for this table.
+    const forceNewInvoice = Boolean(body.forceNewInvoice);
+    if (forceNewInvoice) {
+      invoiceNo = '';
+    }
 
     if (orderTypeVal === 'TA' && !invoiceNo) {
       const serialResult = await pool.request().query("SELECT SeriNo FROM Tbl_Serials WHERE SeriCode = 'TA'");
@@ -1097,7 +1101,13 @@ const confirmCartHandler = async (req, res) => {
     try {
       await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
-      if (!invoiceNo) {
+      // Only look up an existing unpaid invoice when the frontend explicitly
+      // passed one via existingInvoiceNo (add-more flow). For brand-new orders
+      // (forceNewInvoice === true OR no existingInvoiceNo provided) we must
+      // NOT reuse a stale invoice — doing so causes the PK violation because
+      // the old invoice already has this item inserted.
+      const hasExplicitInvoice = Boolean(body.existingInvoiceNo ?? body.invoiceNo ?? body.InvoiceNo);
+      if (!invoiceNo && !forceNewInvoice && hasExplicitInvoice) {
         const activeInvoiceReq = new sql.Request(transaction);
         activeInvoiceReq.input('TabelNo', sql.NVarChar(50), tableNo);
         const activeInvoiceResult = await activeInvoiceReq.query(`
@@ -1108,6 +1118,26 @@ const confirmCartHandler = async (req, res) => {
         `);
 
         invoiceNo = pickString(activeInvoiceResult.recordset?.[0]?.InvoiceNo, 50);
+      }
+
+      if (invoiceNo && (lPax <= 0 || fPax <= 0)) {
+        const paxReq = new sql.Request(transaction);
+        paxReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
+        paxReq.input('TabelNo', sql.NVarChar(50), tableNo);
+        const paxResult = await paxReq.query(`
+          SELECT TOP 1 LPax, FPax
+          FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK)
+          WHERE InvoiceNo = @InvoiceNo
+            AND TabelNo = @TabelNo
+            AND (IsPaid = 0 OR IsPaid IS NULL)
+            AND (ISNULL(LPax, 0) > 0 OR ISNULL(FPax, 0) > 0)
+          ORDER BY TxnDateTime DESC
+        `);
+        const existingPax = paxResult.recordset?.[0];
+        if (existingPax) {
+          if (lPax <= 0) lPax = pickNumber(existingPax.LPax, 0);
+          if (fPax <= 0) fPax = pickNumber(existingPax.FPax, 0);
+        }
       }
 
       if (!invoiceNo) {
@@ -1207,7 +1237,7 @@ const confirmCartHandler = async (req, res) => {
           tempReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
           tempReq.input('QTY', sql.Float, deltaQty);
           tempReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
-          tempReq.input('VoidRemark', sql.NVarChar(500), '');
+          tempReq.input('VoidRemark', sql.NVarChar(500), ' ');
           tempReq.input('TabelGrpID', sql.NVarChar(50), resolvedTableGrpId);
           tempReq.input('LPax', sql.Float, lPax);
           tempReq.input('FPax', sql.Float, fPax);
@@ -1218,7 +1248,7 @@ const confirmCartHandler = async (req, res) => {
 
           await tempReq.query(`
             INSERT INTO dbo.Tbl_HoldUpsCloudTemp (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, MgrID, OrderType, AoR, UserName)
-            VALUES (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, '0', @OrderType, 'A', @UserName)
+            VALUES (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, @MgrID, @OrderType, 'A', @UserName)
           `);
         }
       }
@@ -1252,8 +1282,8 @@ const billingAddItemHandler = async (req, res) => {
     const orderTypeVal = pickString(body.orderType ?? body.OrderType ?? '', 10) || 'DI';
     
     let tableGrpId = pickString(body.tableGrpId ?? body.TableGrpID ?? body.TabelGrpID ?? '', 50);
-    const lPax = pickNumber(body.lPax ?? body.LPax ?? 0, 0);
-    const fPax = pickNumber(body.fPax ?? body.FPax ?? 0, 0);
+    let lPax = pickNumber(body.lPax ?? body.LPax ?? 0, 0);
+    let fPax = pickNumber(body.fPax ?? body.FPax ?? 0, 0);
     const mgrId = pickString(body.mgrId ?? body.MgrID ?? '0', 50) || '0';
     const invoiceNo = pickString(body.invoiceNo ?? body.InvoiceNo ?? null, 50);
 
@@ -1291,6 +1321,24 @@ const billingAddItemHandler = async (req, res) => {
         } catch (_) {}
       }
 
+      if (orderTypeVal !== 'TA' && (lPax <= 0 || fPax <= 0)) {
+        const paxReq = new sql.Request(transaction);
+        paxReq.input('TabelNo', sql.NVarChar(50), tableNo);
+        const paxResult = await paxReq.query(`
+          SELECT TOP 1 LPax, FPax
+          FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK)
+          WHERE TabelNo = @TabelNo
+            AND (IsPaid = 0 OR IsPaid IS NULL)
+            AND (ISNULL(LPax, 0) > 0 OR ISNULL(FPax, 0) > 0)
+          ORDER BY TxnDateTime DESC
+        `);
+        const existingPax = paxResult.recordset?.[0];
+        if (existingPax) {
+          if (lPax <= 0) lPax = pickNumber(existingPax.LPax, 0);
+          if (fPax <= 0) fPax = pickNumber(existingPax.FPax, 0);
+        }
+      }
+
       for (const item of normalizedItems) {
         try {
           const tempReq = new sql.Request(transaction);
@@ -1316,21 +1364,28 @@ const billingAddItemHandler = async (req, res) => {
               (@TabelNo, @UserID, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @TabelGrpID, @LPax, @FPax, 'A', ${SQL_SRI_LANKA_NOW}, @MgrID, @OrderType, @UserName)
           `);
 
+          // ── FIX: lookup MUST include InvoiceNo — the PK is (TabelNo, ItemCode, InvoiceNo).
+          // Without InvoiceNo the SELECT never finds the existing row, falls through
+          // to INSERT, and hits "Violation of PRIMARY KEY constraint PK_Tbl_HoldUpsCloud".
           const lookupReq = new sql.Request(transaction);
           lookupReq.input('TabelNo', sql.NVarChar(50), tableNo);
           lookupReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+          lookupReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
 
           const existing = await lookupReq.query(`
             SELECT QTY
             FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
             WHERE TabelNo = @TabelNo
               AND ItemCode = @ItemCode
+              AND InvoiceNo = @InvoiceNo
+              AND (IsPaid = 0 OR IsPaid IS NULL)
           `);
 
           if (existing.recordset && existing.recordset.length > 0) {
             const updateReq = new sql.Request(transaction);
             updateReq.input('TabelNo', sql.NVarChar(50), tableNo);
             updateReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+            updateReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
             updateReq.input('QTY', sql.Float, item.QTY);
             updateReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
             updateReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
@@ -1357,11 +1412,16 @@ const billingAddItemHandler = async (req, res) => {
                   TxnDateTime = ${SQL_SRI_LANKA_NOW}
               WHERE TabelNo = @TabelNo
                 AND ItemCode = @ItemCode
+                AND InvoiceNo = @InvoiceNo
+                AND (IsPaid = 0 OR IsPaid IS NULL)
             `);
           } else {
+            // ── FIX: INSERT must include InvoiceNo and IsPaid.
+            // Previously missing InvoiceNo caused NULL collisions on the PK.
             const insertReq = new sql.Request(transaction);
             insertReq.input('TabelNo', sql.NVarChar(50), tableNo);
             insertReq.input('ItemCode', sql.NVarChar(50), item.ItemCode);
+            insertReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
             insertReq.input('QTY', sql.Float, item.QTY);
             insertReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
             insertReq.input('ItemRemarks', sql.NVarChar(500), item.ItemRemarks);
@@ -1369,13 +1429,14 @@ const billingAddItemHandler = async (req, res) => {
             insertReq.input('TabelGrpID', sql.NVarChar(50), tableGrpId === " " ? " " : tableGrpId);
             insertReq.input('LPax', sql.Float, lPax);
             insertReq.input('FPax', sql.Float, fPax);
-            insertReq.input('OrderType', sql.VarChar(5), orderTypeVal); 
+            insertReq.input('OrderType', sql.VarChar(5), orderTypeVal);
+            insertReq.input('IsPaid', sql.Bit, 0);
 
             await insertReq.query(`
               INSERT INTO dbo.Tbl_HoldUpsCloud
-                (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, OrderType, TxnDateTime)
+                (TabelNo, ItemCode, InvoiceNo, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, OrderType, IsPaid, TxnDateTime)
               VALUES
-                (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, @OrderType, ${SQL_SRI_LANKA_NOW})
+                (@TabelNo, @ItemCode, @InvoiceNo, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, @OrderType, @IsPaid, ${SQL_SRI_LANKA_NOW})
             `);
           }
         } catch (err) {
@@ -1425,9 +1486,10 @@ const billingRemoveItemHandler = async (req, res) => {
     const userIdValue = pickString(UserID ?? _userId, 50) || 'SYSTEM';
     const itemCodeValue = pickString(ItemCode, 50);
     const qtyValue = Math.abs(pickNumber(QTY, 0));
-    const itemRemarksValue = pickString(ItemRemarks ?? '', 500);
-    const voidRemarkValue = pickString(VoidRemark ?? '', 500);
+    const itemRemarksValue = pickString(ItemRemarks ?? ' ', 500);
+    const voidRemarkValue = pickString(VoidRemark ?? ' ', 500);
     const mgrIdValue = pickString(MgrID ?? '', 50);
+    console.log('[VOID] MgrID received from frontend:', mgrIdValue);
     
     let tableGrpIdValue = pickString(TabelGrpID ?? '', 50);
     const lPaxValue = pickNumber(LPax, 0);
@@ -1570,14 +1632,16 @@ const getActiveBillItemsHandler = async (req, res) => {
     `);
 
     const first = result.recordset[0];
+    const firstNonZeroLPax = result.recordset.find((row) => Number(row.LPax ?? 0) > 0)?.LPax;
+    const firstNonZeroFPax = result.recordset.find((row) => Number(row.FPax ?? 0) > 0)?.FPax;
 
     return res.json({
       ok: true,
       data: {
         tableNo: first?.TabelNo ?? tableNo,
         invoiceNo: first?.InvoiceNo ?? invoiceNo ?? null,
-        lPax: Number(first?.LPax ?? 0),
-        fPax: Number(first?.FPax ?? 0),
+        lPax: Number(firstNonZeroLPax ?? first?.LPax ?? 0),
+        fPax: Number(firstNonZeroFPax ?? first?.FPax ?? 0),
         tableGrpId: first?.TabelGrpID ?? '',
         userId: first?.UserID ?? '',
         // ─── FIX: Return OrderType so frontend knows it's TA ────────────────
@@ -1704,16 +1768,18 @@ const getBillItemsHandler = async (req, res) => {
       itemRemarks: row.ItemRemarks ?? '',
     }));
 
-    const totalAmount = items.reduce((sum, it) => sum + it.salesPrice, 0);
+    const totalAmount = items.reduce((sum, it) => sum + it.salesPrice * it.quantity, 0);
     const first = result.recordset[0];
+    const firstNonZeroLPax = result.recordset.find((row) => Number(row.LPax ?? 0) > 0)?.LPax;
+    const firstNonZeroFPax = result.recordset.find((row) => Number(row.FPax ?? 0) > 0)?.FPax;
 
     return res.json({
       ok: true,
       data: {
         invoiceNo: first.InvoiceNo,
         tableNo: first.TabelNo,
-        lPax: Number(first.LPax ?? 0),
-        fPax: Number(first.FPax ?? 0),
+        lPax: Number(firstNonZeroLPax ?? first.LPax ?? 0),
+        fPax: Number(firstNonZeroFPax ?? first.FPax ?? 0),
         // ─── FIX: Return OrderType ──────────────────────────────────────────
         orderType: pickString(first.OrderType, 10) || 'DI',
         orderTime: first.TxnDateTime,
@@ -2229,3 +2295,8 @@ app.post('/api/add-billing-item', billingAddItemHandler);
 app.post('/api/billing/remove-item', billingRemoveItemHandler);
 app.post('/api/remove-billing-item', billingRemoveItemHandler);
 app.get('/api/billing/active-items', getActiveBillItemsHandler);
+
+const PORT = sysConfig.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on 0.0.0.0:${PORT}`);
+});

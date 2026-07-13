@@ -151,7 +151,7 @@ export default function BillingScreen() {
   const [isHydratingBill, setIsHydratingBill] = useState(false);
   const [pendingAdditions, setPendingAdditions] = useState<Record<string, number>>({});
   const [voidMetadata, setVoidMetadata] = useState<
-    Record<string, { remark: string; manager: string }>
+    Record<string, { remark: string; manager: string; managerId: string }>
   >({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [dbInvoiceNo, setDbInvoiceNo] = useState<string | null>(null);
@@ -177,6 +177,14 @@ export default function BillingScreen() {
   // ── Derived values ─────────────────────────────────────────────────────────
   const isTablet = width >= 600;
   const isSmall = height < 700;
+
+  const resolvePaxValue = useCallback((...values: unknown[]) => {
+    for (const value of values) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+    return 0;
+  }, []);
 
   const activeTableNo = String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim();
   const grossTotal = displayedItems.reduce((sum, item: any) => {
@@ -241,8 +249,8 @@ export default function BillingScreen() {
         tableNo: resolvedTableNo,
         userId: data.userId || 'SYSTEM',
         tableGrpId: data.tableGrpId || '',
-        lPax: typeof data.lPax === 'number' ? data.lPax : Number(localPax ?? 0),
-        fPax: typeof data.fPax === 'number' ? data.fPax : Number(foreignPax ?? 0),
+        lPax: resolvePaxValue(data.lPax, (data as any).LPax, localPax),
+        fPax: resolvePaxValue(data.fPax, (data as any).FPax, foreignPax),
         invoiceNo: targetInvoiceNo ?? data.invoiceNo ?? undefined,
         createdAt: data.createdAt || new Date().toISOString(),
         items: freshItems.map((item: any) => ({
@@ -255,14 +263,36 @@ export default function BillingScreen() {
       });
 
       setDbInvoiceNo(targetInvoiceNo ?? data.invoiceNo ?? null);
-      setDbLPax(typeof data.lPax === 'number' ? data.lPax : null);
-      setDbFPax(typeof data.fPax === 'number' ? data.fPax : null);
+      setDbLPax(resolvePaxValue(data.lPax, (data as any).LPax, localPax));
+      setDbFPax(resolvePaxValue(data.fPax, (data as any).FPax, foreignPax));
+
+      // When returning from Cart after confirming Add-More items, the DB data
+      // we just fetched is the new baseline.  Without resetting this baseline
+      // here, DI bills can compare the freshly saved quantities against the
+      // old pre-cart quantities and incorrectly show "Confirm Changes".
+      if (fromCart === '1') {
+        originalQuantitiesRef.current = freshItems.reduce(
+          (acc: Record<string, number>, item: any) => {
+            const code = item.menuItemCode || item.ItemCode || item.itemCode;
+            if (code) acc[code] = Number(item.quantity ?? item.QTY ?? 0) || 0;
+            return acc;
+          },
+          {} as Record<string, number>,
+        );
+        originalTableNoRef.current = resolvedTableNo;
+        setPendingAdditions({});
+        // voidMetadata clear නොකරනවා — manager verify කළාට පස්සෙ
+        // bill re-fetch වෙද්දී managerId wipe වෙනවා නිසා
+        setPendingVoidItemId(null);
+        setActiveVoidItem(null);
+        setBillingHasChanges(false);
+      }
     } catch (error) {
       console.error('[BillingScreen] Error fetching bill:', error);
     } finally {
       setIsLoadingBillFromDb(false);
     }
-  }, [routeInvoiceNo, tableName, tableNo, localPax, foreignPax]);
+  }, [routeInvoiceNo, tableName, tableNo, localPax, foreignPax, fromCart, resolvePaxValue]);
 
   // ── useFocusEffect ─────────────────────────────────────────────────────────
   useFocusEffect(
@@ -274,12 +304,13 @@ export default function BillingScreen() {
 
   // ── Callbacks & Handlers ───────────────────────────────────────────────────
   const upsertVoidMetadata = useCallback(
-    (menuItemCode: string, remark: string, manager: string) => {
+    (menuItemCode: string, remark: string, manager: string, managerId?: string) => {
       setVoidMetadata((current) => ({
         ...current,
         [menuItemCode]: {
           remark: String(remark || '').trim(),
           manager: String(manager || '').trim(),
+          managerId: String(managerId || '').trim(),
         },
       }));
     },
@@ -655,6 +686,13 @@ export default function BillingScreen() {
           );
           return;
         }
+        const verifiedMgrId = String(verifyResult.data?.manager?.userId ?? '').trim();
+        const itemCode = activeVoidItem.menuItemCode;
+        const trimmedRemark = String(voidRemark || '').trim();
+        const trimmedManager = String(managerName || '').trim();
+        upsertVoidMetadata(itemCode, trimmedRemark, trimmedManager, verifiedMgrId);
+        resetVoidState();
+        return;
       } catch (error) {
         setManagerPasswordError(
           'Could not verify manager. Check connection and try again.',
@@ -681,7 +719,7 @@ export default function BillingScreen() {
       return;
     }
     if (trimmedRemark || trimmedManager)
-      upsertVoidMetadata(itemCode, trimmedRemark, trimmedManager);
+      upsertVoidMetadata(itemCode, trimmedRemark, trimmedManager, voidMetadata[itemCode]?.managerId);
     if (lastConfirmedOrder && !isTrueVoidReduction) {
       useOrderStore.getState().setLastConfirmedOrder({
         ...lastConfirmedOrder,
@@ -837,11 +875,15 @@ export default function BillingScreen() {
             lastConfirmedOrder?.tableGrpId ?? ''
           ).trim();
 
-          const lPax = Number(
-            lastConfirmedOrder?.lPax ?? Number(localPax ?? dbLPax ?? 0),
+          const lPax = resolvePaxValue(
+            lastConfirmedOrder?.lPax,
+            localPax,
+            dbLPax,
           );
-          const fPax = Number(
-            lastConfirmedOrder?.fPax ?? Number(foreignPax ?? dbFPax ?? 0),
+          const fPax = resolvePaxValue(
+            lastConfirmedOrder?.fPax,
+            foreignPax,
+            dbFPax,
           );
           const userId = lastConfirmedOrder?.userId ?? 'SYSTEM';
           const orderType = (lastConfirmedOrder as any)?.orderType || 'DI';
@@ -880,10 +922,14 @@ export default function BillingScreen() {
                 return Promise.resolve({ ok: true, data: {} } as any);
               }
 
-              // ─── FIX: Explicitly include tableNo + tableGrpId ───────────
+              // ─── FIX: Explicitly include tableNo + tableGrpId + invoiceNo ─
+              // invoiceNo is required so the server can find the existing row
+              // via the PK (TabelNo, ItemCode, InvoiceNo) and UPDATE instead
+              // of INSERT — prevents "PRIMARY KEY constraint" errors.
               return apiClient.addBillingItem({
                 tableNo: tNo,
                 tableGrpId,
+                invoiceNo: dbInvoiceNo ?? undefined,
                 itemCode: menuItemCode,
                 qty: deltaQty,
                 QTY: deltaQty,
@@ -895,7 +941,7 @@ export default function BillingScreen() {
                 lPax,
                 fPax,
                 mgrId: String(
-                  voidMetadata[menuItemCode]?.manager ?? managerName,
+                  voidMetadata[menuItemCode]?.managerId ?? '',
                 ).trim(),
               } as any);
             },
@@ -908,6 +954,7 @@ export default function BillingScreen() {
             const itemMeta = voidMetadata[item.menuItemCode] || {
               remark: '',
               manager: '',
+              managerId: '',
             };
 
             if (removeQtyDelta <= 0)
@@ -929,14 +976,20 @@ export default function BillingScreen() {
               orderType,
               lPax,
               fPax,
-              mgrId: String(itemMeta.manager).trim(),
+              mgrId: String(itemMeta.managerId ?? '').trim(),
             } as any);
           });
 
-          const results = await Promise.all([
-            ...addRequests,
-            ...voidRequests,
-          ]);
+          // ─── FIX: Run sequentially, NOT with Promise.all ────────────────
+          // Concurrent requests on the same InvoiceNo can race each other
+          // at the DB level and hit "Violation of PRIMARY KEY constraint".
+          // Sequential execution lets each request complete its
+          // SELECT → UPDATE/INSERT cycle inside a SERIALIZABLE transaction
+          // before the next one starts.
+          const results: Array<{ ok: boolean; data?: any }> = [];
+          for (const req of [...addRequests, ...voidRequests]) {
+            results.push(await req);
+          }
           const failed = results.find((result) => !result.ok);
           if (failed) {
             const serverMsg =
@@ -1102,8 +1155,8 @@ export default function BillingScreen() {
           tableNo: resolvedTableNo,
           userId: data.userId || 'SYSTEM',
           tableGrpId: data.tableGrpId || '',
-          lPax: typeof data.lPax === 'number' ? data.lPax : Number(localPax ?? 0),
-          fPax: typeof data.fPax === 'number' ? data.fPax : Number(foreignPax ?? 0),
+          lPax: resolvePaxValue(data.lPax, (data as any).LPax, localPax),
+          fPax: resolvePaxValue(data.fPax, (data as any).FPax, foreignPax),
           invoiceNo: targetInvoiceNo ?? data.invoiceNo ?? undefined,
           createdAt: data.createdAt || new Date().toISOString(),
           items: freshItems.map((item: any) => ({
@@ -1132,8 +1185,8 @@ export default function BillingScreen() {
         }
 
         setDbInvoiceNo(targetInvoiceNo ?? data.invoiceNo ?? null);
-        setDbLPax(typeof data.lPax === 'number' ? data.lPax : null);
-        setDbFPax(typeof data.fPax === 'number' ? data.fPax : null);
+        setDbLPax(resolvePaxValue(data.lPax, (data as any).LPax, localPax));
+        setDbFPax(resolvePaxValue(data.fPax, (data as any).FPax, foreignPax));
       } catch (error) {
         console.error('[BillingScreen] Error fetching bill:', error);
       } finally {
@@ -1146,7 +1199,7 @@ export default function BillingScreen() {
     return () => {
       isMounted = false;
     };
-  }, [tableName, tableNo, routeInvoiceNo, fromCart, forceRefresh, localPax, foreignPax]);
+  }, [tableName, tableNo, routeInvoiceNo, fromCart, forceRefresh, localPax, foreignPax, resolvePaxValue]);
 
   useEffect(() => {
     if (!activeTableNo) {
@@ -1403,8 +1456,8 @@ export default function BillingScreen() {
                       tableNo: activeTable,
                       userId: 'SYSTEM',
                       tableGrpId: '',
-                      lPax: dbLPax ?? Number(localPax ?? 0),
-                      fPax: dbFPax ?? Number(foreignPax ?? 0),
+                      lPax: resolvePaxValue(dbLPax, localPax),
+                      fPax: resolvePaxValue(dbFPax, foreignPax),
                       invoiceNo: activeInvoice || undefined,
                       createdAt: new Date().toISOString(),
                       items: cartItems.map((item) => ({
@@ -1417,7 +1470,21 @@ export default function BillingScreen() {
                     } as any);
                   }
 
-                  useCartStore.getState().setCartItems([]);
+                  const activeConfirmedOrder =
+                    useOrderStore.getState().lastConfirmedOrder ?? lastConfirmedOrder;
+                  const baseItemsForSelection = (
+                    activeConfirmedOrder?.items?.length
+                      ? activeConfirmedOrder.items
+                      : displayedItems
+                  ).map((item: any) => ({
+                    menuItemCode: item.menuItemCode,
+                    menuItmDes: item.menuItmDes ?? '',
+                    salesPrice: Number(item.salesPrice ?? 0) || 0,
+                    quantity: Math.max(0, Number(item.quantity ?? 0) || 0),
+                    itemRemarks: item.itemRemarks ?? '',
+                  }));
+
+                  useCartStore.getState().setCartItems(baseItemsForSelection);
 
                   const resolvedTableNo = String(
                     lastConfirmedOrder?.tableNo ??
@@ -1444,10 +1511,10 @@ export default function BillingScreen() {
                           '',
                       ),
                       localPax: String(
-                        lastConfirmedOrder?.lPax ?? localPax ?? '0',
+                        resolvePaxValue(lastConfirmedOrder?.lPax, localPax, dbLPax),
                       ),
                       foreignPax: String(
-                        lastConfirmedOrder?.fPax ?? foreignPax ?? '0',
+                        resolvePaxValue(lastConfirmedOrder?.fPax, foreignPax, dbFPax),
                       ),
                       floor: String(floor ?? ''),
                       fromBilling: '1',

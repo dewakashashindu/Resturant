@@ -99,6 +99,7 @@ export default function CartScreen() {
   const cartItems = useCartStore((state) => state.cartItems);
   const updateQuantityInCart = useCartStore((state) => state.updateQuantity);
   const clearCartInStore = useCartStore((state) => state.clearCart);
+  const setCartItemsInStore = useCartStore((state) => state.setCartItems);
   const lastConfirmedOrder = useOrderStore((s) => s.lastConfirmedOrder);
 
   // ── Existing bill items (read-only) when coming from billing ──────────────
@@ -115,6 +116,20 @@ export default function CartScreen() {
     }));
   }, [isFromBilling, lastConfirmedOrder]);
 
+  const confirmedQtyByCode = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!isFromBilling || !lastConfirmedOrder?.items?.length) return map;
+
+    for (const item of lastConfirmedOrder.items) {
+      const code = item.menuItemCode;
+      map.set(
+        code,
+        (map.get(code) ?? 0) + Math.max(0, Number(item.quantity ?? 0)),
+      );
+    }
+    return map;
+  }, [isFromBilling, lastConfirmedOrder]);
+
   // ── Editable (delta) cart items ───────────────────────────────────────────
   const editableCartItems = useMemo<CartDisplayItem[]>(() => {
     if (!isFromBilling) {
@@ -123,15 +138,6 @@ export default function CartScreen() {
 
     if (!lastConfirmedOrder?.items?.length) {
       return cartItems.map((item) => ({ ...item, isExisting: false }));
-    }
-
-    const confirmedQtyByCode = new Map<string, number>();
-    for (const item of lastConfirmedOrder.items) {
-      const code = item.menuItemCode;
-      confirmedQtyByCode.set(
-        code,
-        (confirmedQtyByCode.get(code) ?? 0) + Math.max(0, Number(item.quantity ?? 0)),
-      );
     }
 
     return cartItems
@@ -149,7 +155,7 @@ export default function CartScreen() {
         };
       })
       .filter((item): item is CartDisplayItem => item !== null);
-  }, [cartItems, isFromBilling, lastConfirmedOrder]);
+  }, [cartItems, confirmedQtyByCode, isFromBilling, lastConfirmedOrder]);
 
   // ── Combined display list ─────────────────────────────────────────────────
   const displayCartItems = useMemo<CartDisplayItem[]>(() => {
@@ -176,6 +182,25 @@ export default function CartScreen() {
     () => displayCartItems.filter((item) => !item.isExisting),
     [displayCartItems],
   );
+
+  // For add-more confirmations the cart store holds FINAL item quantities
+  // (existing bill qty + newly added qty).  The UI displays only the delta, but
+  // the backend needs the final quantity so it can update the existing invoice
+  // and log the correct difference.
+  const confirmCartItemsForPayload = useMemo<CartDisplayItem[]>(() => {
+    if (!isFromBilling) return displayCartItems;
+    if (!lastConfirmedOrder?.items?.length) {
+      return cartItems.map((item) => ({ ...item, isExisting: false }));
+    }
+
+    return cartItems
+      .filter((item) => {
+        const confirmedQty = confirmedQtyByCode.get(item.menuItemCode) ?? 0;
+        const currentQty = Math.max(0, Number(item.quantity ?? 0));
+        return currentQty > confirmedQty;
+      })
+      .map((item) => ({ ...item, isExisting: false }));
+  }, [cartItems, confirmedQtyByCode, displayCartItems, isFromBilling, lastConfirmedOrder]);
 
   const currentInvoiceNo = routeInvoiceNo
     ? String(routeInvoiceNo)
@@ -244,8 +269,27 @@ export default function CartScreen() {
   const [confirming, setConfirming] = useState(false);
 
   const displayTable = tableName ?? tableId ?? 'GF 1';
-  const displayLocalPax = localPax ?? '0';
-  const displayForeignPax = foreignPax ?? '0';
+
+  const resolvePaxValue = (...values: unknown[]) => {
+    for (const value of values) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+    return 0;
+  };
+
+  // In Add-More/fromBilling flow, route params can occasionally arrive as
+  // missing/0.  Prefer the active bill's pax from orderStore so Dining orders
+  // do not get overwritten with 0 on confirm.
+  const resolvedLocalPax = isFromBilling
+    ? resolvePaxValue(lastConfirmedOrder?.lPax, localPax)
+    : resolvePaxValue(localPax);
+  const resolvedForeignPax = isFromBilling
+    ? resolvePaxValue(lastConfirmedOrder?.fPax, foreignPax)
+    : resolvePaxValue(foreignPax);
+
+  const displayLocalPax = String(resolvedLocalPax);
+  const displayForeignPax = String(resolvedForeignPax);
   const tableInfo = [
     { label: 'Table', value: displayTable },
     { label: 'Floor', value: floor ?? '—' },
@@ -388,15 +432,18 @@ export default function CartScreen() {
 
   // ── handleConfirm ──────────────────────────────────────────────────────────
   const handleConfirm = async () => {
+    // ── Guard: prevent double-tap before React re-renders the disabled button ─
+    if (confirming) return;
+
     if (!displayCartItems || displayCartItems.length === 0) {
       Alert.alert('Cart is empty', 'Please add items before confirming.');
       return;
     }
 
     const isFromBilling = fromBilling === '1';
-    const confirmItems = isFromBilling ? newCartItemsForConfirm : displayCartItems;
+    const confirmItems = isFromBilling ? confirmCartItemsForPayload : displayCartItems;
 
-    if (isFromBilling && confirmItems.length === 0) {
+    if (isFromBilling && newCartItemsForConfirm.length === 0) {
       router.push({
         pathname: '/Screens/BillingScreen',
         params: {
@@ -409,6 +456,15 @@ export default function CartScreen() {
           status: status ?? '',
         },
       });
+      return;
+    }
+
+    // ── Guard: add-more requires a valid invoice to append to ─────────────────
+    if (isFromBilling && !currentInvoiceNo) {
+      Alert.alert(
+        'Error',
+        'Cannot add items: invoice number is missing. Please go back and reopen the bill.',
+      );
       return;
     }
 
@@ -483,8 +539,8 @@ export default function CartScreen() {
       TabelGrpID: finalTableGrpID,
       TableGrpID: finalTableGrpID,
       tableGrpId: finalTableGrpID,
-      lPax: Number(localPax ?? 0),
-      fPax: Number(foreignPax ?? 0),
+      lPax: resolvedLocalPax,
+      fPax: resolvedForeignPax,
       existingInvoiceNo: isFromBilling ? currentInvoiceNo : null,
       // Tell the server this is a brand-new order — do NOT reuse any old open
       // invoice for this table (prevents stale-bill append after app restart).
@@ -510,15 +566,21 @@ export default function CartScreen() {
           : null,
     };
 
-    try {
-      setConfirming(true);
+    // ── Set confirming synchronously so the button disables before the first await
+    setConfirming(true);
 
+    try {
       let generatedTableNo = lastConfirmedOrder?.tableNo;
       let finalInvoiceNo = currentInvoiceNo;
 
       const isPending = !generatedTableNo || generatedTableNo === 'TA-PENDING';
 
-      if (isPending || isFromBilling) {
+      // For add-more (isFromBilling), only call confirmCart when there are
+      // actual new items in the payload — avoids duplicate-key errors caused
+      // by re-entering the cart without adding anything new.
+      const shouldCallApi = isPending || (isFromBilling && confirmCartItemsForPayload.length > 0);
+
+      if (shouldCallApi) {
         const res = await apiClient.confirmCart(payload as any);
 
         if (res.ok || (res.data && res.data.ok)) {
@@ -536,7 +598,6 @@ export default function CartScreen() {
           const serverMsg =
             res.data && (res.data.message || JSON.stringify(res.data));
           Alert.alert('Error', serverMsg || 'Failed to save order');
-          setConfirming(false);
           return;
         }
       }
@@ -612,6 +673,7 @@ export default function CartScreen() {
       ''
     ).trim();
     const isReadOnly = Boolean(item.isExisting);
+    const isNewFromBilling = isFromBilling && !isReadOnly;
 
     return (
       <View
@@ -619,6 +681,7 @@ export default function CartScreen() {
         style={[
           styles.itemContainer,
           isReadOnly && styles.itemContainerReadOnly,
+          isNewFromBilling && styles.itemContainerNew,
         ]}
       >
         <View style={styles.itemHeader}>
@@ -642,6 +705,11 @@ export default function CartScreen() {
             >
               {item.menuItmDes}
             </Text>
+            {isNewFromBilling && (
+              <View style={styles.newBadge}>
+                <Text style={styles.newBadgeText}>NEW</Text>
+              </View>
+            )}
           </View>
           <TouchableOpacity
             onPress={() => removeItem(item)}
@@ -1049,7 +1117,19 @@ export default function CartScreen() {
         <TouchableOpacity
           style={styles.clearCartBtn}
           onPress={() => {
-            clearCartInStore();
+            if (isFromBilling && lastConfirmedOrder?.items?.length) {
+              setCartItemsInStore(
+                lastConfirmedOrder.items.map((item) => ({
+                  menuItemCode: item.menuItemCode,
+                  menuItmDes: item.menuItmDes ?? '',
+                  salesPrice: Number(item.salesPrice ?? 0) || 0,
+                  quantity: Math.max(0, Number(item.quantity ?? 0) || 0),
+                  itemRemarks: item.itemRemarks ?? '',
+                })),
+              );
+            } else {
+              clearCartInStore();
+            }
             setRemarksByCode({});
           }}
         >

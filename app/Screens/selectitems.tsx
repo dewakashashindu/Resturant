@@ -486,6 +486,7 @@ export default function ItemSelection() {
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const orderType      = useCartStore((state) => state.orderType);
   const setOrderType   = useCartStore((state) => state.setOrderType);
+  const setCartItems   = useCartStore((state) => state.setCartItems);
   const clearCart      = useCartStore((state) => state.clearCart);
 
   // When arriving from billing ("Add More"), lastConfirmedOrder holds the
@@ -500,13 +501,11 @@ export default function ItemSelection() {
   // This runs once on mount — routeOrderType comes from BillingScreen params.
   useEffect(() => {
     if (!isFromBilling) return;
-    const resolvedOrderType =
-      (lastConfirmedOrder as any)?.orderType ||
-      routeOrderType ||
-      '';
-    if (resolvedOrderType === 'TA') {
-      setOrderType('TA');
-    }
+    const resolvedOrderType = String(
+      (lastConfirmedOrder as any)?.orderType || routeOrderType || '',
+    ).trim();
+
+    setOrderType(resolvedOrderType === 'TA' ? 'TA' : 'DINING');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFromBilling]);
 
@@ -519,6 +518,25 @@ export default function ItemSelection() {
     }
     return map;
   }, [isFromBilling, lastConfirmedOrder]);
+
+  // When opening Item Selection for an existing bill, cartStore keeps the
+  // current TOTAL quantity per item (old bill qty + newly added qty).  That
+  // lets the cart calculate and highlight only the newly added delta while the
+  // server still receives final quantities for the existing invoice.
+  useEffect(() => {
+    if (!isFromBilling || !lastConfirmedOrder?.items?.length) return;
+    if (cartItems.length > 0) return;
+
+    setCartItems(
+      lastConfirmedOrder.items.map((item) => ({
+        menuItemCode: item.menuItemCode,
+        menuItmDes: item.menuItmDes ?? '',
+        salesPrice: Number(item.salesPrice ?? 0) || 0,
+        quantity: Math.max(0, Number(item.quantity ?? 0) || 0),
+        itemRemarks: item.itemRemarks ?? '',
+      })),
+    );
+  }, [cartItems.length, isFromBilling, lastConfirmedOrder?.items, setCartItems]);
 
   // ── Cache state ──────────────────────────────────────────────────────────
   const [cachedItems, setCachedItems]           = useState<Record<string, any>[]>([]);
@@ -574,6 +592,21 @@ export default function ItemSelection() {
           ?? activeCategory?.label.toUpperCase()
           ?? 'MENU'
         } — ${menuRows.length} ITEMS`;
+
+  const resolvePaxValue = (...values: unknown[]) => {
+    for (const value of values) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+    return 0;
+  };
+
+  const resolvedLocalPaxParam = isFromBilling
+    ? String(resolvePaxValue(lastConfirmedOrder?.lPax, localPax))
+    : String(resolvePaxValue(localPax));
+  const resolvedForeignPaxParam = isFromBilling
+    ? String(resolvePaxValue(lastConfirmedOrder?.fPax, foreignPax))
+    : String(resolvePaxValue(foreignPax));
 
   const tableInfo = [
     { label: 'Table', value: tableName ?? '—' },
@@ -1386,8 +1419,8 @@ export default function ItemSelection() {
                   tableName:   tableName   || '',
                   tableNo:     String(tableNo || tableName || ''),
                   invoiceNo:   String(invoiceNo || ''),
-                  localPax:    localPax    || '0',
-                  foreignPax:  foreignPax  || '0',
+                  localPax:    resolvedLocalPaxParam,
+                  foreignPax:  resolvedForeignPaxParam,
                   floor:       floor       || '',
                   status:      status      || '',
                   fromBilling: fromBilling || '',
