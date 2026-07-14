@@ -434,7 +434,10 @@ const normalizeAddBillingPayload = (payload: AddBillingItemPayload | {
     // invoiceNo MUST be forwarded — the PK on Tbl_HoldUpsCloud is (TabelNo, ItemCode, InvoiceNo).
     // Without it the server cannot find the existing row, falls through to INSERT,
     // and hits "Violation of PRIMARY KEY constraint PK_Tbl_HoldUpsCloud".
-    invoiceNo: toString((payload as any).invoiceNo ?? (payload as any).InvoiceNo, '').trim() || undefined,
+    // IMPORTANT: Do NOT use `|| undefined` here — that would omit the field from
+    // JSON.stringify when invoiceNo is empty, causing the server to receive null
+    // and insert SQL NULL into Tbl_HoldUpsCloudTemp (which rejects nulls).
+    invoiceNo: toString((payload as any).invoiceNo ?? (payload as any).InvoiceNo, '').trim(),
     lPax: toNumber((payload as any).lPax ?? (payload as any).LPax, 0),
     fPax: toNumber((payload as any).fPax ?? (payload as any).FPax, 0),
     mgrId: toString((payload as any).mgrId ?? (payload as any).MgrID, '').trim(),
@@ -484,6 +487,12 @@ const normalizeRemoveBillingPayload = (payload: RemoveBillingItemPayload | {
     tableGrpId,
     lPax: toNumber((payload as any).lPax ?? (payload as any).LPax, 0),
     fPax: toNumber((payload as any).fPax ?? (payload as any).FPax, 0),
+    // invoiceNo MUST be forwarded — same PK constraint as addBillingItem.
+    // Without it the server cannot match the correct row in Tbl_HoldUpsCloud
+    // and InvoiceNo is written as NULL to Tbl_HoldUpsCloudTemp.
+    // IMPORTANT: Do NOT use `|| undefined` — omitting the field causes server
+    // to receive null and insert SQL NULL, violating the NOT NULL constraint.
+    invoiceNo: toString((payload as any).invoiceNo ?? (payload as any).InvoiceNo, '').trim(),
   };
 };
 

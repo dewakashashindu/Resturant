@@ -1152,6 +1152,9 @@ const confirmCartHandler = async (req, res) => {
           WHERE SeriCode = 'INV'
         `);
 
+        if (!seqResult.recordset || seqResult.recordset.length === 0) {
+          throw new Error("No 'INV' row found in Tbl_Serials. Please ensure SeriCode='INV' exists.");
+        }
         const seq = Number(seqResult.recordset[0].SeriNo);
         invoiceNo = `INV-${datePart}-${String(seq).padStart(3, '0')}`;
       }
@@ -1231,6 +1234,12 @@ const confirmCartHandler = async (req, res) => {
 
         const deltaQty = rowExists ? (item.QTY - existingQty) : item.QTY;
         if (deltaQty !== 0) {
+          // Guard: invoiceNo must be a non-empty string here. An empty string is
+          // sent as NULL by the mssql driver for NVarChar, violating the NOT NULL
+          // constraint on Tbl_HoldUpsCloudTemp.InvoiceNo.
+          if (!invoiceNo) {
+            throw new Error('InvoiceNo is missing before Tbl_HoldUpsCloudTemp INSERT — order cannot be logged.');
+          }
           const tempReq = new sql.Request(transaction);
           tempReq.input('TabelNo', sql.NVarChar(50), tableNo);
           tempReq.input('UserID', sql.NVarChar(50), userId);
@@ -1245,10 +1254,12 @@ const confirmCartHandler = async (req, res) => {
           tempReq.input('SalesPrice', sql.Decimal(18, 2), item.SalesPrice);
           tempReq.input('OrderType', sql.VarChar(5), orderTypeVal);
           tempReq.input('UserName', sql.VarChar(50), userFullName);
+          tempReq.input('MgrID', sql.NVarChar(50), '0');
+          tempReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
 
           await tempReq.query(`
-            INSERT INTO dbo.Tbl_HoldUpsCloudTemp (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, MgrID, OrderType, AoR, UserName)
-            VALUES (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, @MgrID, @OrderType, 'A', @UserName)
+            INSERT INTO dbo.Tbl_HoldUpsCloudTemp (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, MgrID, OrderType, AoR, UserName, InvoiceNo)
+            VALUES (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, @MgrID, @OrderType, 'A', @UserName, @InvoiceNo)
           `);
         }
       }
@@ -1300,6 +1311,10 @@ const billingAddItemHandler = async (req, res) => {
 
     if (!tableNo) return res.status(400).json({ ok: false, message: 'TabelNo is required.' });
     if (normalizedItems.length === 0) return res.status(400).json({ ok: false, message: 'At least one valid item is required.' });
+    // Guard: InvoiceNo is NOT NULL in Tbl_HoldUpsCloudTemp and Tbl_HoldUpsCloud.
+    // If the frontend omitted it (e.g. undefined serialised away by JSON.stringify),
+    // reject early with a clear message instead of letting SQL Server error.
+    if (!invoiceNo) return res.status(400).json({ ok: false, message: 'InvoiceNo is required to add billing items.' });
 
     const pool = await poolPromise;
     const transaction = new sql.Transaction(pool);
@@ -1357,11 +1372,13 @@ const billingAddItemHandler = async (req, res) => {
           tempReq.input('OrderType', sql.VarChar(5), orderTypeVal);
           tempReq.input('UserName', sql.VarChar(50), userFullName);
 
+          tempReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
+
           await tempReq.query(`
             INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-              (TabelNo, UserID, ItemCode, QTY, SalesPrice, ItemRemarks, TabelGrpID, LPax, FPax, AoR, TxnDateTime, MgrID, OrderType, UserName)
+              (TabelNo, UserID, ItemCode, QTY, SalesPrice, ItemRemarks, TabelGrpID, LPax, FPax, AoR, TxnDateTime, MgrID, OrderType, UserName, InvoiceNo)
             VALUES
-              (@TabelNo, @UserID, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @TabelGrpID, @LPax, @FPax, 'A', ${SQL_SRI_LANKA_NOW}, @MgrID, @OrderType, @UserName)
+              (@TabelNo, @UserID, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @TabelGrpID, @LPax, @FPax, 'A', ${SQL_SRI_LANKA_NOW}, @MgrID, @OrderType, @UserName, @InvoiceNo)
           `);
 
           // ── FIX: lookup MUST include InvoiceNo — the PK is (TabelNo, ItemCode, InvoiceNo).
@@ -1476,10 +1493,15 @@ const billingRemoveItemHandler = async (req, res) => {
     const SalesPrice = body.SalesPrice ?? body.salesPrice ?? 0;
     
     const orderTypeVal = pickString(body.orderType ?? body.OrderType ?? '', 10) || 'DI';
+    const InvoiceNo = body.InvoiceNo ?? body.invoiceNo ?? null;
+    console.log("[VOID DEBUG] body.InvoiceNo=" + body.InvoiceNo + " body.invoiceNo=" + body.invoiceNo + " resolved=" + InvoiceNo);
 
     if (!TabelNo) return res.status(400).json({ success: false, message: 'TabelNo is required.' });
     if (!QTY || parseFloat(QTY) <= 0) return res.status(400).json({ success: false, message: 'QTY must be greater than zero.' });
     if (!ItemCode) return res.status(400).json({ success: false, message: 'ItemCode is required.' });
+    // Guard: InvoiceNo is NOT NULL in Tbl_HoldUpsCloudTemp. Reject early so the
+    // SQL NULL constraint error never surfaces — frontend must always pass invoiceNo.
+    if (!InvoiceNo) return res.status(400).json({ success: false, message: 'InvoiceNo is required to void billing items.' });
 
     const tableNoValue = pickString(TabelNo, 50);
     const { userId: _userId, loginName: userFullName } = getBearerUserInfo(req, 'SYSTEM');
@@ -1552,12 +1574,13 @@ const billingRemoveItemHandler = async (req, res) => {
       logReq.input('SalesPrice', sql.Decimal(18, 2), salesPriceValue);
       logReq.input('OrderType', sql.VarChar(5), orderTypeVal); 
       logReq.input('UserName', sql.VarChar(50), userFullName);
+      logReq.input('InvoiceNo', sql.NVarChar(50), pickString(InvoiceNo, 50));
 
       await logReq.query(`
         INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-          (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, LPax, FPax, SalesPrice, MgrID, TxnDateTime, AoR, OrderType, UserName)
+          (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, LPax, FPax, SalesPrice, MgrID, TxnDateTime, AoR, OrderType, UserName, InvoiceNo)
         VALUES
-          (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, @LPax, @FPax, @SalesPrice, @MgrID, ${SQL_SRI_LANKA_NOW}, 'R', @OrderType, @UserName)
+          (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, @LPax, @FPax, @SalesPrice, @MgrID, ${SQL_SRI_LANKA_NOW}, 'R', @OrderType, @UserName, @InvoiceNo)
       `);
 
       const updReq = new sql.Request(transaction);

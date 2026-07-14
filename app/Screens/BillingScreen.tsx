@@ -929,7 +929,7 @@ export default function BillingScreen() {
               return apiClient.addBillingItem({
                 tableNo: tNo,
                 tableGrpId,
-                invoiceNo: dbInvoiceNo ?? undefined,
+                invoiceNo: dbInvoiceNo ?? lastConfirmedOrder?.invoiceNo ?? (routeInvoiceNo ? String(routeInvoiceNo) : undefined),
                 itemCode: menuItemCode,
                 qty: deltaQty,
                 QTY: deltaQty,
@@ -960,10 +960,14 @@ export default function BillingScreen() {
             if (removeQtyDelta <= 0)
               return Promise.resolve({ ok: true, data: {} });
 
-            // ─── FIX: Explicitly include tableNo + tableGrpId ─────────────
+            // ─── FIX: Explicitly include tableNo + tableGrpId + invoiceNo ─
+            // invoiceNo is required so the server can match the correct row
+            // in Tbl_HoldUpsCloud and write InvoiceNo (not NULL) to
+            // Tbl_HoldUpsCloudTemp for void (AoR='R') records.
             return apiClient.removeBillingItem({
               tableNo: tNo,
               tableGrpId,
+              invoiceNo: dbInvoiceNo ?? lastConfirmedOrder?.invoiceNo ?? (routeInvoiceNo ? String(routeInvoiceNo) : undefined),
               itemCode: item.menuItemCode,
               qty: removeQtyDelta,
               QTY: removeQtyDelta,
