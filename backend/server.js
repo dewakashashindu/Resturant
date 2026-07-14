@@ -1050,6 +1050,27 @@ const confirmCartHandler = async (req, res) => {
     let lPax = pickNumber(body.lPax ?? body.LPax ?? 0, 0);
     let fPax = pickNumber(body.fPax ?? body.FPax ?? 0, 0);
 
+    // ── Customer info (TA orders) ──────────────────────────────────────────────
+    const customerDetails = body.customerDetails ?? null;
+    const cusRegTel = String(customerDetails?.regTel ?? customerDetails?.regTelNo ?? '').trim().substring(0, 15);
+    const cusNameRaw = String(customerDetails?.cusName ?? '').trim().substring(0, 200);
+
+    // CusCode lookup — find existing code from Tbl_CustomerMaster by phone.
+    // If phone is missing/N/A we still send a space so the DB column is never NULL.
+    let cusCusCode = ' ';
+    if (cusRegTel && cusRegTel !== 'N/A' && cusRegTel !== '') {
+      try {
+        const cusLookup = await pool.request()
+          .input('RegTel', sql.Char(15), cusRegTel)
+          .query(`SELECT TOP 1 CusCode FROM Tbl_CustomerMaster WHERE LTRIM(RTRIM(RegTel)) = LTRIM(RTRIM(@RegTel))`);
+        if (cusLookup.recordset.length > 0) {
+          cusCusCode = String(cusLookup.recordset[0].CusCode).trim() || ' ';
+        }
+      } catch (_) {
+        // lookup failure — fall back to space, order still goes through
+      }
+    }
+
     let invoiceNo = pickString(body.existingInvoiceNo ?? body.invoiceNo ?? body.InvoiceNo, 50);
 
     // forceNewInvoice: true means the frontend explicitly wants a brand-new
@@ -1225,10 +1246,12 @@ const confirmCartHandler = async (req, res) => {
           insertReq.input('OrderType', sql.VarChar(5), orderTypeVal);
           insertReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
           insertReq.input('IsPaid', sql.Bit, 0);
+          insertReq.input('CusCode', sql.Char(10), cusCusCode);
+          insertReq.input('CusName', sql.VarChar(200), cusNameRaw || ' ');
 
           await insertReq.query(`
-            INSERT INTO dbo.Tbl_HoldUpsCloud (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, OrderType, InvoiceNo, IsPaid, TxnDateTime) 
-            VALUES (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, @OrderType, @InvoiceNo, @IsPaid, ${SQL_SRI_LANKA_NOW})
+            INSERT INTO dbo.Tbl_HoldUpsCloud (TabelNo, ItemCode, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, OrderType, InvoiceNo, IsPaid, CusCode, CusName, TxnDateTime) 
+            VALUES (@TabelNo, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, @OrderType, @InvoiceNo, @IsPaid, @CusCode, @CusName, ${SQL_SRI_LANKA_NOW})
           `);
         }
 
@@ -1256,10 +1279,12 @@ const confirmCartHandler = async (req, res) => {
           tempReq.input('UserName', sql.VarChar(50), userFullName);
           tempReq.input('MgrID', sql.NVarChar(50), '0');
           tempReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
+          tempReq.input('CusCode', sql.Char(10), cusCusCode);
+          tempReq.input('CusName', sql.VarChar(200), cusNameRaw || ' ');
 
           await tempReq.query(`
-            INSERT INTO dbo.Tbl_HoldUpsCloudTemp (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, MgrID, OrderType, AoR, UserName, InvoiceNo)
-            VALUES (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, @MgrID, @OrderType, 'A', @UserName, @InvoiceNo)
+            INSERT INTO dbo.Tbl_HoldUpsCloudTemp (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, TxnDateTime, LPax, FPax, SalesPrice, MgrID, OrderType, AoR, UserName, InvoiceNo, CusCode, CusName)
+            VALUES (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, ${SQL_SRI_LANKA_NOW}, @LPax, @FPax, @SalesPrice, @MgrID, @OrderType, 'A', @UserName, @InvoiceNo, @CusCode, @CusName)
           `);
         }
       }
@@ -1354,6 +1379,19 @@ const billingAddItemHandler = async (req, res) => {
         }
       }
 
+      // ── Lookup CusCode/CusName from existing invoice row ─────────────────
+      let billingCusCode = ' ';
+      let billingCusName = ' ';
+      try {
+        const cusFromInvoice = await new sql.Request(transaction)
+          .input('InvoiceNo', sql.NVarChar(50), invoiceNo)
+          .query(`SELECT TOP 1 CusCode, CusName FROM dbo.Tbl_HoldUpsCloud WHERE InvoiceNo = @InvoiceNo AND LTRIM(RTRIM(ISNULL(CusCode,''))) != ''`);
+        if (cusFromInvoice.recordset.length > 0) {
+          billingCusCode = String(cusFromInvoice.recordset[0].CusCode || ' ').trim() || ' ';
+          billingCusName = String(cusFromInvoice.recordset[0].CusName || ' ').trim() || ' ';
+        }
+      } catch (_) {}
+
       for (const item of normalizedItems) {
         try {
           const tempReq = new sql.Request(transaction);
@@ -1373,12 +1411,14 @@ const billingAddItemHandler = async (req, res) => {
           tempReq.input('UserName', sql.VarChar(50), userFullName);
 
           tempReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
+          tempReq.input('CusCode', sql.Char(10), billingCusCode);
+          tempReq.input('CusName', sql.VarChar(200), billingCusName);
 
           await tempReq.query(`
             INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-              (TabelNo, UserID, ItemCode, QTY, SalesPrice, ItemRemarks, TabelGrpID, LPax, FPax, AoR, TxnDateTime, MgrID, OrderType, UserName, InvoiceNo)
+              (TabelNo, UserID, ItemCode, QTY, SalesPrice, ItemRemarks, TabelGrpID, LPax, FPax, AoR, TxnDateTime, MgrID, OrderType, UserName, InvoiceNo, CusCode, CusName)
             VALUES
-              (@TabelNo, @UserID, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @TabelGrpID, @LPax, @FPax, 'A', ${SQL_SRI_LANKA_NOW}, @MgrID, @OrderType, @UserName, @InvoiceNo)
+              (@TabelNo, @UserID, @ItemCode, @QTY, @SalesPrice, @ItemRemarks, @TabelGrpID, @LPax, @FPax, 'A', ${SQL_SRI_LANKA_NOW}, @MgrID, @OrderType, @UserName, @InvoiceNo, @CusCode, @CusName)
           `);
 
           // ── FIX: lookup MUST include InvoiceNo — the PK is (TabelNo, ItemCode, InvoiceNo).
@@ -1448,12 +1488,14 @@ const billingAddItemHandler = async (req, res) => {
             insertReq.input('FPax', sql.Float, fPax);
             insertReq.input('OrderType', sql.VarChar(5), orderTypeVal);
             insertReq.input('IsPaid', sql.Bit, 0);
+            insertReq.input('CusCode', sql.Char(10), billingCusCode);
+            insertReq.input('CusName', sql.VarChar(200), billingCusName);
 
             await insertReq.query(`
               INSERT INTO dbo.Tbl_HoldUpsCloud
-                (TabelNo, ItemCode, InvoiceNo, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, OrderType, IsPaid, TxnDateTime)
+                (TabelNo, ItemCode, InvoiceNo, QTY, SalesPrice, ItemRemarks, UserID, TabelGrpID, LPax, FPax, OrderType, IsPaid, CusCode, CusName, TxnDateTime)
               VALUES
-                (@TabelNo, @ItemCode, @InvoiceNo, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, @OrderType, @IsPaid, ${SQL_SRI_LANKA_NOW})
+                (@TabelNo, @ItemCode, @InvoiceNo, @QTY, @SalesPrice, @ItemRemarks, @UserID, @TabelGrpID, @LPax, @FPax, @OrderType, @IsPaid, @CusCode, @CusName, ${SQL_SRI_LANKA_NOW})
             `);
           }
         } catch (err) {
@@ -1576,11 +1618,27 @@ const billingRemoveItemHandler = async (req, res) => {
       logReq.input('UserName', sql.VarChar(50), userFullName);
       logReq.input('InvoiceNo', sql.NVarChar(50), pickString(InvoiceNo, 50));
 
+      // Lookup CusCode/CusName from existing invoice row
+      let removeCusCode = ' ';
+      let removeCusName = ' ';
+      try {
+        const cusFromInvoice = await new sql.Request(transaction)
+          .input('InvoiceNo', sql.NVarChar(50), pickString(InvoiceNo, 50))
+          .query(`SELECT TOP 1 CusCode, CusName FROM dbo.Tbl_HoldUpsCloud WHERE InvoiceNo = @InvoiceNo AND LTRIM(RTRIM(ISNULL(CusCode,''))) != ''`);
+        if (cusFromInvoice.recordset.length > 0) {
+          removeCusCode = String(cusFromInvoice.recordset[0].CusCode || ' ').trim() || ' ';
+          removeCusName = String(cusFromInvoice.recordset[0].CusName || ' ').trim() || ' ';
+        }
+      } catch (_) {}
+
+      logReq.input('CusCode', sql.Char(10), removeCusCode);
+      logReq.input('CusName', sql.VarChar(200), removeCusName);
+
       await logReq.query(`
         INSERT INTO dbo.Tbl_HoldUpsCloudTemp
-          (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, LPax, FPax, SalesPrice, MgrID, TxnDateTime, AoR, OrderType, UserName, InvoiceNo)
+          (TabelNo, UserID, ItemCode, QTY, ItemRemarks, VoidRemark, TabelGrpID, LPax, FPax, SalesPrice, MgrID, TxnDateTime, AoR, OrderType, UserName, InvoiceNo, CusCode, CusName)
         VALUES
-          (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, @LPax, @FPax, @SalesPrice, @MgrID, ${SQL_SRI_LANKA_NOW}, 'R', @OrderType, @UserName, @InvoiceNo)
+          (@TabelNo, @UserID, @ItemCode, @QTY, @ItemRemarks, @VoidRemark, @TabelGrpID, @LPax, @FPax, @SalesPrice, @MgrID, ${SQL_SRI_LANKA_NOW}, 'R', @OrderType, @UserName, @InvoiceNo, @CusCode, @CusName)
       `);
 
       const updReq = new sql.Request(transaction);
