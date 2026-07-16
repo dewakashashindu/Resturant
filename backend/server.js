@@ -1699,15 +1699,18 @@ const getActiveBillItemsHandler = async (req, res) => {
     }
 
     // ─── FIX: Added h.OrderType to SELECT ──────────────────────────────────
+    // Also LEFT JOIN dbo.Tbl_HoldUps to fetch BillNetTotal matched by CloudInvNo
     const result = await request.query(`
       SELECT
         h.TabelNo, h.ItemCode,
         COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), h.ItemCode) AS MenuItmDes,
         h.QTY, h.SalesPrice, COALESCE(h.ItemRemarks, '') AS ItemRemarks,
         h.TabelGrpID, h.UserID, h.LPax, h.FPax, h.TxnDateTime, h.InvoiceNo, h.IsPaid,
-        h.OrderType
+        h.OrderType,
+        hu.BillNetTotal
       FROM dbo.Tbl_HoldUpsCloud h
       LEFT JOIN Vw_MenuAssignment m ON m.MenuItemCode = h.ItemCode
+      LEFT JOIN dbo.Tbl_HoldUps hu ON LTRIM(RTRIM(hu.CloudInvNo)) = LTRIM(RTRIM(h.InvoiceNo))
       ${whereClause}
       ORDER BY h.TxnDateTime, h.ItemCode
     `);
@@ -1715,6 +1718,12 @@ const getActiveBillItemsHandler = async (req, res) => {
     const first = result.recordset[0];
     const firstNonZeroLPax = result.recordset.find((row) => Number(row.LPax ?? 0) > 0)?.LPax;
     const firstNonZeroFPax = result.recordset.find((row) => Number(row.FPax ?? 0) > 0)?.FPax;
+
+    // BillNetTotal from Tbl_HoldUps (matched via CloudInvNo). Null when the
+    // bill has not yet been posted/settled in the back-office system.
+    const firstNetTotal = result.recordset.find(
+      (row) => row.BillNetTotal !== null && row.BillNetTotal !== undefined
+    )?.BillNetTotal ?? null;
 
     return res.json({
       ok: true,
@@ -1728,6 +1737,8 @@ const getActiveBillItemsHandler = async (req, res) => {
         // ─── FIX: Return OrderType so frontend knows it's TA ────────────────
         orderType: pickString(first?.OrderType, 10) || 'DI',
         isPaid: first ? Boolean(first.IsPaid) : false,
+        // BillNetTotal from dbo.Tbl_HoldUps matched by CloudInvNo = InvoiceNo
+        billNetTotal: firstNetTotal !== null ? Number(firstNetTotal) : null,
         items: result.recordset.map((row) => ({
           menuItemCode: row.ItemCode,
           menuItmDes: row.MenuItmDes,
@@ -1824,15 +1835,18 @@ const getBillItemsHandler = async (req, res) => {
     }
 
     // ─── FIX: Added h.OrderType to SELECT ──────────────────────────────────
+    // Also LEFT JOIN dbo.Tbl_HoldUps to fetch BillNetTotal matched by CloudInvNo
     const result = await request.query(`
       SELECT
         h.InvoiceNo, h.TabelNo, h.ItemCode,
         COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), h.ItemCode) AS MenuItmDes,
         h.QTY, h.SalesPrice, COALESCE(h.ItemRemarks, '') AS ItemRemarks,
         h.TabelGrpID, h.UserID, h.LPax, h.FPax, h.TxnDateTime, h.IsPaid,
-        h.OrderType
+        h.OrderType,
+        hu.BillNetTotal
       FROM dbo.Tbl_HoldUpsCloud h
       LEFT JOIN Vw_MenuAssignment m ON m.MenuItemCode = h.ItemCode
+      LEFT JOIN dbo.Tbl_HoldUps hu ON LTRIM(RTRIM(hu.CloudInvNo)) = LTRIM(RTRIM(h.InvoiceNo))
       ${whereClause}
       ORDER BY h.TxnDateTime, h.ItemCode
     `);
@@ -1854,6 +1868,13 @@ const getBillItemsHandler = async (req, res) => {
     const firstNonZeroLPax = result.recordset.find((row) => Number(row.LPax ?? 0) > 0)?.LPax;
     const firstNonZeroFPax = result.recordset.find((row) => Number(row.FPax ?? 0) > 0)?.FPax;
 
+    // BillNetTotal: use the value from the first row that has a non-null BillNetTotal.
+    // If no matching Tbl_HoldUps record exists yet (bill not yet settled/posted),
+    // fall back to null so the frontend can hide the Net Total row gracefully.
+    const firstNetTotal = result.recordset.find(
+      (row) => row.BillNetTotal !== null && row.BillNetTotal !== undefined
+    )?.BillNetTotal ?? null;
+
     return res.json({
       ok: true,
       data: {
@@ -1867,6 +1888,8 @@ const getBillItemsHandler = async (req, res) => {
         isPaid: Boolean(first.IsPaid),
         items,
         totalAmount,
+        // BillNetTotal from dbo.Tbl_HoldUps matched by CloudInvNo = InvoiceNo
+        billNetTotal: firstNetTotal !== null ? Number(firstNetTotal) : null,
       },
     });
   } catch (error) {

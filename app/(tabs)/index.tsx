@@ -99,7 +99,7 @@ export default function HomeScreen() {
       subtitle: 'Items & Pricing',
       color: 'rgba(255,248,131,0.5)',
       iconBg: 'rgba(255,248,131,0.6)',
-      route: '/Screens/menu',
+      route: '/Screens/menutbl_selection',
       ionIcon: 'restaurant-outline',
     },
     {

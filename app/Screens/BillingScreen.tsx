@@ -158,6 +158,7 @@ export default function BillingScreen() {
   const [dbLPax, setDbLPax] = useState<number | null>(null);
   const [dbFPax, setDbFPax] = useState<number | null>(null);
   const [isLoadingBillFromDb, setIsLoadingBillFromDb] = useState(false);
+  const [netTotal, setNetTotal] = useState<number | null>(null);
 
   const [billingRemarkVisible, setBillingRemarkVisible] = useState(false);
   const [billingRemarkItemId, setBillingRemarkItemId] = useState<string | null>(null);
@@ -192,8 +193,12 @@ export default function BillingScreen() {
       sum + (Number(item.salesPrice ?? 0) || 0) * (Number(item.quantity ?? 0) || 0)
     );
   }, 0);
-  const footerButtonLabel = billingHasChanges ? 'Confirm Changes' : 'Print';
-  const footerButtonBackgroundColor = billingHasChanges ? '#D97706' : '#8D9ED4';
+  // ── Save Changes button state ──────────────────────────────────────────────
+  // isBillChanged mirrors billingHasChanges; kept as a named alias so the
+  // intent is explicit and matches the requirement terminology.
+  const isBillChanged = billingHasChanges;
+  const footerButtonLabel = 'Save Changes';
+  const footerButtonBackgroundColor = isBillChanged ? '#1687a3' : '#94A3B8';
 
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-US', {
@@ -265,6 +270,8 @@ export default function BillingScreen() {
       setDbInvoiceNo(targetInvoiceNo ?? data.invoiceNo ?? null);
       setDbLPax(resolvePaxValue(data.lPax, (data as any).LPax, localPax));
       setDbFPax(resolvePaxValue(data.fPax, (data as any).FPax, foreignPax));
+      // Capture BillNetTotal from Tbl_HoldUps (null when not yet posted)
+      setNetTotal(data.billNetTotal !== undefined && data.billNetTotal !== null ? Number(data.billNetTotal) : null);
 
       // When returning from Cart after confirming Add-More items, the DB data
       // we just fetched is the new baseline.  Without resetting this baseline
@@ -809,231 +816,66 @@ export default function BillingScreen() {
     resetVoidState();
   };
 
-  // ── handleFooterAction ─────────────────────────────────────────────────────
-  const handleFooterAction = () => {
-    if (billingHasChanges) {
-      void (async () => {
-        try {
-          const voidCandidates = displayedItems.filter((item: any) => {
-            return (
-              (Number(item.quantity ?? 0) || 0) <
-              getBaselineQuantity(
-                item.menuItemCode || item.ItemCode || item.itemCode,
-              )
-            );
-          });
-
-          const voidCandidateMissingMeta = voidCandidates.some(
-            (candidate: any) => {
-              const itemCode =
-                candidate.menuItemCode ||
-                candidate.ItemCode ||
-                candidate.itemCode;
-              const itemMeta = voidMetadata[itemCode] || {
-                remark: '',
-                manager: '',
-              };
-              return (
-                !String(itemMeta.remark).trim() ||
-                !String(itemMeta.manager).trim()
-              );
-            },
-          );
-
-          if (voidCandidateMissingMeta) {
-            Alert.alert(
-              'Validation Error',
-              'Void Remark and Manager Approval are required',
-            );
-            return;
-          }
-
-          const pendingEntries = Object.entries(pendingAdditions).filter(
-            ([code, qty]) =>
-              qty > 0 && code && code !== 'undefined' && code !== 'null',
-          );
-
-          if (pendingEntries.length === 0 && voidCandidates.length === 0) {
-            clearPendingChanges();
-            Alert.alert('Confirmed', 'No pending changes to save.');
-            return;
-          }
-
-          // ─── FIX: Robust tableNo resolution ─────────────────────────────
-          // Priority: lastConfirmedOrder.tableNo → tableNo param → tableName param → ''
-          // For TA orders, lastConfirmedOrder.tableNo holds the TA serial (e.g. "TA-0012")
-          // For DI orders, it holds the server table number
-          const tNo = String(
-            lastConfirmedOrder?.tableNo ??
-            tableNo ??
-            tableName ??
-            ''
-          ).trim();
-
-          // ─── FIX: Robust tableGrpId resolution ──────────────────────────
-          const tableGrpId = String(
-            lastConfirmedOrder?.tableGrpId ?? ''
-          ).trim();
-
-          const lPax = resolvePaxValue(
-            lastConfirmedOrder?.lPax,
-            localPax,
-            dbLPax,
-          );
-          const fPax = resolvePaxValue(
-            lastConfirmedOrder?.fPax,
-            foreignPax,
-            dbFPax,
-          );
-          const userId = lastConfirmedOrder?.userId ?? 'SYSTEM';
-          const orderType = (lastConfirmedOrder as any)?.orderType || 'DI';
-
-          // ─── Guard: backend requires tableNo ────────────────────────────
-          if (!tNo) {
-            Alert.alert(
-              'Missing Table',
-              'Could not determine the table number. Please go back and reopen the bill.',
-            );
-            return;
-          }
-
-          console.log('[BillingScreen] handleFooterAction payload meta:', {
-            tNo,
-            tableGrpId,
-            orderType,
-            lPax,
-            fPax,
-            userId,
-          });
-
-          const addRequests = pendingEntries.map(
-            ([menuItemCode, deltaQty]) => {
-              const currentItem = displayedItems.find(
-                (item: any) =>
-                  item.menuItemCode === menuItemCode ||
-                  item.ItemCode === menuItemCode ||
-                  item.itemCode === menuItemCode,
-              );
-
-              if (!currentItem) {
-                console.error(
-                  `[BillingScreen] Missing details for item: ${menuItemCode}`,
-                );
-                return Promise.resolve({ ok: true, data: {} } as any);
-              }
-
-              // ─── FIX: Explicitly include tableNo + tableGrpId + invoiceNo ─
-              // invoiceNo is required so the server can find the existing row
-              // via the PK (TabelNo, ItemCode, InvoiceNo) and UPDATE instead
-              // of INSERT — prevents "PRIMARY KEY constraint" errors.
-              return apiClient.addBillingItem({
-                tableNo: tNo,
-                tableGrpId,
-                invoiceNo: dbInvoiceNo ?? lastConfirmedOrder?.invoiceNo ?? (routeInvoiceNo ? String(routeInvoiceNo) : undefined),
-                itemCode: menuItemCode,
-                qty: deltaQty,
-                QTY: deltaQty,
-                AoR: 'A',
-                salesPrice: Number(currentItem.salesPrice ?? 0) || 0,
-                itemRemarks: currentItem.itemRemarks ?? '',
-                userId,
-                orderType,
-                lPax,
-                fPax,
-                mgrId: String(
-                  voidMetadata[menuItemCode]?.managerId ?? '',
-                ).trim(),
-              } as any);
-            },
-          );
-
-          const voidRequests = voidCandidates.map((item: any) => {
-            const baselineQty = getBaselineQuantity(item.menuItemCode);
-            const currentQty = Number(item.quantity ?? 0) || 0;
-            const removeQtyDelta = Math.max(0, baselineQty - currentQty);
-            const itemMeta = voidMetadata[item.menuItemCode] || {
-              remark: '',
-              manager: '',
-              managerId: '',
-            };
-
-            if (removeQtyDelta <= 0)
-              return Promise.resolve({ ok: true, data: {} });
-
-            // ─── FIX: Explicitly include tableNo + tableGrpId + invoiceNo ─
-            // invoiceNo is required so the server can match the correct row
-            // in Tbl_HoldUpsCloud and write InvoiceNo (not NULL) to
-            // Tbl_HoldUpsCloudTemp for void (AoR='R') records.
-            return apiClient.removeBillingItem({
-              tableNo: tNo,
-              tableGrpId,
-              invoiceNo: dbInvoiceNo ?? lastConfirmedOrder?.invoiceNo ?? (routeInvoiceNo ? String(routeInvoiceNo) : undefined),
-              itemCode: item.menuItemCode,
-              qty: removeQtyDelta,
-              QTY: removeQtyDelta,
-              qtyDifference: removeQtyDelta,
-              AoR: 'R',
-              salesPrice: Number(item.salesPrice ?? 0) || 0,
-              itemRemarks: '',
-              voidRemark: String(itemMeta.remark).trim(),
-              userId,
-              orderType,
-              lPax,
-              fPax,
-              mgrId: String(itemMeta.managerId ?? '').trim(),
-            } as any);
-          });
-
-          // ─── FIX: Run sequentially, NOT with Promise.all ────────────────
-          // Concurrent requests on the same InvoiceNo can race each other
-          // at the DB level and hit "Violation of PRIMARY KEY constraint".
-          // Sequential execution lets each request complete its
-          // SELECT → UPDATE/INSERT cycle inside a SERIALIZABLE transaction
-          // before the next one starts.
-          const results: Array<{ ok: boolean; data?: any }> = [];
-          for (const req of [...addRequests, ...voidRequests]) {
-            results.push(await req);
-          }
-          const failed = results.find((result) => !result.ok);
-          if (failed) {
-            const serverMsg =
-              failed.data &&
-              (failed.data.message || JSON.stringify(failed.data));
-            throw new Error(serverMsg || 'Failed to save billing changes');
-          }
-
-          originalQuantitiesRef.current = displayedItems.reduce<
-            Record<string, number>
-          >((acc, item: any) => {
-            acc[item.menuItemCode] = Number(item.quantity ?? 0) || 0;
-            return acc;
-          }, {});
-
-          clearPendingChanges();
-          setVoidMetadata((current) => {
-            const next = { ...current };
-            voidCandidates.forEach((candidate: any) => {
-              delete next[candidate.menuItemCode];
-            });
-            return next;
-          });
-          resetVoidState();
-          Alert.alert('Confirmed', 'Billing changes saved successfully.');
-        } catch (error) {
-          Alert.alert(
-            'Save failed',
-            error instanceof Error
-              ? error.message
-              : 'Failed to save billing changes',
-          );
-        }
-      })();
-      return;
-    }
+  // ── handleSaveChanges ──────────────────────────────────────────────────────
+  // Only runs when isBillChanged is true. Persists add/void changes to the DB.
+  // On success → isBillChanged (billingHasChanges) resets to false so the
+  // button returns to its inactive/greyed state.
+  // The "Print" action and all payBill / IsPaid / Vacant DB updates have been
+  // removed entirely per requirements.
+  const handleSaveChanges = () => {
+    if (!isBillChanged) return; // button is inactive — nothing to do
 
     void (async () => {
       try {
-        if (hasQuantityChangesFromBaseline()) rollbackAllToBaseline();
+        const voidCandidates = displayedItems.filter((item: any) => {
+          return (
+            (Number(item.quantity ?? 0) || 0) <
+            getBaselineQuantity(
+              item.menuItemCode || item.ItemCode || item.itemCode,
+            )
+          );
+        });
+
+        const voidCandidateMissingMeta = voidCandidates.some(
+          (candidate: any) => {
+            const itemCode =
+              candidate.menuItemCode ||
+              candidate.ItemCode ||
+              candidate.itemCode;
+            const itemMeta = voidMetadata[itemCode] || {
+              remark: '',
+              manager: '',
+            };
+            return (
+              !String(itemMeta.remark).trim() ||
+              !String(itemMeta.manager).trim()
+            );
+          },
+        );
+
+        if (voidCandidateMissingMeta) {
+          Alert.alert(
+            'Validation Error',
+            'Void Remark and Manager Approval are required',
+          );
+          return;
+        }
+
+        const pendingEntries = Object.entries(pendingAdditions).filter(
+          ([code, qty]) =>
+            qty > 0 && code && code !== 'undefined' && code !== 'null',
+        );
+
+        if (pendingEntries.length === 0 && voidCandidates.length === 0) {
+          clearPendingChanges();
+          Alert.alert('Confirmed', 'No pending changes to save.');
+          return;
+        }
+
+        // ─── Robust tableNo resolution ───────────────────────────────────
+        // Priority: lastConfirmedOrder.tableNo → tableNo param → tableName param → ''
+        // For TA orders, lastConfirmedOrder.tableNo holds the TA serial (e.g. "TA-0012")
+        // For DI orders, it holds the server table number
         const tNo = String(
           lastConfirmedOrder?.tableNo ??
           tableNo ??
@@ -1041,42 +883,158 @@ export default function BillingScreen() {
           ''
         ).trim();
 
-        let result: any = { ok: true, data: {} };
+        // ─── Robust tableGrpId resolution ────────────────────────────────
+        const tableGrpId = String(
+          lastConfirmedOrder?.tableGrpId ?? ''
+        ).trim();
 
-        if (typeof (apiClient as any).finalizeBill === 'function') {
-          result = await (apiClient as any).finalizeBill({ tableNo: tNo });
-        } else if (typeof (apiClient as any).printBill === 'function') {
-          result = await (apiClient as any).printBill({ tableNo: tNo });
+        const lPax = resolvePaxValue(
+          lastConfirmedOrder?.lPax,
+          localPax,
+          dbLPax,
+        );
+        const fPax = resolvePaxValue(
+          lastConfirmedOrder?.fPax,
+          foreignPax,
+          dbFPax,
+        );
+        const userId = lastConfirmedOrder?.userId ?? 'SYSTEM';
+        const orderType = (lastConfirmedOrder as any)?.orderType || 'DI';
+
+        // ─── Guard: backend requires tableNo ─────────────────────────────
+        if (!tNo) {
+          Alert.alert(
+            'Missing Table',
+            'Could not determine the table number. Please go back and reopen the bill.',
+          );
+          return;
         }
 
-        if (!result.ok) {
-          const serverMsg =
-            result.data &&
-            (result.data.message || JSON.stringify(result.data));
-          throw new Error(serverMsg || 'Failed to finalize/print bill');
-        }
+        console.log('[BillingScreen] handleSaveChanges payload meta:', {
+          tNo,
+          tableGrpId,
+          orderType,
+          lPax,
+          fPax,
+          userId,
+        });
 
-        if (dbInvoiceNo) {
-          const payResult = await apiClient.payBill({
-            invoiceNo: dbInvoiceNo,
-            tableNo: tNo || undefined,
-            orderType: (lastConfirmedOrder as any)?.orderType || 'DI',
-            tableGrpId: lastConfirmedOrder?.tableGrpId || '',
+        const addRequests = pendingEntries.map(
+          ([menuItemCode, deltaQty]) => {
+            const currentItem = displayedItems.find(
+              (item: any) =>
+                item.menuItemCode === menuItemCode ||
+                item.ItemCode === menuItemCode ||
+                item.itemCode === menuItemCode,
+            );
+
+            if (!currentItem) {
+              console.error(
+                `[BillingScreen] Missing details for item: ${menuItemCode}`,
+              );
+              return Promise.resolve({ ok: true, data: {} } as any);
+            }
+
+            // invoiceNo is required so the server can find the existing row
+            // via the PK (TabelNo, ItemCode, InvoiceNo) and UPDATE instead
+            // of INSERT — prevents "PRIMARY KEY constraint" errors.
+            return apiClient.addBillingItem({
+              tableNo: tNo,
+              tableGrpId,
+              invoiceNo: dbInvoiceNo ?? lastConfirmedOrder?.invoiceNo ?? (routeInvoiceNo ? String(routeInvoiceNo) : undefined),
+              itemCode: menuItemCode,
+              qty: deltaQty,
+              QTY: deltaQty,
+              AoR: 'A',
+              salesPrice: Number(currentItem.salesPrice ?? 0) || 0,
+              itemRemarks: currentItem.itemRemarks ?? '',
+              userId,
+              orderType,
+              lPax,
+              fPax,
+              mgrId: String(
+                voidMetadata[menuItemCode]?.managerId ?? '',
+              ).trim(),
+            } as any);
+          },
+        );
+
+        const voidRequests = voidCandidates.map((item: any) => {
+          const baselineQty = getBaselineQuantity(item.menuItemCode);
+          const currentQty = Number(item.quantity ?? 0) || 0;
+          const removeQtyDelta = Math.max(0, baselineQty - currentQty);
+          const itemMeta = voidMetadata[item.menuItemCode] || {
+            remark: '',
+            manager: '',
+            managerId: '',
+          };
+
+          if (removeQtyDelta <= 0)
+            return Promise.resolve({ ok: true, data: {} });
+
+          // invoiceNo is required so the server can match the correct row
+          // in Tbl_HoldUpsCloud and write InvoiceNo (not NULL) to
+          // Tbl_HoldUpsCloudTemp for void (AoR='R') records.
+          return apiClient.removeBillingItem({
+            tableNo: tNo,
+            tableGrpId,
+            invoiceNo: dbInvoiceNo ?? lastConfirmedOrder?.invoiceNo ?? (routeInvoiceNo ? String(routeInvoiceNo) : undefined),
+            itemCode: item.menuItemCode,
+            qty: removeQtyDelta,
+            QTY: removeQtyDelta,
+            qtyDifference: removeQtyDelta,
+            AoR: 'R',
+            salesPrice: Number(item.salesPrice ?? 0) || 0,
+            itemRemarks: '',
+            voidRemark: String(itemMeta.remark).trim(),
+            userId,
+            orderType,
+            lPax,
+            fPax,
+            mgrId: String(itemMeta.managerId ?? '').trim(),
           } as any);
+        });
 
-          if (!payResult.ok)
-            console.log('[BillingScreen] payBill failed', payResult.error);
+        // Run sequentially, NOT with Promise.all — concurrent requests on
+        // the same InvoiceNo can race at the DB level and hit
+        // "Violation of PRIMARY KEY constraint".
+        const results: Array<{ ok: boolean; data?: any }> = [];
+        for (const req of [...addRequests, ...voidRequests]) {
+          results.push(await req);
+        }
+        const failed = results.find((result) => !result.ok);
+        if (failed) {
+          const serverMsg =
+            failed.data &&
+            (failed.data.message || JSON.stringify(failed.data));
+          throw new Error(serverMsg || 'Failed to save billing changes');
         }
 
-        useOrderStore.getState().clearLastConfirmedOrder();
-        Alert.alert('Done', 'Payment completed and cart cleared.');
-        router.push('/');
+        // Update baseline so future comparisons are correct
+        originalQuantitiesRef.current = displayedItems.reduce<
+          Record<string, number>
+        >((acc, item: any) => {
+          acc[item.menuItemCode] = Number(item.quantity ?? 0) || 0;
+          return acc;
+        }, {});
+
+        // Reset isBillChanged → false (button returns to inactive/grey state)
+        clearPendingChanges();
+        setVoidMetadata((current) => {
+          const next = { ...current };
+          voidCandidates.forEach((candidate: any) => {
+            delete next[candidate.menuItemCode];
+          });
+          return next;
+        });
+        resetVoidState();
+        Alert.alert('Saved', 'Billing changes saved successfully.');
       } catch (error) {
         Alert.alert(
-          'Finalize failed',
+          'Save failed',
           error instanceof Error
             ? error.message
-            : 'Failed to finalize/print bill',
+            : 'Failed to save billing changes',
         );
       }
     })();
@@ -1191,6 +1149,10 @@ export default function BillingScreen() {
         setDbInvoiceNo(targetInvoiceNo ?? data.invoiceNo ?? null);
         setDbLPax(resolvePaxValue(data.lPax, (data as any).LPax, localPax));
         setDbFPax(resolvePaxValue(data.fPax, (data as any).FPax, foreignPax));
+        // Capture BillNetTotal from Tbl_HoldUps (null when not yet posted)
+        if (isMounted) {
+          setNetTotal(data.billNetTotal !== undefined && data.billNetTotal !== null ? Number(data.billNetTotal) : null);
+        }
       } catch (error) {
         console.error('[BillingScreen] Error fetching bill:', error);
       } finally {
@@ -1542,13 +1504,21 @@ export default function BillingScreen() {
           <Text style={s.totalLabel}>Gross Total (Lkr)</Text>
           <Text style={s.totalValue}>{grossTotal.toFixed(2)}</Text>
         </View>
+        {netTotal !== null && (
+          <View style={s.totalRow}>
+            <Text style={s.netTotalLabel}>Net Total (Lkr)</Text>
+            <Text style={s.netTotalValue}>{netTotal.toFixed(2)}</Text>
+          </View>
+        )}
         <TouchableOpacity
           style={[
             s.printBtn,
             { backgroundColor: footerButtonBackgroundColor },
+            !isBillChanged && { opacity: 0.6 },
           ]}
-          activeOpacity={0.85}
-          onPress={handleFooterAction}
+          activeOpacity={isBillChanged ? 0.85 : 1}
+          onPress={handleSaveChanges}
+          disabled={!isBillChanged}
         >
           <Text style={s.printText}>{footerButtonLabel}</Text>
         </TouchableOpacity>
@@ -2127,7 +2097,8 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
   const footerPadT = isTablet ? 16 : isSmall ? 8 : 12;
   const footerPadB = isTablet ? 28 : isSmall ? 12 : 20;
   const dividerMB = isTablet ? 20 : isSmall ? 10 : 16;
-  const totalFs = isTablet ? 24 : isSmall ? 14 : 16;
+  const totalFs = isTablet ? 22 : isSmall ? 12 : 14;
+  const netTotalFs = isTablet ? 24 : isSmall ? 14 : 16;
   const totalMT = isTablet ? 6 : isSmall ? 2 : 4;
   const printBtnH = isTablet ? 60 : isSmall ? 42 : 48;
   const printBtnRadius = isTablet ? 16 : isSmall ? 10 : 12;
@@ -2472,6 +2443,8 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     },
     totalLabel: { fontWeight: '500', color: '#000', fontSize: scale(totalFs) },
     totalValue: { fontWeight: '500', color: '#000', fontSize: scale(totalFs) },
+    netTotalLabel: { fontWeight: '700', color: '#002748', fontSize: scale(netTotalFs) },
+    netTotalValue: { fontWeight: '700', color: '#002748', fontSize: scale(netTotalFs) },
     printBtn: {
       height: scale(printBtnH),
       borderRadius: scale(printBtnRadius),
