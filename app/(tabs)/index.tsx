@@ -107,7 +107,7 @@ export default function HomeScreen() {
       subtitle: 'Guest Feedback',
       color: 'rgba(129,113,183,0.5)',
       iconBg: 'rgba(129,113,183,0.6)',
-      route: '/Screens/nps',
+      route: '/Screens/white',
       ionIcon: 'chatbubble-ellipses-outline',
     },
     {
@@ -115,7 +115,7 @@ export default function HomeScreen() {
       subtitle: 'Revenue Report',
       color: 'rgba(144,123,22,0.5)',
       iconBg: 'rgba(144,123,22,0.6)',
-      route: '/Screens/salesreport',
+      route: '/Screens/white',
       ionIcon: 'bar-chart-outline',
     },
     {
@@ -126,6 +126,14 @@ export default function HomeScreen() {
       route: '/Screens/settings',
       ionIcon: 'settings-outline',
     },
+    {
+  title: 'KDS',
+  subtitle: 'Kitchen Display',
+  color: 'rgba(34,139,87,0.5)',
+  iconBg: 'rgba(34,139,87,0.6)',
+  route: '/Screens/KDSHomeScreen',
+  ionIcon: 'flame-outline',
+},
   ];
 
   return (

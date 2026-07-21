@@ -614,10 +614,17 @@ export default function BillingScreen() {
     router.replace('/Screens/operation');
   }, [clearPendingChanges, resetVoidState, router, setCartItemsInStore]);
 
-  const goBack = useCallback(() => {
-    if (hasQuantityChangesFromBaseline()) rollbackAllToBaseline();
-    router.back();
-  }, [hasQuantityChangesFromBaseline, rollbackAllToBaseline, router]);
+const goBack = useCallback(() => {
+  if (isBillChanged) {
+    Alert.alert(
+      'Unsaved Changes',
+      'You have unsaved changes. Please save before going back.',
+      [{ text: 'OK', style: 'default' }]
+    );
+    return;
+  }
+  router.replace('/(tabs)');
+}, [isBillChanged, router]);
 
   const openVoidModal = (menuItemCode: string, editOnly = false) => {
     const item =
@@ -1202,17 +1209,25 @@ export default function BillingScreen() {
     setBillingHasChanges(hasQuantityChangesFromBaseline());
   }, [hasQuantityChangesFromBaseline]);
 
-  useEffect(() => {
-    const handler = () => {
-      goBack();
+ useEffect(() => {
+  const handler = () => {
+    if (isBillChanged) {
+      Alert.alert(
+        'Unsaved Changes',
+        'You have unsaved changes. Please save before going back.',
+        [{ text: 'OK', style: 'default' }]
+      );
       return true;
-    };
-    const subscription = BackHandler.addEventListener(
-      'hardwareBackPress',
-      handler,
-    );
-    return () => subscription.remove();
-  }, [goBack]);
+    }
+    router.replace('/(tabs)');
+    return true;
+  };
+  const subscription = BackHandler.addEventListener(
+    'hardwareBackPress',
+    handler,
+  );
+  return () => subscription.remove();
+}, [isBillChanged, router]);
 
   // ── JSX ────────────────────────────────────────────────────────────────────
   return (

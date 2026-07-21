@@ -1698,21 +1698,37 @@ const getActiveBillItemsHandler = async (req, res) => {
       whereClause = 'WHERE h.TabelNo = @TabelNo AND (h.IsPaid = 0 OR h.IsPaid IS NULL)';
     }
 
-    // ─── FIX: Added h.OrderType to SELECT ──────────────────────────────────
-    // Also LEFT JOIN dbo.Tbl_HoldUps to fetch BillNetTotal matched by CloudInvNo
+    // ─── FIX: GROUP BY ItemCode to prevent duplicate rows when the same item
+    // appears multiple times in Tbl_HoldUpsCloud (e.g. different TxnDateTime).
+    // BillNetTotal is fetched via a correlated subquery (TOP 1) instead of a
+    // LEFT JOIN — this avoids row-multiplication when Tbl_HoldUps has multiple
+    // rows for the same InvoiceNo + TableNo combination.
     const result = await request.query(`
       SELECT
         h.TabelNo, h.ItemCode,
-        COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), h.ItemCode) AS MenuItmDes,
-        h.QTY, h.SalesPrice, COALESCE(h.ItemRemarks, '') AS ItemRemarks,
-        h.TabelGrpID, h.UserID, h.LPax, h.FPax, h.TxnDateTime, h.InvoiceNo, h.IsPaid,
-        h.OrderType,
-        hu.BillNetTotal
+        MAX(COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), h.ItemCode)) AS MenuItmDes,
+        SUM(h.QTY) AS QTY,
+        MAX(h.SalesPrice) AS SalesPrice,
+        MAX(COALESCE(h.ItemRemarks, '')) AS ItemRemarks,
+        MAX(h.TabelGrpID) AS TabelGrpID,
+        MAX(h.UserID) AS UserID,
+        MAX(h.LPax) AS LPax,
+        MAX(h.FPax) AS FPax,
+        MAX(h.TxnDateTime) AS TxnDateTime,
+        MAX(h.InvoiceNo) AS InvoiceNo,
+        MAX(CAST(h.IsPaid AS INT)) AS IsPaid,
+        MAX(h.OrderType) AS OrderType,
+        (
+          SELECT TOP 1 hu.BillNetTotal
+          FROM dbo.Tbl_HoldUps hu
+          WHERE LTRIM(RTRIM(hu.CloudInvNo)) = LTRIM(RTRIM(MAX(h.InvoiceNo)))
+          ORDER BY hu.BillNetTotal DESC
+        ) AS BillNetTotal
       FROM dbo.Tbl_HoldUpsCloud h
       LEFT JOIN Vw_MenuAssignment m ON m.MenuItemCode = h.ItemCode
-      LEFT JOIN dbo.Tbl_HoldUps hu ON LTRIM(RTRIM(hu.CloudInvNo)) = LTRIM(RTRIM(h.InvoiceNo))
       ${whereClause}
-      ORDER BY h.TxnDateTime, h.ItemCode
+      GROUP BY h.TabelNo, h.ItemCode
+      ORDER BY MAX(h.TxnDateTime), h.ItemCode
     `);
 
     const first = result.recordset[0];
@@ -1734,7 +1750,6 @@ const getActiveBillItemsHandler = async (req, res) => {
         fPax: Number(firstNonZeroFPax ?? first?.FPax ?? 0),
         tableGrpId: first?.TabelGrpID ?? '',
         userId: first?.UserID ?? '',
-        // ─── FIX: Return OrderType so frontend knows it's TA ────────────────
         orderType: pickString(first?.OrderType, 10) || 'DI',
         isPaid: first ? Boolean(first.IsPaid) : false,
         // BillNetTotal from dbo.Tbl_HoldUps matched by CloudInvNo = InvoiceNo
@@ -1834,21 +1849,34 @@ const getBillItemsHandler = async (req, res) => {
       whereClause = 'WHERE h.TabelNo = @TabelNo AND h.IsPaid = 0';
     }
 
-    // ─── FIX: Added h.OrderType to SELECT ──────────────────────────────────
-    // Also LEFT JOIN dbo.Tbl_HoldUps to fetch BillNetTotal matched by CloudInvNo
+    // GROUP BY ItemCode so duplicate rows (same item, different TxnDateTime) are
+    // collapsed into one. BillNetTotal via correlated subquery (TOP 1) to avoid
+    // row-multiplication when Tbl_HoldUps has multiple rows per InvoiceNo.
     const result = await request.query(`
       SELECT
-        h.InvoiceNo, h.TabelNo, h.ItemCode,
-        COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), h.ItemCode) AS MenuItmDes,
-        h.QTY, h.SalesPrice, COALESCE(h.ItemRemarks, '') AS ItemRemarks,
-        h.TabelGrpID, h.UserID, h.LPax, h.FPax, h.TxnDateTime, h.IsPaid,
-        h.OrderType,
-        hu.BillNetTotal
+        MAX(h.InvoiceNo) AS InvoiceNo, h.TabelNo, h.ItemCode,
+        MAX(COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), h.ItemCode)) AS MenuItmDes,
+        SUM(h.QTY) AS QTY,
+        MAX(h.SalesPrice) AS SalesPrice,
+        MAX(COALESCE(h.ItemRemarks, '')) AS ItemRemarks,
+        MAX(h.TabelGrpID) AS TabelGrpID,
+        MAX(h.UserID) AS UserID,
+        MAX(h.LPax) AS LPax,
+        MAX(h.FPax) AS FPax,
+        MAX(h.TxnDateTime) AS TxnDateTime,
+        MAX(CAST(h.IsPaid AS INT)) AS IsPaid,
+        MAX(h.OrderType) AS OrderType,
+        (
+          SELECT TOP 1 hu.BillNetTotal
+          FROM dbo.Tbl_HoldUps hu
+          WHERE LTRIM(RTRIM(hu.CloudInvNo)) = LTRIM(RTRIM(MAX(h.InvoiceNo)))
+          ORDER BY hu.BillNetTotal DESC
+        ) AS BillNetTotal
       FROM dbo.Tbl_HoldUpsCloud h
       LEFT JOIN Vw_MenuAssignment m ON m.MenuItemCode = h.ItemCode
-      LEFT JOIN dbo.Tbl_HoldUps hu ON LTRIM(RTRIM(hu.CloudInvNo)) = LTRIM(RTRIM(h.InvoiceNo))
       ${whereClause}
-      ORDER BY h.TxnDateTime, h.ItemCode
+      GROUP BY h.TabelNo, h.ItemCode
+      ORDER BY MAX(h.TxnDateTime), h.ItemCode
     `);
 
     if (result.recordset.length === 0) {
