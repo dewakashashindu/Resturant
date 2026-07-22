@@ -178,6 +178,77 @@ export interface ApiResponse<T = any> {
   error?: string;
 }
 
+// ─── AI REPORT TYPES ──────────────────────────────────────────────────────────
+export interface ChartDataPoint {
+  label: string;
+  value: number;
+}
+
+export interface ChartOutput {
+  type: 'BAR' | 'LINE' | 'PIE' | 'NONE';
+  title: string;
+  data: ChartDataPoint[];
+}
+
+export interface KeyMetric {
+  label: string;
+  value: string;
+  trend: 'up' | 'down' | 'neutral';
+  trendNote: string;
+}
+
+export interface Highlight {
+  type: 'positive' | 'warning' | 'critical';
+  icon: string;
+  title: string;
+  detail: string;
+}
+
+export interface Suggestion {
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  action: string;
+  why: string;
+  impact: string;
+}
+
+export interface DeepAnalysis {
+  directAnswer: string;
+  performanceScore: number | null;
+  scoreLabel: string | null;
+  keyMetrics: KeyMetric[];
+  chartData: ChartOutput;
+  highlights: Highlight[];
+  suggestions: Suggestion[];
+  nextActions: string[];
+}
+
+export interface ReportResponse {
+  success: boolean;
+  intent: string;
+  dataDate?: string;
+  isFallbackDate?: boolean;
+  sqlExecuted: string;
+  rowCount: number;
+  data: Record<string, unknown>[];
+  analysis: DeepAnalysis;
+  error?: string;
+}
+
+export interface DashboardOverview {
+  success: boolean;
+  overview: {
+    totalRevenue: number;
+    totalTables: number;
+    totalItems: number;
+    totalTransactions: number;
+  };
+  topItems: { ItemCode: string; totalQty: number; revenue: number }[];
+  hourlyTrend: { hr: number; revenue: number }[];
+  byOrderType: { OrderType: string; revenue: number; txnCount: number }[];
+}
+
+
+
 type ConfirmCartPayloadInput = ConfirmCartPayload | {
   orderType?: string; 
   tableNo?: string;
@@ -1079,6 +1150,51 @@ getWorkers: async () => {
         error: error.message || 'Network request failed'
       };
     }
+  },
+
+
+
+  // ─── AI REPORT ────────────────────────────────────────────────────────────
+  fetchAIReport: async (question: string): Promise<ReportResponse> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    try {
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/generate-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userQuestion: question,
+          clientDate: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })(),
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!response.ok) {
+        const e = await response.json().catch(() => ({}));
+        throw new Error((e as { error?: string }).error || `Server error: ${response.status}`);
+      }
+      const data: ReportResponse = await response.json();
+      if (!data.success) throw new Error(data.error || 'Query failed');
+      return data;
+    } catch (error: unknown) {
+      clearTimeout(timeout);
+      if (error instanceof Error && error.name === 'AbortError')
+        throw new Error('Request timed out. Server accessible?');
+      throw error;
+    }
+  },
+
+  fetchDashboardOverview: async (): Promise<DashboardOverview> => {
+    const response = await fetch(`${getDynamicApiBaseUrl()}/api/dashboard-overview`);
+    if (!response.ok) throw new Error(`Server error: ${response.status}`);
+    return response.json();
+  },
+
+  checkAIHealth: async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${getDynamicApiBaseUrl()}/health`);
+      return res.ok;
+    } catch { return false; }
   },
 
 

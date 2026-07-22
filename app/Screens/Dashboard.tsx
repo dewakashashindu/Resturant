@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -77,6 +78,7 @@ const SZ = {
   moreBtn:      { paddingH: sw(12), paddingV: sw(5) },
   hamLineW:     sc(20, 16, 26),
   hamLineH:     sw(2),
+  aiFab:        sc(56, 48, 68),
 };
 
 // ── Border-radius scale ────────────────────────────────────────────────────────
@@ -2309,8 +2311,168 @@ const TabBar = ({
   );
 };
 
+// ── AI Chat FAB Robot Icon ─────────────────────────────────────────────────────
+const RobotIcon = ({ size }: { size: number }) => (
+  <Svg width={size} height={size} viewBox="0 0 64 64">
+    {/* Antenna */}
+    <Line x1={32} y1={6} x2={32} y2={14} stroke="#fff" strokeWidth={3} strokeLinecap="round" />
+    <Circle cx={32} cy={5} r={3} fill="#fff" />
+    {/* Head */}
+    <Rect x={12} y={14} width={40} height={28} rx={8} fill="#fff" opacity={0.95} />
+    {/* Eyes */}
+    <Circle cx={23} cy={26} r={5} fill="#2F6FE4" />
+    <Circle cx={41} cy={26} r={5} fill="#2F6FE4" />
+    <Circle cx={24.5} cy={24.5} r={1.8} fill="#fff" />
+    <Circle cx={42.5} cy={24.5} r={1.8} fill="#fff" />
+    {/* Mouth */}
+    <Rect x={22} y={34} width={20} height={3} rx={1.5} fill="#2F6FE4" opacity={0.7} />
+    {/* Body */}
+    <Rect x={18} y={44} width={28} height={14} rx={5} fill="#fff" opacity={0.85} />
+    {/* Body detail */}
+    <Rect x={24} y={49} width={5} height={5} rx={1.5} fill="#2F6FE4" opacity={0.6} />
+    <Rect x={35} y={49} width={5} height={5} rx={1.5} fill="#2F6FE4" opacity={0.6} />
+    {/* Arms */}
+    <Rect x={6}  y={44} width={10} height={6} rx={3} fill="#fff" opacity={0.85} />
+    <Rect x={48} y={44} width={10} height={6} rx={3} fill="#fff" opacity={0.85} />
+  </Svg>
+);
+
+// ── AI Chat FAB ────────────────────────────────────────────────────────────────
+const AIChatFAB = ({ onPress }: { onPress: () => void }) => {
+  const pulseAnim  = useRef(new Animated.Value(1)).current;
+  const glowAnim   = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Pulse animation loop
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.08,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    // Glow / ring animation loop
+    const glow = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, {
+          toValue: 1,
+          duration: 1600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(glowAnim, {
+          toValue: 0,
+          duration: 1600,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+    glow.start();
+    return () => { pulse.stop(); glow.stop(); };
+  }, []);
+
+  const fabSize    = SZ.aiFab;
+  const ringSize   = fabSize + sw(16);
+  const ringOffset = -sw(8);
+
+  const ringOpacity = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.15, 0.45],
+  });
+  const ringScale = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.92, 1.08],
+  });
+
+  return (
+    <View style={fabStyles.fabContainer} pointerEvents="box-none">
+      {/* Animated glow ring */}
+      <Animated.View
+        style={[
+          fabStyles.fabRing,
+          {
+            width: ringSize,
+            height: ringSize,
+            borderRadius: ringSize / 2,
+            top: ringOffset,
+            left: ringOffset,
+            opacity: ringOpacity,
+            transform: [{ scale: ringScale }],
+          },
+        ]}
+        pointerEvents="none"
+      />
+
+      {/* FAB button */}
+      <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+        <TouchableOpacity
+          onPress={onPress}
+          activeOpacity={0.82}
+          style={[
+            fabStyles.fab,
+            { width: fabSize, height: fabSize, borderRadius: fabSize / 2 },
+          ]}
+        >
+          <RobotIcon size={fabSize * 0.62} />
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Label */}
+      <View style={fabStyles.fabLabel} pointerEvents="none">
+        <Text style={fabStyles.fabLabelText}>AI Chat</Text>
+      </View>
+    </View>
+  );
+};
+
+const fabStyles = StyleSheet.create({
+  fabContainer: {
+    position: 'absolute',
+    bottom: sh(32),
+    left: SP.lg,
+    alignItems: 'center',
+    zIndex: 999,
+  },
+  fabRing: {
+    position: 'absolute',
+    backgroundColor: '#2F6FE4',
+  },
+  fab: {
+    backgroundColor: '#2F6FE4',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#2F6FE4',
+    shadowOpacity: 0.55,
+    shadowRadius: sw(12),
+    shadowOffset: { width: 0, height: sw(4) },
+    elevation: 10,
+  },
+  fabLabel: {
+    marginTop: sw(5),
+    backgroundColor: 'rgba(47,111,228,0.92)',
+    borderRadius: BR.pill,
+    paddingHorizontal: sw(8),
+    paddingVertical: sw(3),
+  },
+  fabLabelText: {
+    fontSize: FS.xxs,
+    color: '#fff',
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+});
+
 // ── Root Screen ────────────────────────────────────────────────────────────────
 export default function DashboardScreen() {
+  const router = useRouter();
+
   const [activeTab,               setActiveTab              ] = useState('Overview');
   const [drawerVisible,           setDrawerVisible          ] = useState(false);
   const [locationModalVisible,    setLocationModalVisible   ] = useState(false);
@@ -2388,6 +2550,11 @@ export default function DashboardScreen() {
       ? `${dateRange.from} – ${dateRange.to}`
       : dateRange.from || 'Select Date';
 
+  // Navigate to AI Chat screen
+  const handleAIChatPress = () => {
+    router.push('/Screens/aichat' as any);
+  };
+
   return (
     <View style={styles.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
@@ -2432,6 +2599,9 @@ export default function DashboardScreen() {
           selectedCharts={selectedCharts}
         />
       )}
+
+      {/* ── AI Chat FAB ── always on top of all tabs */}
+      <AIChatFAB onPress={handleAIChatPress} />
 
       <LocationModal
         visible={locationModalVisible}
@@ -2493,12 +2663,7 @@ const styles = StyleSheet.create({
 
   // KPI
   kpiOuterCard:       { backgroundColor: '#fff', borderRadius: BR.xl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.sm, shadowOffset: { width: 0, height: sw(2) }, elevation: 3 },
- kpiGrid: {
-  flexDirection: 'row',
-  flexWrap: 'wrap',
-  justifyContent: 'space-between',
-  rowGap: SP.md,
-},
+  kpiGrid:            { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: SP.md },
   kpiInnerCard:       { borderRadius: BR.lg, padding: SP.md, minHeight: sh(isTablet ? 150 : 130) },
   kpiIconBadgeRow:    { flexDirection: 'row', alignItems: 'center', gap: SP.sm, marginBottom: SP.md },
   kpiIconBox:         { width: SZ.iconBox, height: SZ.iconBox, backgroundColor: 'rgba(255,255,255,0.80)', borderRadius: BR.sm, justifyContent: 'center', alignItems: 'center' },

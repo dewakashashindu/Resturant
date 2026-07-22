@@ -2432,3 +2432,9 @@ const PORT = sysConfig.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on 0.0.0.0:${PORT}`);
 });
+// ─── AI REPORT ROUTER ────────────────────────────────────────────────────────
+// require AFTER app.listen so sysConfig is fully loaded before inject
+const { router: aiReportRouter, setPool, setConfig } = require('./routes/aiReport');
+setPool(() => poolPromise);   // pool function inject
+setConfig(sysConfig);          // GROQ_API_KEY inject (no circular import)
+app.use('/api', aiReportRouter);

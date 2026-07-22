@@ -53,6 +53,7 @@ public class Startup
 
         config.Add("JWT_SECRET", Decrypt("#JWT_SECRET#"));
         config.Add("PORT", Decrypt("#PORT#"));
+        config.Add("GROQ_API_KEY", Decrypt("#GROQ_API_KEY#")); // ← GROQ API Key එක Decrypt වී Dictionary එකට එකතු වේ
 
         return config;
     }

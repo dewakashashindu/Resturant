@@ -36,7 +36,14 @@
         }
       ],
       "expo-secure-store",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Restaurant app to access the microphone for voice queries.",
+          "speechRecognitionPermission": "Allow Restaurant app to use speech recognition to analyze sales data."
+        }
+      ]
     ],
     "extra": {
       "router": {},
