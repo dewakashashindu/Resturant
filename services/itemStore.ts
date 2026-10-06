@@ -10,6 +10,36 @@ const CACHED_CATEGORIES_KEY = 'cached_categories';
 const CACHED_ITEMS_KEY = 'cached_items';
 // Set to '1' on login → forces a fresh full sync on next hydrateItems call
 export const FRESH_LOGIN_FLAG_KEY = 'menu_fresh_login_flag';
+// Prefix for per-item picture cache keys: "item_pic:ITEMCODE"
+export const ITEM_PIC_PREFIX = 'item_pic:';
+
+/**
+ * Strips ItemPic out of each item, saves pictures to individual MMKV keys,
+ * and returns the cleaned items array (no base64 blobs in the main cache).
+ */
+const stripAndCachePictures = (items: RawItem[]): RawItem[] => {
+  let savedCount = 0;
+  let nullCount = 0;
+  const result = items.map((item) => {
+    const code = String(item.MenuItemCode ?? item.ItemCode ?? '').trim();
+    const pic = item.ItemPic;
+    if (code && pic && typeof pic === 'string' && pic.trim().length > 0) {
+      try {
+        storage.set(`${ITEM_PIC_PREFIX}${code}`, pic.trim());
+        savedCount++;
+        if (savedCount <= 5) console.log('[ItemStore] Cached pic for', code, 'length=', pic.trim().length);
+      } catch (e) {
+        console.log('[ItemStore] Failed to cache picture for', code, e);
+      }
+    } else if (code) {
+      nullCount++;
+    }
+    const { ItemPic, ...rest } = item as any;
+    return rest as RawItem;
+  });
+  console.log('[ItemStore] stripAndCachePictures done: saved=', savedCount, 'noPic=', nullCount);
+  return result;
+};
 
 type RawItem = Record<string, any>;
 type MenuSnapshot = {
@@ -208,11 +238,14 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
 
       const displayTimestamp = getDisplayTimestamp();
 
-      persistLegacyCacheKeys(items, categories);
-      persistSnapshot(items, displayTimestamp);
+      // Save pictures to individual MMKV keys; strip from main cache
+      const cleanItems = stripAndCachePictures(items);
+
+      persistLegacyCacheKeys(cleanItems, categories);
+      persistSnapshot(cleanItems, displayTimestamp);
 
       set({
-        items,
+        items: cleanItems,
         lastSyncTime: displayTimestamp,
         isHydrated: true,
         syncError: null,
@@ -258,10 +291,13 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
 
       const displayTimestamp = getDisplayTimestamp();
 
-      set({ items, lastSyncTime: displayTimestamp, syncError: null, isHydrated: true });
+      // Save pictures to individual MMKV keys; strip from main cache
+      const cleanItems = stripAndCachePictures(items);
 
-      persistLegacyCacheKeys(items, categories);
-      persistSnapshot(items, displayTimestamp);
+      set({ items: cleanItems, lastSyncTime: displayTimestamp, syncError: null, isHydrated: true });
+
+      persistLegacyCacheKeys(cleanItems, categories);
+      persistSnapshot(cleanItems, displayTimestamp);
 
       console.log('[ItemStore] syncMenuData: done', {
         totalRows: items.length,

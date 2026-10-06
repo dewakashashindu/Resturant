@@ -25,6 +25,7 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization'],
 };
 
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -46,7 +47,7 @@ const dbConfig = {
     encrypt: false,
     trustServerCertificate: true,
     enableArithAbort: true,
-    requestTimeout: 60000,
+    requestTimeout: 90000,  // 90 s — /api/menu/items fetches ItemPic blobs
   },
   pool: {
     max: 10,
@@ -876,6 +877,249 @@ app.get('/api/menu/level', async (req, res) => {
   }
 });
 
+// ── ItemPic conversion helpers ────────────────────────────────────────────────
+
+/**
+ * Extracts the largest image frame from a Windows ICO binary buffer.
+ * Returns { buf, mime } where mime is 'image/png' or 'image/jpeg',
+ * or null if the frame cannot be extracted or is a raw BMP/DIB.
+ */
+const extractIcoFrame = (icoBuf) => {
+  try {
+    if (icoBuf.length < 6) return null;
+    const isIco = icoBuf[0] === 0x00 && icoBuf[1] === 0x00 &&
+                  icoBuf[2] === 0x01 && icoBuf[3] === 0x00;
+    if (!isIco) return null;
+
+    const imageCount = icoBuf.readUInt16LE(4);
+    let bestBuf = null, bestMime = null, bestSize = 0;
+
+    for (let i = 0; i < imageCount; i++) {
+      const entry = 6 + i * 16;
+      if (entry + 16 > icoBuf.length) break;
+      const w      = icoBuf[entry]     || 256;
+      const h      = icoBuf[entry + 1] || 256;
+      const size   = w * h;
+      const len    = icoBuf.readUInt32LE(entry + 8);
+      const offset = icoBuf.readUInt32LE(entry + 12);
+      if (offset + len > icoBuf.length || len < 4) continue;
+
+      const frame = icoBuf.slice(offset, offset + len);
+      const isPng  = frame[0] === 0x89 && frame[1] === 0x50 && frame[2] === 0x4e && frame[3] === 0x47;
+      const isJpeg = frame[0] === 0xff && frame[1] === 0xd8;
+
+      if ((isPng || isJpeg) && size > bestSize) {
+        bestBuf  = frame;
+        bestMime = isPng ? 'image/png' : 'image/jpeg';
+        bestSize = size;
+      }
+    }
+    return bestBuf ? { buf: bestBuf, mime: bestMime } : null;
+  } catch { return null; }
+};
+
+/**
+ * Converts a Windows BMP/DIB buffer (with or without file header) to a
+ * minimal valid PNG using pure Node.js — no external libraries needed.
+ * Supports 32-bit BGRA and 24-bit BGR DIBs (the two formats found in ICO).
+ */
+const encodePng = (rgba, width, height) => {
+  const zlib = require('zlib');
+  const crc32 = (() => {
+    const table = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      table[n] = c;
+    }
+    return (buf, off = 0, len = buf.length) => {
+      let c = 0xffffffff;
+      for (let i = off; i < off + len; i++) c = table[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+      return (c ^ 0xffffffff) >>> 0;
+    };
+  })();
+  const chunk = (type, data) => {
+    const typeBuf = Buffer.from(type, 'ascii');
+    const lenBuf  = Buffer.alloc(4); lenBuf.writeUInt32BE(data.length);
+    const combined = Buffer.concat([typeBuf, data]);
+    const crcBuf  = Buffer.alloc(4); crcBuf.writeUInt32BE(crc32(combined));
+    return Buffer.concat([lenBuf, typeBuf, data, crcBuf]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; ihdr[9] = 6; ihdr[10] = ihdr[11] = ihdr[12] = 0;
+  const filtered = Buffer.alloc(height * (1 + width * 4));
+  for (let row = 0; row < height; row++) {
+    filtered[row * (1 + width * 4)] = 0;
+    rgba.copy(filtered, row * (1 + width * 4) + 1, row * width * 4, (row + 1) * width * 4);
+  }
+  const compressed = zlib.deflateSync(filtered, { level: 6 });
+  const png = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk('IHDR', ihdr), chunk('IDAT', compressed), chunk('IEND', Buffer.alloc(0)),
+  ]);
+  return `data:image/png;base64,${png.toString('base64')}`;
+};
+
+const dibToPngBase64 = (dibBuf) => {
+  try {
+    let pixelOffset, infoOffset;
+    if (dibBuf[0] === 0x42 && dibBuf[1] === 0x4d) {
+      pixelOffset = dibBuf.readUInt32LE(10);
+      infoOffset  = 14;
+    } else {
+      infoOffset  = 0;
+      const infoSize = dibBuf.readUInt32LE(0);
+      pixelOffset    = infoSize;
+    }
+
+    const width    = dibBuf.readInt32LE(infoOffset + 4);
+    const height   = dibBuf.readInt32LE(infoOffset + 8);
+    const bitCount = dibBuf.readUInt16LE(infoOffset + 14);
+    const absHeight = Math.abs(height);
+    const topDown   = height < 0;
+    // ICO DIBs double the height to include AND mask — real image = top half
+    const imgHeight = Math.ceil(absHeight / 2) || absHeight;
+
+    if (width <= 0 || absHeight <= 0) return null;
+
+    // 4-bit paletted
+    if (bitCount === 4) {
+      const colorTableOffset = infoOffset + 40;
+      const palette = [];
+      for (let c = 0; c < 16; c++) {
+        const o = colorTableOffset + c * 4;
+        palette.push([dibBuf[o+2]||0, dibBuf[o+1]||0, dibBuf[o]||0, 255]);
+      }
+      const rowStride = Math.ceil(width / 2 / 4) * 4;
+      const pixData   = colorTableOffset + 64;
+      const rgba = Buffer.alloc(width * imgHeight * 4, 0);
+      for (let row = 0; row < imgHeight; row++) {
+        const srcRow  = topDown ? row : (imgHeight - 1 - row);
+        const srcBase = pixData + srcRow * rowStride;
+        const dstBase = row * width * 4;
+        for (let col = 0; col < width; col++) {
+          const byteVal = dibBuf[srcBase + Math.floor(col / 2)] || 0;
+          const nibble  = (col % 2 === 0) ? (byteVal >> 4) & 0xf : byteVal & 0xf;
+          const [r, g, b, a] = palette[nibble] || [0, 0, 0, 255];
+          rgba[dstBase + col*4] = r; rgba[dstBase + col*4+1] = g;
+          rgba[dstBase + col*4+2] = b; rgba[dstBase + col*4+3] = a;
+        }
+      }
+      return encodePng(rgba, width, imgHeight);
+    }
+
+    // 8-bit paletted
+    if (bitCount === 8) {
+      const colorTableOffset = infoOffset + 40;
+      const palette = [];
+      for (let c = 0; c < 256; c++) {
+        const o = colorTableOffset + c * 4;
+        palette.push([dibBuf[o+2]||0, dibBuf[o+1]||0, dibBuf[o]||0, 255]);
+      }
+      const rowStride = Math.ceil(width / 4) * 4;
+      const pixData   = colorTableOffset + 1024;
+      const rgba = Buffer.alloc(width * imgHeight * 4, 0);
+      for (let row = 0; row < imgHeight; row++) {
+        const srcRow  = topDown ? row : (imgHeight - 1 - row);
+        const srcBase = pixData + srcRow * rowStride;
+        const dstBase = row * width * 4;
+        for (let col = 0; col < width; col++) {
+          const idx = dibBuf[srcBase + col] || 0;
+          const [r, g, b, a] = palette[idx] || [0, 0, 0, 255];
+          rgba[dstBase + col*4] = r; rgba[dstBase + col*4+1] = g;
+          rgba[dstBase + col*4+2] = b; rgba[dstBase + col*4+3] = a;
+        }
+      }
+      return encodePng(rgba, width, imgHeight);
+    }
+
+    // 24-bit or 32-bit
+    if (bitCount !== 24 && bitCount !== 32) {
+      console.log('[ItemPic] Unsupported bitCount', bitCount, 'for DIB', width, 'x', absHeight);
+      return null;
+    }
+    const bytesPerPixel = bitCount / 8;
+    const rowStride = Math.ceil(width * bytesPerPixel / 4) * 4;
+    const rgba = Buffer.alloc(width * imgHeight * 4);
+    for (let row = 0; row < imgHeight; row++) {
+      const srcRow  = topDown ? row : (imgHeight - 1 - row);
+      const srcBase = pixelOffset + srcRow * rowStride;
+      const dstBase = row * width * 4;
+      for (let col = 0; col < width; col++) {
+        const src = srcBase + col * bytesPerPixel;
+        const dst = dstBase + col * 4;
+        rgba[dst] = dibBuf[src+2]; rgba[dst+1] = dibBuf[src+1];
+        rgba[dst+2] = dibBuf[src]; rgba[dst+3] = bitCount === 32 ? dibBuf[src+3] : 255;
+      }
+    }
+    return encodePng(rgba, width, imgHeight);
+  } catch (e) {
+    console.log('[ItemPic] dibToPngBase64 error:', e.message);
+    return null;
+  }
+};
+
+/**
+ * Converts an ItemPic Buffer (ICO format from DB) to a data URI
+ * that React Native can render. Returns null if conversion fails.
+ */
+const itemPicToDataUri = (raw) => {
+  try {
+    if (!raw) return null;
+    let buf;
+    if (Buffer.isBuffer(raw)) {
+      buf = raw;
+    } else if (typeof raw === 'string') {
+      // Could be hex string or base64 data URI already
+      if (raw.startsWith('data:')) return raw;
+      buf = Buffer.from(raw, 'hex');
+    } else {
+      buf = Buffer.from(String(raw), 'hex');
+    }
+    if (buf.length < 4) return null;
+
+    // Check for ICO magic bytes (00 00 01 00)
+    const isIco = buf[0] === 0x00 && buf[1] === 0x00 && buf[2] === 0x01 && buf[3] === 0x00;
+
+    if (isIco) {
+      // Try to get a PNG or JPEG frame directly
+      const frame = extractIcoFrame(buf);
+      if (frame) return `data:${frame.mime};base64,${frame.buf.toString('base64')}`;
+
+      // Frames are raw DIB — convert the largest one to PNG
+      const imageCount = buf.readUInt16LE(4);
+      let bestDib = null, bestSize = 0;
+      for (let i = 0; i < imageCount; i++) {
+        const entry  = 6 + i * 16;
+        if (entry + 16 > buf.length) break;
+        const w      = buf[entry]     || 256;
+        const h      = buf[entry + 1] || 256;
+        const size   = w * h;
+        const len    = buf.readUInt32LE(entry + 8);
+        const offset = buf.readUInt32LE(entry + 12);
+        if (offset >= buf.length) continue;
+        // Clamp len to available bytes — some small ICOs have slightly wrong len
+        const availLen = Math.min(len, buf.length - offset);
+        if (availLen < 4) continue;
+        if (size > bestSize) { bestSize = size; bestDib = buf.slice(offset, offset + availLen); }
+      }
+      if (bestDib) return dibToPngBase64(bestDib);
+      return null;
+    }
+
+    // Not ICO — try PNG / JPEG directly
+    if (buf[0] === 0x89 && buf[1] === 0x50) return `data:image/png;base64,${buf.toString('base64')}`;
+    if (buf[0] === 0xff && buf[1] === 0xd8) return `data:image/jpeg;base64,${buf.toString('base64')}`;
+    return null;
+  } catch (e) {
+    console.log('[ItemPic] itemPicToDataUri error:', e.message);
+    return null;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 app.get('/api/menu/items', async (req, res) => {
   try {
     console.log('[Backend] GET /api/menu/items (full sync)');
@@ -884,28 +1128,58 @@ app.get('/api/menu/items', async (req, res) => {
 
     const result = await pool.request().query(`
       SELECT
-        MenuItemCode,
-        MenuItmDes,
-        SalesPrice,
-        Category,
-        Level1, Level2, Level3, Level4, Level5, Level6, Level7,
-        L1Des, L2Des, L3Des, L4Des, L5Des, L6Des, L7Des,
-        L1LitingOrder,
-        DisplayInFront,
-        MenuAssiEnable,
-        MenuItemEnable,
-        LISTINGORDER
-      FROM Vw_MenuAssignment WITH (NOLOCK)
-      WHERE DisplayInFront = '1'
-        AND MenuAssiEnable = '1'
-        AND MenuItemEnable = '1'
+        a.MenuItemCode,
+        a.MenuItmDes,
+        a.SalesPrice,
+        a.Category,
+        a.Level1, a.Level2, a.Level3, a.Level4, a.Level5, a.Level6, a.Level7,
+        a.L1Des, a.L2Des, a.L3Des, a.L4Des, a.L5Des, a.L6Des, a.L7Des,
+        a.L1LitingOrder,
+        a.DisplayInFront,
+        a.MenuAssiEnable,
+        a.MenuItemEnable,
+        a.LISTINGORDER,
+        m.ItemPic
+      FROM Vw_MenuAssignment a WITH (NOLOCK)
+      LEFT JOIN Tbl_MenuItems m WITH (NOLOCK)
+        ON RTRIM(LTRIM(m.MenuItmId)) = RTRIM(LTRIM(a.MenuItemCode))
+      WHERE a.DisplayInFront = '1'
+        AND a.MenuAssiEnable = '1'
+        AND a.MenuItemEnable = '1'
     `);
 
     const rows = result && result.recordset ? result.recordset : [];
-    console.log('[Backend] /api/menu/items returned rows=', rows.length);
+
+    // Convert ItemPic (ICO/BMP binary) → PNG data URI that React Native can render.
+    // Items without a picture get ItemPic: null so the app shows a placeholder.
+    const seen = new Map(); // cache conversions — same picture reused across variants
+    const processedRows = rows.map((row) => {
+      if (!row.ItemPic) return row;
+      try {
+        // Fingerprint: length + bytes from start, middle and end.
+        // The old slice(0,32) only covered the ICO file header which is
+        // identical for every .ico file — so every item got the SAME first
+        // picture. Sampling three positions gives a unique key per image.
+        const buf = row.ItemPic;
+        const mid = Math.floor(buf.length / 2);
+        const key = `${buf.length}_${buf.toString('hex', 0, 8)}_${buf.toString('hex', mid, mid + 8)}_${buf.toString('hex', Math.max(0, buf.length - 8))}`;
+        if (!seen.has(key)) {
+          const uri = itemPicToDataUri(row.ItemPic);
+          if (!uri) console.log("[ItemPic] FAILED", row.MenuItemCode, "hex=", row.ItemPic.toString("hex").slice(0,16), "len=", row.ItemPic.length);
+          seen.set(key, uri);
+        }
+        return { ...row, ItemPic: seen.get(key) };
+      } catch (e) {
+        console.log("[ItemPic] EXCEPTION", row.MenuItemCode, e.message, "hex=", row.ItemPic ? row.ItemPic.toString("hex").slice(0,16) : "null");
+        return { ...row, ItemPic: null };
+      }
+    });
+
+    const withPic = processedRows.filter(r => r.ItemPic).length;
+    console.log('[Backend] /api/menu/items returned rows=', rows.length, 'withPic=', withPic);
 
     return res.json({
-      items: rows,
+      items: processedRows,
       lastSyncTime: new Date().toISOString(),
       ok: true,
     });

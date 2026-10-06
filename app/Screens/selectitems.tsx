@@ -45,7 +45,7 @@ type MenuRow = {
   LDes: string;
   Type: 'C' | 'I';
   SalesPrice: string | number;
-  icon?: ImageSourcePropType;
+  itemCode?: string;
 };
 
 type MainTab = {
@@ -53,11 +53,13 @@ type MainTab = {
   label: string;
 };
 
+// CHANGE 1: itemCode field added to SelectedItem
 type SelectedItem = {
   key: string;
   label: string;
   price?: number;
   icon?: ImageSourcePropType;
+  itemCode?: string;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -140,11 +142,27 @@ const toImageSource = (value: unknown): ImageSourcePropType | undefined => {
   return value as ImageSourcePropType;
 };
 
-const getMenuItemImageSource = (item: Record<string, any>) =>
-  toImageSource(
+const getMenuItemImageSource = (item: Record<string, any>) => {
+  const code = String(item.MenuItemCode ?? item.ItemCode ?? '').trim();
+  console.log('[PIC DEBUG] code=', code, 'MMKV key=', `item_pic:${code}`);
+  if (code) {
+    try {
+      const cached = storage.getString(`item_pic:${code}`);
+      console.log('[PIC DEBUG] cached length=', cached?.length ?? 0, 'preview=', cached?.slice(0, 30));
+      if (cached && cached.trim().length > 0) {
+        const base64 = cached.trim();
+        const uri = base64.startsWith('data:') ? base64 : `data:image/jpeg;base64,${base64}`;
+        return { uri } as ImageSourcePropType;
+      }
+    } catch (e) {
+      console.log('[PIC DEBUG] storage error', e);
+    }
+  }
+  return toImageSource(
     item.ItemImageUrl ?? item.ImageUrl ?? item.imageUrl
     ?? item.PhotoUrl ?? item.photoUrl ?? item.Image ?? item.image ?? item.icon,
   );
+};
 
 const splitRemarkTags = (value?: string) =>
   String(value ?? '').split(',').map((part) => part.trim()).filter(Boolean);
@@ -224,7 +242,7 @@ const buildCategoriesFromItems = (
         price: Number(item.SalesPrice ?? 0) || 0,
         listingOrder: Number(item.L1LitingOrder ?? item.listingOrder ?? 0) || 0,
         color: String(item.color ?? '#E3F2FD'),
-        icon: getMenuItemImageSource(item),
+        icon: undefined,
       });
     }
   }
@@ -278,7 +296,7 @@ const buildMenuRowsFromItems = (
         LDes: getMenuItemLabel(item),
         Type: 'I',
         SalesPrice: String(getMenuItemPrice(item)),
-        icon: getMenuItemImageSource(item),
+        itemCode: itemCode,
       });
     }
   }
@@ -347,9 +365,11 @@ interface ItemCardProps {
   label: string;
   price?: number;
   icon?: ImageSourcePropType;
+  itemCode?: string;
+  syncVersion?: number;
   onAdd?: () => void;
   quantity?: number;
-  existingQty?: number;   // items already on the bill (read-only, shown as grey badge)
+  existingQty?: number;
   remarks?: string;
   onIncrement?: () => void;
   onDecrement?: () => void;
@@ -361,7 +381,9 @@ interface ItemCardProps {
 const ItemCard = ({
   label,
   price,
-  icon,
+  icon: iconProp,
+  itemCode,
+  syncVersion,
   onAdd,
   quantity,
   existingQty = 0,
@@ -376,9 +398,32 @@ const ItemCard = ({
   const insets = useSafeAreaInsets();
   const cs = getDynamicStyles(width, height, insets.bottom);
 
-  const displayQuantity = quantity ?? 0;   // new qty (delta)
+  const displayQuantity = quantity ?? 0;
   const remarkTags      = normalizeRemarkTags(splitRemarkTags(remarks));
   const imgSize         = cardWidth - 4;
+
+  const readPicFromMmkv = (code?: string): ImageSourcePropType | undefined => {
+    if (!code) return undefined;
+    try {
+      const cached = storage.getString(`item_pic:${code}`);
+      if (cached && cached.trim().length > 0) {
+        const base64 = cached.trim();
+        const uri = base64.startsWith('data:') ? base64 : `data:image/jpeg;base64,${base64}`;
+        return { uri } as ImageSourcePropType;
+      }
+    } catch { /* ignore */ }
+    return undefined;
+  };
+
+  const [icon, setIcon] = useState<ImageSourcePropType | undefined>(
+    () => readPicFromMmkv(itemCode) ?? iconProp,
+  );
+
+  useEffect(() => {
+    const pic = readPicFromMmkv(itemCode);
+    setIcon(pic ?? iconProp);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemCode, iconProp, syncVersion]);
 
   return (
     <View style={[cs.itemCard, { width: cardWidth }]}>
@@ -421,7 +466,6 @@ const ItemCard = ({
         </View>
       )}
 
-      {/* Existing-on-bill badge (grey, read-only) */}
       {existingQty > 0 && (
         <View style={cs.existingQtyBadge}>
           <Text style={cs.existingQtyText}>On bill: {existingQty}</Text>
@@ -465,7 +509,6 @@ export default function ItemSelection() {
       fromBilling?: string;
       tableNo?: string;
       invoiceNo?: string;
-      // BUG FIX: receive orderType from BillingScreen so TA orders preserve their type
       orderType?: string;
     }>();
 
@@ -476,9 +519,13 @@ export default function ItemSelection() {
   const cardWidth = (width - s.hPad * 2 - s.gridGap) / COLUMNS;
 
   // ── Store ────────────────────────────────────────────────────────────────
-  const storeItems    = useItemStore((state) => state.items);
-  const storeHydrated = useItemStore((state) => state.isHydrated);
-  const hydrateItems  = useItemStore((state) => state.hydrateItems);
+  const storeItems     = useItemStore((state) => state.items);
+  const storeHydrated  = useItemStore((state) => state.isHydrated);
+  const hydrateItems   = useItemStore((state) => state.hydrateItems);
+  const lastSyncTime   = useItemStore((state) => state.lastSyncTime);
+  const syncVersion = useMemo(() => {
+    return lastSyncTime ? lastSyncTime.length + lastSyncTime.charCodeAt(0) : 0;
+  }, [lastSyncTime]);
 
   const cartItems      = useCartStore((state) => state.cartItems);
   const addToCart      = useCartStore((state) => state.addToCart);
@@ -489,27 +536,18 @@ export default function ItemSelection() {
   const setCartItems   = useCartStore((state) => state.setCartItems);
   const clearCart      = useCartStore((state) => state.clearCart);
 
-  // When arriving from billing ("Add More"), lastConfirmedOrder holds the
-  // items already on the bill.  We use this to:
-  //  • show existing qty on each card (grey, read-only)
-  //  • compute the DELTA qty the user is adding on top
   const lastConfirmedOrder = useOrderStore((state) => state.lastConfirmedOrder);
   const isFromBilling = fromBilling === '1';
 
-  // BUG FIX: When coming from BillingScreen via "Add More", restore the
-  // orderType into cartStore so cart.tsx sees 'TA' instead of null/'DI'.
-  // This runs once on mount — routeOrderType comes from BillingScreen params.
   useEffect(() => {
     if (!isFromBilling) return;
     const resolvedOrderType = String(
       (lastConfirmedOrder as any)?.orderType || routeOrderType || '',
     ).trim();
-
     setOrderType(resolvedOrderType === 'TA' ? 'TA' : 'DINING');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFromBilling]);
 
-  // Build a quick lookup: menuItemCode → existing qty on the current bill
   const existingQtyByCode = useMemo<Record<string, number>>(() => {
     if (!isFromBilling || !lastConfirmedOrder?.items?.length) return {};
     const map: Record<string, number> = {};
@@ -519,14 +557,9 @@ export default function ItemSelection() {
     return map;
   }, [isFromBilling, lastConfirmedOrder]);
 
-  // When opening Item Selection for an existing bill, cartStore keeps the
-  // current TOTAL quantity per item (old bill qty + newly added qty).  That
-  // lets the cart calculate and highlight only the newly added delta while the
-  // server still receives final quantities for the existing invoice.
   useEffect(() => {
     if (!isFromBilling || !lastConfirmedOrder?.items?.length) return;
     if (cartItems.length > 0) return;
-
     setCartItems(
       lastConfirmedOrder.items.map((item) => ({
         menuItemCode: item.menuItemCode,
@@ -570,7 +603,6 @@ export default function ItemSelection() {
 
   // ── Derived ──────────────────────────────────────────────────────────────
   const normalizedSearch  = searchQuery.trim().toLowerCase();
-  // When fromBilling, show only the count of NEWLY added items (delta)
   const selectedItemCount = cartItems.reduce((sum, item) => {
     if (isFromBilling) {
       const existingQty = existingQtyByCode[item.menuItemCode] ?? 0;
@@ -650,7 +682,7 @@ export default function ItemSelection() {
             price: Number(cat.price ?? cat.SalesPrice ?? 0),
             listingOrder: Number(cat.listingOrder ?? cat.L1LitingOrder ?? 0),
             color: String(cat.color ?? '#E3F2FD'),
-            icon: getMenuItemImageSource(cat),
+            icon: undefined,
           }))
           .filter((cat) => Boolean(cat.id));
         setCategoriesList(mappedCategories);
@@ -808,14 +840,12 @@ export default function ItemSelection() {
     const normalizedCode = normalizeMenuItemCode(menuItemCode);
     const totalQty = cartItems.find((item) => item.menuItemCode === normalizedCode)?.quantity ?? 0;
     if (isFromBilling) {
-      // Show only the NEW qty added on top of what's already on the bill
       const existingQty = existingQtyByCode[normalizedCode] ?? 0;
       return Math.max(0, totalQty - existingQty);
     }
     return totalQty;
   };
 
-  // How many items are already on the bill for this code (shown as a grey badge)
   const getExistingQty = (menuItemCode: string) => {
     if (!isFromBilling) return 0;
     return existingQtyByCode[normalizeMenuItemCode(menuItemCode)] ?? 0;
@@ -845,11 +875,13 @@ export default function ItemSelection() {
     });
   };
 
+  // CHANGE 2: openItemDetails accepts itemCode and stores it in selectedItem
   const openItemDetails = (item: {
     key: string;
     label: string;
     price?: number;
     icon?: ImageSourcePropType;
+    itemCode?: string;
   }) => {
     const normalizedKey    = normalizeMenuItemCode(item.key);
     const existingCartItem = getStoredCartItem(normalizedKey);
@@ -987,7 +1019,6 @@ export default function ItemSelection() {
         code:  getMenuItemCode(item),
         label: getMenuItemLabel(item),
         price: getMenuItemPrice(item),
-        icon:  getMenuItemImageSource(item),
         path:  [item.L1Des, item.L2Des, item.L3Des, item.L4Des, item.L5Des, item.L6Des]
           .map((v) => String(v ?? '').trim())
           .filter(Boolean),
@@ -1083,8 +1114,6 @@ export default function ItemSelection() {
             <View style={s.dropdownArrow} />
           </TouchableOpacity>
         </View>
-
-
 
         {/* ── Tabs (left, scrollable) + Search icon (right, fixed) ── */}
         <View style={s.searchTabsRow}>
@@ -1298,18 +1327,20 @@ export default function ItemSelection() {
                     key={`search-${item.code}-${i}`}
                     label={item.label}
                     price={item.price}
-                    icon={item.icon}
+                    itemCode={item.code}
+                    syncVersion={syncVersion}
                     path={item.path}
                     cardWidth={cardWidth}
                     quantity={getCartQuantity(item.code)}
                     existingQty={getExistingQty(item.code)}
                     remarks={getCartRemarks(item.code)}
                     onPressDetails={() =>
+                      // CHANGE 3: itemCode passed here
                       openItemDetails({
-                        key:   item.code,
-                        label: item.label,
-                        price: item.price,
-                        icon:  item.icon,
+                        key:      item.code,
+                        label:    item.label,
+                        price:    item.price,
+                        itemCode: item.code,
                       })
                     }
                     onAdd={() =>
@@ -1356,7 +1387,6 @@ export default function ItemSelection() {
                     key={`${row.Level}-cat-${i}`}
                     label={row.LDes}
                     color="#E3F2FD"
-                    icon={row.icon}
                     cardWidth={cardWidth}
                     onPress={() => openMenuRow(row)}
                   />
@@ -1366,17 +1396,19 @@ export default function ItemSelection() {
                     key={`${row.Level}-item-${i}`}
                     label={row.LDes}
                     price={Number(row.SalesPrice) || 0}
-                    icon={row.icon}
+                    itemCode={row.itemCode}
+                    syncVersion={syncVersion}
                     cardWidth={cardWidth}
                     quantity={getCartQuantity(row.Level)}
                     existingQty={getExistingQty(row.Level)}
                     remarks={getCartRemarks(row.Level)}
                     onPressDetails={() =>
+                      // CHANGE 4: itemCode passed here
                       openItemDetails({
-                        key:   row.Level,
-                        label: row.LDes,
-                        price: Number(row.SalesPrice) || 0,
-                        icon:  row.icon,
+                        key:      row.Level,
+                        label:    row.LDes,
+                        price:    Number(row.SalesPrice) || 0,
+                        itemCode: row.itemCode,
                       })
                     }
                     onAdd={() =>
@@ -1424,7 +1456,6 @@ export default function ItemSelection() {
                   floor:       floor       || '',
                   status:      status      || '',
                   fromBilling: fromBilling || '',
-                  // BUG FIX: carry orderType so cart.tsx doesn't lose TA type
                   orderType:   routeOrderType || '',
                 },
               })
@@ -1465,12 +1496,26 @@ export default function ItemSelection() {
                         style={s.centerDetailsScroll}
                       >
                         <View style={s.sheetImageWrap}>
+                          {/* CHANGE 2: Read image from MMKV using itemCode */}
                           <Image
-                            source={
-                              selectedItem?.icon ?? {
-                                uri: 'https://placehold.co/402x176',
+                            source={(() => {
+                              const code = selectedItem?.itemCode ?? selectedItem?.key;
+                              if (code) {
+                                try {
+                                  const cached = storage.getString(`item_pic:${code}`);
+                                  if (cached && cached.trim().length > 0) {
+                                    const b64 = cached.trim();
+                                    return {
+                                      uri: b64.startsWith('data:')
+                                        ? b64
+                                        : `data:image/jpeg;base64,${b64}`,
+                                    };
+                                  }
+                                } catch { /* ignore */ }
                               }
-                            }
+                              if (selectedItem?.icon) return selectedItem.icon;
+                              return { uri: 'https://placehold.co/402x176' };
+                            })()}
                             style={s.sheetImage}
                             resizeMode="cover"
                           />
@@ -1544,7 +1589,6 @@ export default function ItemSelection() {
                           </TouchableOpacity>
                         </View>
                       </View>
-
 
                       <TouchableOpacity
                         style={s.saveBtn}
@@ -1758,7 +1802,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         borderTopColor: '#FFF',
       },
 
-      // ── Search icon + tabs row (inside header) ───────────────────────────
       searchTabsRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1834,7 +1877,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingLeft: scale(4),
       },
 
-      // ── Section label inside header ───────────────────────────────────────
       sectionLabelInHeader: {
         marginTop: scale(isSmall ? 8 : 10),
         paddingBottom: scale(isSmall ? 6 : 8),
@@ -1846,7 +1888,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         letterSpacing: 0.4,
       },
 
-      // ── Section label (kept for reference, unused) ────────────────────────
       sectionLabelWrap: {
         paddingHorizontal: scale(hPad),
         paddingTop: scale(10),
@@ -2110,7 +2151,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         fontWeight: '700',
       },
 
-      // "On bill: N" grey badge shown below item image when fromBilling=1
       existingQtyBadge: {
         backgroundColor: '#F1F5F9',
         borderRadius: scale(5),

@@ -22,7 +22,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/appiconw.png",
-          "imageWidth": 500,
+          "imageWidth": 180,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
