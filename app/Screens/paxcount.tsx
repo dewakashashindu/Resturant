@@ -13,14 +13,25 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCartStore } from '../../services/cartStore';
+import { useMenuSessionStore } from '../../services/menuSessionStore';
 
 export default function PaxCountScreen() {
   const router = useRouter();
   const clearCart = useCartStore((state) => state.clearCart);
+  const setOrderType = useCartStore((state) => state.setOrderType);
+  const setDiningSession = useMenuSessionStore((state) => state.setDiningSession);
+  const clearDiningSession = useMenuSessionStore((state) => state.clearDiningSession);
   const { width, height } = useWindowDimensions();
   
-  // ── 1. RECEIVE THE TABLE NAME AND FLOOR FROM THE PREVIOUS SCREEN ──
-  const { tableName, floor } = useLocalSearchParams<{ tableName: string; floor?: string }>();
+  // Receives both regular Dining navigation and the Menu Card table flow.
+  const { tableName, floor, menuFlow, groupId, groupLabel, tableId } = useLocalSearchParams<{
+    tableName: string;
+    floor?: string;
+    menuFlow?: string;
+    groupId?: string;
+    groupLabel?: string;
+    tableId?: string;
+  }>();
 
   const [localPax, setLocalPax]   = useState('');
   const [foreignPax, setForeignPax] = useState('');
@@ -125,15 +136,39 @@ export default function PaxCountScreen() {
               if (!canContinue) return;
 
               clearCart();
+              clearDiningSession();
+              setOrderType('DINING');
 
-              // ── 2. FORWARD ALL VARIABLES TOGETHER, INCLUDING FLOOR ──
+              const localPaxValue = localPax.trim() || '0';
+              const foreignPaxValue = foreignPax.trim() || '0';
+
+              // Menu Card flow: persist the invisible table/pax context, then
+              // continue through Welcome → Menu Card. The Cart receives these
+              // values later when the user opens the real Dining cart.
+              if (menuFlow === '1') {
+                setDiningSession({
+                  groupId: String(groupId ?? ''),
+                  groupLabel: String(groupLabel ?? floor ?? ''),
+                  tableName: String(tableName ?? ''),
+                  tableNo: String(tableName ?? ''),
+                  floor: String(floor ?? ''),
+                  localPax: localPaxValue,
+                  foreignPax: foreignPaxValue,
+                  orderType: 'DINING',
+                });
+                router.push('/menu/menu_welcome');
+                return;
+              }
+
               router.push({
                 pathname: '/Screens/selectitems',
                 params: {
-                  tableName: tableName || '', // Carried over from the previous screen
-                  localPax: localPax.trim() || '0',
-                  foreignPax: foreignPax.trim() || '0',
+                  tableName: tableName || '',
+                  localPax: localPaxValue,
+                  foreignPax: foreignPaxValue,
                   floor: floor || '',
+                  tableId: tableId || '',
+                  orderType: 'DINING',
                 },
               });
             }}

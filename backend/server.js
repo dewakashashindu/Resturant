@@ -41,7 +41,8 @@ app.get('/test', (_req, res) => {
 const dbConfig = {
   user: sysConfig.DB_USER,
   password: sysConfig.DB_PASS,
-  server: sysConfig.DB_SERVER,
+  // DLL එකෙන් එන 'dewaka' වෙනුවට Local SQL Server Instance එක Override කරන්න
+  server: process.env.DB_SERVER || 'localhost\\SQL2008',
   database: sysConfig.DB_NAME,
   options: {
     encrypt: false,
@@ -55,7 +56,6 @@ const dbConfig = {
     idleTimeoutMillis: 30000,
   },
 };
-
 
 const remarksDbConfig = {
   user: sysConfig.REMARKS_DB_USER || sysConfig.DB_USER,
@@ -346,6 +346,34 @@ app.post('/api/auth/verify-manager', async (req, res) => {
   } catch (error) {
     console.error('[Backend Verify Manager Error]:', error);
     return res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Confirms the password of the user identified by the current JWT session.
+// Used before leaving an in-progress Menu Card order.
+app.post('/api/auth/verify-current-password', async (req, res) => {
+  try {
+    const password = String(req.body?.password ?? '');
+    if (!password) return res.status(400).json({ ok: false, message: 'Password is required.' });
+
+    const { userId } = getBearerUserInfo(req, '');
+    if (!userId) return res.status(401).json({ ok: false, message: 'Your session has expired. Please log in again.' });
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('userId', sql.VarChar, userId)
+      .query('SELECT Password FROM Tbl_UserDetails WHERE RTRIM(LTRIM(CAST(UserId AS NVARCHAR(50)))) = RTRIM(LTRIM(@userId))');
+
+    const user = result.recordset?.[0];
+    if (!user) return res.status(401).json({ ok: false, message: 'User session is invalid.' });
+
+    const passwordMatch = await bcrypt.compare(password, user.Password);
+    if (!passwordMatch) return res.status(401).json({ ok: false, message: 'Incorrect password. Please try again.' });
+
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('[Backend Verify Current Password Error]:', error);
+    return res.status(500).json({ ok: false, message: 'Unable to verify password.' });
   }
 });
 

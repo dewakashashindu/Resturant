@@ -1,10 +1,13 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { apiClient } from '../../services/api';
+import { useAuthStore } from '../../services/authStore';
+
 import {
+  ActivityIndicator,
   Dimensions,
   FlatList,
   Modal,
-  Platform,
   SafeAreaView,
   StatusBar,
   StyleSheet,
@@ -27,28 +30,8 @@ interface TableItem {
   label: string;
 }
 
-// ══════════════════════════════════════
-// DATA
-// ══════════════════════════════════════
-const TABLE_GROUPS: TableGroup[] = [
-  { id: 'A', label: 'A. GROUND FLOOR' },
-  { id: 'B', label: 'B. FIRST FLOOR' },
-  { id: 'C', label: 'C. SECOND FLOOR' },
-  { id: 'D', label: 'D. SMALL TABLES' },
-  { id: 'E', label: 'E. ROOM SERVICE' },
-  { id: 'F', label: 'F. UBER EATS' },
-  { id: 'G', label: 'G. EATS' },
-  { id: 'P', label: 'P. PICK ME FOOD' },
-  { id: 'S', label: 'SPECIAL BUFFET' },
-];
 
-const generateTables = (groupId: string): TableItem[] => {
-  return Array.from({ length: 10 }, (_, i) => ({
-    id: `${groupId}-T${i + 1}`,
-    label: `Table ${i + 1}`,
-  }));
-};
-
+const EMPTY_ASSIGNED_FLOORS: string[] = [];
 // ══════════════════════════════════════
 // RESPONSIVE SCALE UTILITIES
 // ══════════════════════════════════════
@@ -80,26 +63,84 @@ const TableSelectionScreen = () => {
   const circleSize = width * 0.38;
   const modalWidth = clamp(width * 0.88, scaleW(280), scaleW(420));
   const modalMaxHeight = height * 0.65;
-  const statusBarTop =
-    Platform.OS === 'android' ? StatusBar.currentHeight || scaleH(24) : 0;
-
   // ── State ──
+  // The data comes from the same table APIs used by Dining; only the UI is a dropdown.
+  const { user } = useAuthStore();
+  const assignedFloors = user?.assignedFloors ?? EMPTY_ASSIGNED_FLOORS;
+  const [groups, setGroups] = useState<TableGroup[]>([]);
+  const [tables, setTables] = useState<TableItem[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<TableGroup | null>(null);
   const [selectedTable, setSelectedTable] = useState<TableItem | null>(null);
-  const [groupDropdownVisible, setGroupDropdownVisible] =
-    useState<boolean>(false);
-  const [tableDropdownVisible, setTableDropdownVisible] =
-    useState<boolean>(false);
+  const [groupDropdownVisible, setGroupDropdownVisible] = useState(false);
+  const [tableDropdownVisible, setTableDropdownVisible] = useState(false);
+  const [loadingGroups, setLoadingGroups] = useState(true);
+  const [loadingTables, setLoadingTables] = useState(false);
+  const [groupError, setGroupError] = useState('');
+  const [tableError, setTableError] = useState('');
 
-  const tables: TableItem[] = selectedGroup
-    ? generateTables(selectedGroup.id)
-    : [];
+  useEffect(() => {
+    const loadGroups = async () => {
+      setLoadingGroups(true);
+      setGroupError('');
+      try {
+        const result = await apiClient.getFloors();
+        const records: any[] = Array.isArray(result.data)
+          ? result.data
+          : Array.isArray(result.data?.floors)
+            ? result.data.floors
+            : [];
+        if (!result.ok) {
+          setGroupError(result.data?.message || 'Unable to load table groups.');
+          return;
+        }
+
+        const allowedNames = assignedFloors.map((floor) => String(floor).trim());
+        setGroups(records
+          .map((floor: any) => ({
+            id: String(floor.GroupId ?? floor.groupId ?? floor.GroupName ?? floor.groupName ?? '').trim(),
+            label: String(floor.GroupName ?? floor.groupName ?? floor).trim(),
+          }))
+          .filter((floor: TableGroup) => floor.id && floor.label)
+          .filter((floor: TableGroup) => allowedNames.includes(floor.label)));
+      } catch {
+        setGroupError('Unable to load table groups.');
+      } finally {
+        setLoadingGroups(false);
+      }
+    };
+    void loadGroups();
+  }, [assignedFloors]);
+
+  const loadTables = async (group: TableGroup) => {
+    setLoadingTables(true);
+    setTableError('');
+    setTables([]);
+    try {
+      const result = await apiClient.getTables(group.label);
+      if (!result.ok) {
+        setTableError(result.data?.message || 'Unable to load tables.');
+        return;
+      }
+      const records: any[] = Array.isArray(result.data?.tables) ? result.data.tables : [];
+      setTables(records
+        .map((table: any): TableItem => ({
+          id: String(table.TableNo ?? '').trim(),
+          label: String(table.TableNo ?? '').trim(),
+        }))
+        .filter((table) => Boolean(table.id)));
+    } catch {
+      setTableError('Unable to load tables.');
+    } finally {
+      setLoadingTables(false);
+    }
+  };
 
   // ── Handlers ──
   const handleGroupSelect = (group: TableGroup): void => {
     setSelectedGroup(group);
     setSelectedTable(null);
     setGroupDropdownVisible(false);
+    void loadTables(group);
   };
 
   const handleTableSelect = (table: TableItem): void => {
@@ -108,17 +149,17 @@ const TableSelectionScreen = () => {
   };
 
   const handleConfirm = (): void => {
-    if (!selectedGroup || !selectedTable) {
-      alert('Please select both a Table Group and a Table.');
-      return;
-    }
+    if (!selectedGroup || !selectedTable) return;
     router.push({
-      pathname: '/menu/menu_welcome',
+      pathname: '/Screens/paxcount',
       params: {
+        menuFlow: '1',
         groupId: selectedGroup.id,
         groupLabel: selectedGroup.label,
         tableId: selectedTable.id,
-        tableLabel: selectedTable.label,
+        tableName: selectedTable.id,
+        tableNo: selectedTable.id,
+        floor: selectedGroup.label,
       },
     });
   };
@@ -164,36 +205,13 @@ const TableSelectionScreen = () => {
       >
         {item.label}
       </Text>
+      {selectedTable?.id === item.id && <Text style={styles.checkmark}>✓</Text>}
     </TouchableOpacity>
   );
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="white" />
-
-      {/* ── Mock Status Bar ── */}
-      <View
-        style={[
-          styles.statusBar,
-          {
-            top: statusBarTop + scaleH(8),
-            paddingHorizontal: paddingH,
-          },
-        ]}
-      >
-        <Text style={styles.timeText}>11:07</Text>
-        <View style={styles.statusIcons}>
-          <View style={styles.iconWrapper}>
-            <View style={styles.wifiIcon} />
-          </View>
-          <View style={styles.iconWrapper}>
-            <View style={styles.signalIcon} />
-          </View>
-          <View style={styles.iconWrapper}>
-            <View style={styles.batteryIcon} />
-          </View>
-        </View>
-      </View>
 
       {/* ── Decorative Circles ── */}
       <View
@@ -235,6 +253,7 @@ const TableSelectionScreen = () => {
             style={styles.card}
             onPress={() => setGroupDropdownVisible(true)}
             activeOpacity={0.8}
+            disabled={loadingGroups}
           >
             <Text
               style={[
@@ -242,7 +261,7 @@ const TableSelectionScreen = () => {
                 !selectedGroup && styles.placeholderText,
               ]}
             >
-              {selectedGroup ? selectedGroup.label : 'Select Table Group'}
+              {loadingGroups ? 'Loading table groups…' : selectedGroup ? selectedGroup.label : 'Select Table Group'}
             </Text>
             <Text style={styles.arrowText}>›</Text>
           </TouchableOpacity>
@@ -252,6 +271,7 @@ const TableSelectionScreen = () => {
             style={[styles.card, !selectedGroup && styles.disabledCard]}
             onPress={() => selectedGroup && setTableDropdownVisible(true)}
             activeOpacity={0.8}
+            disabled={!selectedGroup || loadingTables}
           >
             <Text
               style={[
@@ -259,7 +279,7 @@ const TableSelectionScreen = () => {
                 !selectedTable && styles.placeholderText,
               ]}
             >
-              {selectedTable ? selectedTable.label : 'Select Table'}
+              {loadingTables ? 'Loading tables…' : selectedTable ? selectedTable.label : 'Select Table'}
             </Text>
             <Text style={styles.arrowText}>›</Text>
           </TouchableOpacity>
@@ -272,6 +292,7 @@ const TableSelectionScreen = () => {
           ]}
           onPress={handleConfirm}
           activeOpacity={0.8}
+          disabled={!selectedGroup || !selectedTable}
         >
           <Text style={styles.confirmText}>Confirm</Text>
         </TouchableOpacity>
@@ -303,14 +324,21 @@ const TableSelectionScreen = () => {
                 <Text style={styles.closeBtn}>✕</Text>
               </TouchableOpacity>
             </View>
-            <FlatList<TableGroup>
-              data={TABLE_GROUPS}
-              keyExtractor={(item) => item.id}
-              ItemSeparatorComponent={() => <View style={styles.separator} />}
-              renderItem={renderGroupItem}
-              contentContainerStyle={{ paddingBottom: scaleH(12) }}
-              showsVerticalScrollIndicator={false}
-            />
+            {loadingGroups ? (
+              <View style={styles.dropdownState}><ActivityIndicator color="#6291B9" /></View>
+            ) : groupError ? (
+              <Text style={styles.dropdownStateText}>{groupError}</Text>
+            ) : (
+              <FlatList<TableGroup>
+                data={groups}
+                keyExtractor={(item) => item.id}
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+                renderItem={renderGroupItem}
+                ListEmptyComponent={<Text style={styles.dropdownStateText}>No table groups are assigned to this user.</Text>}
+                contentContainerStyle={{ paddingBottom: scaleH(12) }}
+                showsVerticalScrollIndicator={false}
+              />
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -348,18 +376,21 @@ const TableSelectionScreen = () => {
                 <Text style={styles.closeBtn}>✕</Text>
               </TouchableOpacity>
             </View>
-            <FlatList<TableItem>
-              data={tables}
-              keyExtractor={(item) => item.id}
-              numColumns={2}
-              columnWrapperStyle={styles.tableGrid}
-              ItemSeparatorComponent={() => (
-                <View style={{ height: scaleH(10) }} />
-              )}
-              renderItem={renderTableItem}
-              contentContainerStyle={{ paddingBottom: scaleH(12) }}
-              showsVerticalScrollIndicator={false}
-            />
+            {loadingTables ? (
+              <View style={styles.dropdownState}><ActivityIndicator color="#6291B9" /></View>
+            ) : tableError ? (
+              <Text style={styles.dropdownStateText}>{tableError}</Text>
+            ) : (
+              <FlatList<TableItem>
+                data={tables}
+                keyExtractor={(item) => item.id}
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+                renderItem={renderTableItem}
+                ListEmptyComponent={<Text style={styles.dropdownStateText}>No enabled tables found for this table group.</Text>}
+                contentContainerStyle={{ paddingBottom: scaleH(12) }}
+                showsVerticalScrollIndicator={false}
+              />
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -377,54 +408,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
 
-  // ── Status Bar ──
-  statusBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: scaleH(32),
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  timeText: {
-    color: 'black',
-    fontSize: scaleFont(12),
-    fontWeight: '500',
-  },
-  statusIcons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scaleW(4),
-  },
-  iconWrapper: {
-    width: scaleW(16),
-    height: scaleW(16),
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  wifiIcon: {
-    width: scaleW(16),
-    height: scaleW(11.33),
-    backgroundColor: 'black',
-  },
-  signalIcon: {
-    width: scaleW(13.33),
-    height: scaleW(13.33),
-    backgroundColor: 'black',
-  },
-  batteryIcon: {
-    width: scaleW(6.67),
-    height: scaleW(13.33),
-    backgroundColor: 'black',
-  },
-
   // ── Decorative Circles ──
   circle: {
     position: 'absolute',
-    backgroundColor: 'rgba(98, 145, 185, 0.54)',
+    backgroundColor: 'rgba(98, 145, 185, 0.38)',
     borderRadius: 9999,
   },
   circleTopLeft: {},
@@ -437,9 +424,9 @@ const styles = StyleSheet.create({
     paddingVertical: scaleH(40),
   },
   descriptionText: {
-    color: 'black',
+    color: '#1D3444',
     fontSize: scaleFont(14),
-    fontWeight: '400',
+    fontWeight: '500',
     lineHeight: scaleH(22),
     marginBottom: scaleH(32),
   },
@@ -462,14 +449,16 @@ const styles = StyleSheet.create({
     height: scaleH(52),
     backgroundColor: 'white',
     borderRadius: scaleW(12),
+    borderWidth: 1,
+    borderColor: '#EDF1F3',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: scaleW(16),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
     elevation: 5,
     marginBottom: scaleH(16),
   },
@@ -501,8 +490,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
     elevation: 5,
   },
   confirmButtonDisabled: {
@@ -585,33 +574,40 @@ const styles = StyleSheet.create({
     marginHorizontal: scaleW(16),
   },
 
-  // ── Table Grid ──
-  tableGrid: {
-    justifyContent: 'space-around',
-    paddingHorizontal: scaleW(12),
-  },
+  // ── Table Dropdown List ──
   tableItem: {
-    width: '45%',
-    height: scaleH(48),
-    justifyContent: 'center',
+    minHeight: scaleH(52),
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: scaleW(10),
-    borderWidth: 1.5,
-    borderColor: '#6291B9',
-    backgroundColor: 'white',
+    borderRadius: scaleW(8),
+    marginHorizontal: scaleW(8),
+    paddingHorizontal: scaleW(20),
   },
   selectedTableItem: {
-    backgroundColor: '#6291B9',
-    borderColor: '#6291B9',
+    backgroundColor: 'rgba(98, 145, 185, 0.15)',
   },
   tableItemText: {
-    fontSize: scaleFont(14),
-    color: '#6291B9',
+    fontSize: scaleFont(15),
+    color: '#333',
     fontWeight: '500',
   },
   selectedTableItemText: {
-    color: 'white',
+    color: '#6291B9',
     fontWeight: '700',
+  },
+  dropdownState: {
+    minHeight: scaleH(120),
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dropdownStateText: {
+    minHeight: scaleH(96),
+    paddingHorizontal: scaleW(20),
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    color: 'rgba(0,0,0,0.62)',
+    fontSize: scaleFont(14),
   },
 });
 

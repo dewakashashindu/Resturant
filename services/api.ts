@@ -666,6 +666,14 @@ export const apiClient = {
     return { ok: response.ok, data };
   },
 
+  verifyCurrentPassword: async (password: string) => {
+    return requestJson(`${getDynamicApiBaseUrl()}/api/auth/verify-current-password`, {
+      method: 'POST',
+      headers: await buildAuthHeaders(),
+      body: JSON.stringify({ password }),
+    });
+  },
+
   getFloors: async () => {
     const response = await fetch(`${getDynamicApiBaseUrl()}/api/floors`, {
       headers: await buildAuthHeaders(),

@@ -7,13 +7,13 @@ import React, {
   useState,
 } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   FlatList,
   Image,
   ImageSourcePropType,
   Keyboard,
   Modal,
-  Platform,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -26,13 +26,14 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useCartContext } from '../menu/CartContext';
+import { ProtectedMenuExitModal } from '../../components/ProtectedMenuExitModal';
+import { useCartStore } from '../../services/cartStore';
+import { useItemStore } from '../../services/itemStore';
+import { useMenuSessionStore } from '../../services/menuSessionStore';
+import { storage } from '../../services/storage';
 
 const LOGO        = require('../../assets/images/CAPTURE 1.png');
 const PLACEHOLDER = require('../../assets/images/image-removebg-preview.png');
-
-const STATUS_BAR_HEIGHT: number =
-  Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) : 44;
 
 const PROMO_INTERVAL_MS  = 3_000;
 const TABLET_BREAKPOINT  = 600;
@@ -66,7 +67,7 @@ export interface FoodItem {
   description:   string;
   subCategories: SubCategory[];
   menuItems:     SubCatItem[];
-  category:      'FOOD' | 'BEVERAGE' | 'OTHER';
+  category:      string;
 }
 
 export interface PromoBanner {
@@ -230,507 +231,233 @@ const LOOPED_BANNERS: PromoBanner[] = [
   ...PROMO_BANNERS,
 ];
 
-const TABS = [
-  { key: 'FOOD',     label: 'FOOD'     },
-  { key: 'BEVERAGE', label: 'BEVERAGE' },
-  { key: 'OTHER',    label: 'OTHER'    },
-] as const;
+// ─── Real dining menu data ───────────────────────────────────────────────────
+// The Dining item-selection screen uses these same fields from /api/menu/items.
+// This keeps the Menu Card UI and the POS menu in sync without a second API call.
+type RawMenuRecord = Record<string, any>;
 
-type TabKey = typeof TABS[number]['key'];
+type MenuTab = {
+  key: string;
+  label: string;
+};
 
-const FOOD_ITEMS: FoodItem[] = [
-  // ─── FOOD ────────────────────────────────────────────────────────────────
-  {
-    id: '1', name: 'Chinese', category: 'FOOD',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description:
-      'Explore the rich, bold, and authentic flavors of the East! With over 80 delicious items on our menu—ranging from sizzling stir-fries and steaming bowls of noodles to crispy, flavor-packed appetizers—there is something perfect for everyone.\nDive in, explore the variety, and choose your favorite masterpiece today!\nTaste the tradition, crafted fresh just for you.',
-    subCategories: [
-      {
-        id: 'c_sc1', name: 'Sawans',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'A delightful selection of traditional Sawan dishes, prepared with authentic spices and fresh ingredients sourced daily.',
-        items: [
-          { id: 'c_sc1_i1', name: 'Sawan Special',    price: 'Rs. 1200', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1569050467447-ce54b3bbc37d?w=300' },
-          { id: 'c_sc1_i2', name: 'Crispy Sawan',     price: 'Rs. 980',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1563245372-f21724e3856d?w=300' },
-          { id: 'c_sc1_i3', name: 'Sawan Platter',    price: 'Rs. 1580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1617093727343-374698b1b08d?w=300' },
-          { id: 'c_sc1_i4', name: 'Steamed Sawan',    price: 'Rs. 1100', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1496116218417-1a781b1c416c?w=300' },
-          { id: 'c_sc1_i5', name: 'Sawan with Sauce', price: 'Rs. 1350', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43?w=300' },
-        ],
-      },
-      {
-        id: 'c_sc2', name: 'Chicken Specialities',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Our signature chicken dishes crafted by master chefs — from sizzling wok-tossed specials to slow-cooked aromatic classics.',
-        items: [
-          { id: 'c_sc2_i1', name: 'Devilled Chicken',      price: 'Rs. 1580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=300' },
-          { id: 'c_sc2_i2', name: 'Honey Chilli Chicken',  price: 'Rs. 1680', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1567620832903-9fc6debc209f?w=300' },
-          { id: 'c_sc2_i3', name: 'Kung Pao Chicken',      price: 'Rs. 1490', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1547592180-85f173990554?w=300' },
-          { id: 'c_sc2_i4', name: 'Chicken Manchurian',    price: 'Rs. 1390', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=300' },
-          { id: 'c_sc2_i5', name: 'Sweet & Sour Chicken',  price: 'Rs. 1290', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1609167830220-7164aa360951?w=300' },
-          { id: 'c_sc2_i6', name: 'Sesame Chicken',        price: 'Rs. 1480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1598515214211-89d3c73ae83b?w=300' },
-          { id: 'c_sc2_i7', name: "General Tso's Chicken", price: 'Rs. 1550', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1525755662778-989d0524087e?w=300' },
-          { id: 'c_sc2_i8', name: 'Chilli Garlic Chicken', price: 'Rs. 1420', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'c_m1', name: 'Devilled Fish',        price: 'Rs. 1580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=300' },
-      { id: 'c_m2', name: 'Singapore Fried Rice', price: 'Rs. 1190', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1512058564366-18510be2db19?w=300' },
-      { id: 'c_m3', name: 'Crispy Spring Roll',   price: 'Rs. 980',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=300' },
-      { id: 'c_m4', name: 'Wonton Soup',          price: 'Rs. 880',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=300' },
-      { id: 'c_m5', name: 'Fried Rice',           price: 'Rs. 1080', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=300' },
-      { id: 'c_m6', name: 'Chow Mein',            price: 'Rs. 1150', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=300' },
-    ],
-  },
-  {
-    id: '2', name: 'Indian', category: 'FOOD',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description: 'Savor the aromatic spices and vibrant colors of India. From creamy curries to crispy dosas, our authentic Indian dishes bring the subcontinent to your plate.',
-    subCategories: [
-      {
-        id: 'in_sc1', name: 'Curries',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Rich, creamy and boldly spiced curries from across India.',
-        items: [
-          { id: 'in_sc1_i1', name: 'Butter Chicken', price: 'Rs. 1480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=300' },
-          { id: 'in_sc1_i2', name: 'Dal Makhani',    price: 'Rs. 1080', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=300' },
-          { id: 'in_sc1_i3', name: 'Palak Paneer',   price: 'Rs. 1180', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=300' },
-          { id: 'in_sc1_i4', name: 'Rogan Josh',     price: 'Rs. 1580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1574484284002-952d92456975?w=300' },
-        ],
-      },
-      {
-        id: 'in_sc2', name: 'Tandoor',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Freshly fired in our authentic clay tandoor oven.',
-        items: [
-          { id: 'in_sc2_i1', name: 'Tandoori Chicken', price: 'Rs. 1380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=300' },
-          { id: 'in_sc2_i2', name: 'Seekh Kebab',      price: 'Rs. 1280', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1565299715199-866c917206bb?w=300' },
-          { id: 'in_sc2_i3', name: 'Garlic Naan',      price: 'Rs. 380',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1619985631105-6e01f2a6a5f3?w=300' },
-          { id: 'in_sc2_i4', name: 'Tandoori Paneer',  price: 'Rs. 1180', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'in_m1', name: 'Butter Chicken', price: 'Rs. 1480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=300' },
-      { id: 'in_m2', name: 'Dal Makhani',    price: 'Rs. 1080', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=300' },
-      { id: 'in_m3', name: 'Garlic Naan',    price: 'Rs. 380',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1619985631105-6e01f2a6a5f3?w=300' },
-      { id: 'in_m4', name: 'Palak Paneer',   price: 'Rs. 1180', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=300' },
-    ],
-  },
-  {
-    id: '3', name: 'Sri Lankan', category: 'FOOD',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description: 'Taste the tropical richness of Sri Lanka. With authentic dishes featuring coconut, spices, and fresh seafood.',
-    subCategories: [
-      {
-        id: 'sl_sc1', name: 'Rice & Curry',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Traditional Sri Lankan rice and curry plates with a variety of side dishes.',
-        items: [
-          { id: 'sl_sc1_i1', name: 'Pol Sambol Rice',   price: 'Rs. 980',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1512058564366-18510be2db19?w=300' },
-          { id: 'sl_sc1_i2', name: 'Fish Ambul Thiyal', price: 'Rs. 1380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=300' },
-          { id: 'sl_sc1_i3', name: 'Chicken Curry',     price: 'Rs. 1180', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1574484284002-952d92456975?w=300' },
-          { id: 'sl_sc1_i4', name: 'Dhal Curry',        price: 'Rs. 780',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=300' },
-        ],
-      },
-      {
-        id: 'sl_sc2', name: 'Short Eats',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Delicious bite-sized Sri Lankan snacks, perfect for any time of day.',
-        items: [
-          { id: 'sl_sc2_i1', name: 'Kottu Roti',     price: 'Rs. 1180', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1593560708920-61dd98c46a4e?w=300' },
-          { id: 'sl_sc2_i2', name: 'Hoppers',        price: 'Rs. 680',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=300' },
-          { id: 'sl_sc2_i3', name: 'String Hoppers', price: 'Rs. 580',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=300' },
-          { id: 'sl_sc2_i4', name: 'Isso Wade',      price: 'Rs. 480',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1565299507177-b0ac66763828?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'sl_m1', name: 'Pol Sambol Rice',   price: 'Rs. 980',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1512058564366-18510be2db19?w=300' },
-      { id: 'sl_m2', name: 'Fish Ambul Thiyal', price: 'Rs. 1380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=300' },
-      { id: 'sl_m3', name: 'Kottu Roti',        price: 'Rs. 1180', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1593560708920-61dd98c46a4e?w=300' },
-      { id: 'sl_m4', name: 'Hoppers',           price: 'Rs. 680',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=300' },
-    ],
-  },
-  {
-    id: '4', name: 'Pentry', category: 'FOOD',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description: 'Freshly baked goods and pantry staples crafted daily with quality ingredients.',
-    subCategories: [
-      {
-        id: 'pt_sc1', name: 'Sweet',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Indulge in our sweet pastry selection, freshly baked every morning.',
-        items: [
-          { id: 'pt_sc1_i1', name: 'Butter Croissant', price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=300' },
-          { id: 'pt_sc1_i2', name: 'Pain au Chocolat', price: 'Rs. 560', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=300' },
-          { id: 'pt_sc1_i3', name: 'Almond Danish',    price: 'Rs. 620', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=300' },
-        ],
-      },
-      {
-        id: 'pt_sc2', name: 'Savory',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Savory baked goods perfect for a quick snack or light meal.',
-        items: [
-          { id: 'pt_sc2_i1', name: 'Cheese Twist',   price: 'Rs. 520', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=300' },
-          { id: 'pt_sc2_i2', name: 'Herb Focaccia',  price: 'Rs. 680', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=300' },
-          { id: 'pt_sc2_i3', name: 'Olive Ciabatta', price: 'Rs. 740', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1586444248902-2f64eddc13df?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'pt_m1', name: 'Butter Croissant', price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=300' },
-      { id: 'pt_m2', name: 'Pain au Chocolat', price: 'Rs. 560', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=300' },
-      { id: 'pt_m3', name: 'Almond Danish',    price: 'Rs. 620', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=300' },
-      { id: 'pt_m4', name: 'Cheese Twist',     price: 'Rs. 520', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=300' },
-    ],
-  },
-  {
-    id: '5', name: 'Roty', category: 'FOOD',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description: 'Soft, flaky, and satisfying roti varieties made fresh daily.',
-    subCategories: [
-      {
-        id: 'rt_sc1', name: 'Plain',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Simple, classic rotis made with love — perfect with any curry.',
-        items: [
-          { id: 'rt_sc1_i1', name: 'Plain Roti', price: 'Rs. 280', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=300' },
-          { id: 'rt_sc1_i2', name: 'Egg Roti',   price: 'Rs. 420', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=300' },
-        ],
-      },
-      {
-        id: 'rt_sc2', name: 'Stuffed',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Generously stuffed rotis bursting with flavor in every bite.',
-        items: [
-          { id: 'rt_sc2_i1', name: 'Cheese Roti',  price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1593560708920-61dd98c46a4e?w=300' },
-          { id: 'rt_sc2_i2', name: 'Chicken Roti', price: 'Rs. 520', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1574484284002-952d92456975?w=300' },
-          { id: 'rt_sc2_i3', name: 'Veggie Roti',  price: 'Rs. 460', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'rt_m1', name: 'Plain Roti',   price: 'Rs. 280', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=300' },
-      { id: 'rt_m2', name: 'Egg Roti',     price: 'Rs. 420', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=300' },
-      { id: 'rt_m3', name: 'Cheese Roti',  price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1593560708920-61dd98c46a4e?w=300' },
-      { id: 'rt_m4', name: 'Chicken Roti', price: 'Rs. 520', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1574484284002-952d92456975?w=300' },
-    ],
-  },
-  {
-    id: '6', name: 'Submarine', category: 'FOOD',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description: 'Loaded submarine sandwiches packed with fresh ingredients and signature sauces.',
-    subCategories: [
-      {
-        id: 'sub_sc1', name: 'Classic',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Timeless classic submarine flavors you know and love.',
-        items: [
-          { id: 'sub_sc1_i1', name: 'Chicken Club Sub', price: 'Rs. 1180', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=300' },
-          { id: 'sub_sc1_i2', name: 'Tuna Melt Sub',    price: 'Rs. 1080', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=300' },
-          { id: 'sub_sc1_i3', name: 'BLT Sub',          price: 'Rs. 1280', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=300' },
-          { id: 'sub_sc1_i4', name: 'Veggie Delight',   price: 'Rs. 980',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=300' },
-        ],
-      },
-      {
-        id: 'sub_sc2', name: 'Signature',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: "Our chef's exclusive submarine creations — bold and unforgettable.",
-        items: [
-          { id: 'sub_sc2_i1', name: 'Spicy Italian', price: 'Rs. 1380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1509722747041-616f39b57569?w=300' },
-          { id: 'sub_sc2_i2', name: 'BBQ Beef Sub',  price: 'Rs. 1480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=300' },
-          { id: 'sub_sc2_i3', name: 'Avocado Bliss', price: 'Rs. 1280', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1551782450-17144efb9c50?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'sub_m1', name: 'Chicken Club Sub', price: 'Rs. 1180', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=300' },
-      { id: 'sub_m2', name: 'Tuna Melt Sub',    price: 'Rs. 1080', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=300' },
-      { id: 'sub_m3', name: 'Veggie Delight',   price: 'Rs. 980',  image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=300' },
-      { id: 'sub_m4', name: 'BLT Sub',          price: 'Rs. 1280', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=300' },
-    ],
-  },
-  {
-    id: '7', name: 'Buffet', category: 'FOOD',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description: 'All-you-can-eat experience with rotating stations. Freshly replenished throughout service.',
-    subCategories: [
-      {
-        id: 'buf_sc1', name: 'Lunch',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Our lunch buffet spread features fresh hot dishes replenished every 30 minutes.',
-        items: [
-          { id: 'buf_sc1_i1', name: 'Lunch Buffet Standard', price: 'Rs. 2800', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=300' },
-          { id: 'buf_sc1_i2', name: 'Lunch Buffet Premium',  price: 'Rs. 3400', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=300' },
-          { id: 'buf_sc1_i3', name: 'Kids Lunch Buffet',     price: 'Rs. 1800', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300' },
-          { id: 'buf_sc1_i4', name: 'Veg Lunch Buffet',      price: 'Rs. 2400', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=300' },
-        ],
-      },
-      {
-        id: 'buf_sc2', name: 'Dinner',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'An elegant dinner buffet spread with premium dishes and live stations.',
-        items: [
-          { id: 'buf_sc2_i1', name: 'Dinner Buffet Standard', price: 'Rs. 3500', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=300' },
-          { id: 'buf_sc2_i2', name: 'Dinner Buffet Premium',  price: 'Rs. 4200', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=300' },
-          { id: 'buf_sc2_i3', name: 'Weekend Brunch',         price: 'Rs. 3200', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300' },
-          { id: 'buf_sc2_i4', name: 'Seafood Night',          price: 'Rs. 4800', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'buf_m1', name: 'Lunch Buffet',   price: 'Rs. 2800', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=300' },
-      { id: 'buf_m2', name: 'Dinner Buffet',  price: 'Rs. 3500', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=300' },
-      { id: 'buf_m3', name: 'Weekend Brunch', price: 'Rs. 3200', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300' },
-      { id: 'buf_m4', name: 'Veg Buffet',     price: 'Rs. 2400', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=300' },
-    ],
-  },
+const LEVEL_KEYS = ['Level1', 'Level2', 'Level3', 'Level4', 'Level5', 'Level6', 'Level7'] as const;
 
-  // ─── BEVERAGE ────────────────────────────────────────────────────────────
-  {
-    id: 'b1', name: 'Hot Drinks', category: 'BEVERAGE',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description: 'Warm up with our carefully curated selection of hot beverages — from rich espressos to soothing herbal teas.',
-    subCategories: [
-      {
-        id: 'b1_sc1', name: 'Coffee',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Crafted from premium single-origin beans, brewed to perfection.',
-        items: [
-          { id: 'b1_sc1_i1', name: 'Espresso',   price: 'Rs. 380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1510591509098-f4fdc6d0ff04?w=300' },
-          { id: 'b1_sc1_i2', name: 'Cappuccino', price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1534778101976-62847782c213?w=300' },
-          { id: 'b1_sc1_i3', name: 'Flat White',  price: 'Rs. 520', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=300' },
-          { id: 'b1_sc1_i4', name: 'Americano',  price: 'Rs. 420', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1521302200778-33500795e128?w=300' },
-          { id: 'b1_sc1_i5', name: 'Latte',      price: 'Rs. 500', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1561882468-9110e03e0f78?w=300' },
-          { id: 'b1_sc1_i6', name: 'Mocha',      price: 'Rs. 550', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1578314675249-a6910f80cc4e?w=300' },
-        ],
-      },
-      {
-        id: 'b1_sc2', name: 'Tea',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Handpicked teas sourced from the finest estates.',
-        items: [
-          { id: 'b1_sc2_i1', name: 'Ceylon Black Tea', price: 'Rs. 350', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=300' },
-          { id: 'b1_sc2_i2', name: 'Green Tea',        price: 'Rs. 380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=300' },
-          { id: 'b1_sc2_i3', name: 'Chamomile Tea',    price: 'Rs. 400', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1587593810167-a84920ea0781?w=300' },
-          { id: 'b1_sc2_i4', name: 'Masala Chai',      price: 'Rs. 420', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1571934811356-5cc061b6821f?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'b1_m1', name: 'Espresso',         price: 'Rs. 380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1510591509098-f4fdc6d0ff04?w=300' },
-      { id: 'b1_m2', name: 'Cappuccino',       price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1534778101976-62847782c213?w=300' },
-      { id: 'b1_m3', name: 'Ceylon Black Tea', price: 'Rs. 350', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=300' },
-      { id: 'b1_m4', name: 'Masala Chai',      price: 'Rs. 420', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1571934811356-5cc061b6821f?w=300' },
-    ],
-  },
-  {
-    id: 'b2', name: 'Cold Drinks', category: 'BEVERAGE',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description: 'Refreshing cold beverages to cool you down — from blended smoothies to sparkling favorites.',
-    subCategories: [
-      {
-        id: 'b2_sc1', name: 'Smoothies',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Blended fresh fruit smoothies packed with vitamins.',
-        items: [
-          { id: 'b2_sc1_i1', name: 'Mango Blast',    price: 'Rs. 580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1553530666-ba11a7da3888?w=300' },
-          { id: 'b2_sc1_i2', name: 'Berry Mix',       price: 'Rs. 620', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1610970881699-44a5587cabec?w=300' },
-          { id: 'b2_sc1_i3', name: 'Green Detox',     price: 'Rs. 650', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1622597467836-f3285f2131b8?w=300' },
-          { id: 'b2_sc1_i4', name: 'Banana Shake',    price: 'Rs. 540', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1577805947697-89e18249d767?w=300' },
-          { id: 'b2_sc1_i5', name: 'Tropical Fusion', price: 'Rs. 680', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1505252585461-04db1eb84625?w=300' },
-        ],
-      },
-      {
-        id: 'b2_sc2', name: 'Iced Coffee',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Cold-brewed and iced coffee specialties.',
-        items: [
-          { id: 'b2_sc2_i1', name: 'Iced Latte',    price: 'Rs. 560', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?w=300' },
-          { id: 'b2_sc2_i2', name: 'Cold Brew',      price: 'Rs. 580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=300' },
-          { id: 'b2_sc2_i3', name: 'Iced Mocha',     price: 'Rs. 600', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1578314675249-a6910f80cc4e?w=300' },
-          { id: 'b2_sc2_i4', name: 'Caramel Frappé', price: 'Rs. 650', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'b2_m1', name: 'Mango Blast', price: 'Rs. 580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1553530666-ba11a7da3888?w=300' },
-      { id: 'b2_m2', name: 'Iced Latte',  price: 'Rs. 560', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?w=300' },
-      { id: 'b2_m3', name: 'Cold Brew',   price: 'Rs. 580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=300' },
-      { id: 'b2_m4', name: 'Berry Mix',   price: 'Rs. 620', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1610970881699-44a5587cabec?w=300' },
-    ],
-  },
-  {
-    id: 'b3', name: 'Fresh Juices', category: 'BEVERAGE',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description: 'Freshly squeezed juices made daily from hand-picked fruits.',
-    subCategories: [
-      {
-        id: 'b3_sc1', name: 'Citrus',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Tangy and refreshing citrus blends.',
-        items: [
-          { id: 'b3_sc1_i1', name: 'Orange Juice',     price: 'Rs. 450', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?w=300' },
-          { id: 'b3_sc1_i2', name: 'Lemonade',         price: 'Rs. 380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1523677011781-c91d1bbe2f9e?w=300' },
-          { id: 'b3_sc1_i3', name: 'Grapefruit Juice', price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1600271886742-f049cd451bba?w=300' },
-          { id: 'b3_sc1_i4', name: 'Lime Soda',        price: 'Rs. 350', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=300' },
-        ],
-      },
-      {
-        id: 'b3_sc2', name: 'Tropical',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Exotic tropical fruit juices bursting with flavor.',
-        items: [
-          { id: 'b3_sc2_i1', name: 'Pineapple Juice',  price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1546173159-315724a31696?w=300' },
-          { id: 'b3_sc2_i2', name: 'Watermelon Juice', price: 'Rs. 420', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1585154986-f6719cac6e90?w=300' },
-          { id: 'b3_sc2_i3', name: 'Coconut Water',    price: 'Rs. 380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=300' },
-          { id: 'b3_sc2_i4', name: 'Passion Fruit',    price: 'Rs. 520', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1505252585461-04db1eb84625?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'b3_m1', name: 'Orange Juice',    price: 'Rs. 450', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?w=300' },
-      { id: 'b3_m2', name: 'Pineapple Juice', price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1546173159-315724a31696?w=300' },
-      { id: 'b3_m3', name: 'Lemonade',        price: 'Rs. 380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1523677011781-c91d1bbe2f9e?w=300' },
-      { id: 'b3_m4', name: 'Coconut Water',   price: 'Rs. 380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=300' },
-    ],
-  },
-  {
-    id: 'b4', name: 'Milkshakes', category: 'BEVERAGE',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description: 'Thick, creamy milkshakes made with premium ice cream and fresh milk.',
-    subCategories: [
-      {
-        id: 'b4_sc1', name: 'Classic',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Timeless classic milkshake flavors.',
-        items: [
-          { id: 'b4_sc1_i1', name: 'Chocolate Shake',  price: 'Rs. 680', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=300' },
-          { id: 'b4_sc1_i2', name: 'Vanilla Shake',    price: 'Rs. 620', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1577805947697-89e18249d767?w=300' },
-          { id: 'b4_sc1_i3', name: 'Strawberry Shake', price: 'Rs. 650', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1553530666-ba11a7da3888?w=300' },
-          { id: 'b4_sc1_i4', name: 'Caramel Shake',    price: 'Rs. 700', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1610970881699-44a5587cabec?w=300' },
-        ],
-      },
-      {
-        id: 'b4_sc2', name: 'Special',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Unique specialty milkshake creations.',
-        items: [
-          { id: 'b4_sc2_i1', name: 'Oreo Shake',    price: 'Rs. 750', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=300' },
-          { id: 'b4_sc2_i2', name: 'Nutella Shake', price: 'Rs. 780', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=300' },
-          { id: 'b4_sc2_i3', name: 'Lotus Biscoff', price: 'Rs. 800', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1578314675249-a6910f80cc4e?w=300' },
-          { id: 'b4_sc2_i4', name: 'Matcha Shake',  price: 'Rs. 720', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1622597467836-f3285f2131b8?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'b4_m1', name: 'Chocolate Shake', price: 'Rs. 680', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=300' },
-      { id: 'b4_m2', name: 'Oreo Shake',      price: 'Rs. 750', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=300' },
-      { id: 'b4_m3', name: 'Vanilla Shake',   price: 'Rs. 620', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1577805947697-89e18249d767?w=300' },
-      { id: 'b4_m4', name: 'Matcha Shake',    price: 'Rs. 720', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1622597467836-f3285f2131b8?w=300' },
-    ],
-  },
+const getText = (value: unknown) => String(value ?? '').trim();
 
-  // ─── OTHER ───────────────────────────────────────────────────────────────
-  {
-    id: 'o1', name: 'Desserts', category: 'OTHER',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description: 'Indulge your sweet tooth with our carefully crafted dessert collection.',
-    subCategories: [
-      {
-        id: 'o1_sc1', name: 'Ice Cream',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Premium ice cream in a wide variety of flavors.',
-        items: [
-          { id: 'o1_sc1_i1', name: 'Vanilla Scoop',    price: 'Rs. 380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1570197571499-166b36435e9f?w=300' },
-          { id: 'o1_sc1_i2', name: 'Chocolate Scoop',  price: 'Rs. 380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=300' },
-          { id: 'o1_sc1_i3', name: 'Strawberry Scoop', price: 'Rs. 380', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1488900128323-21503983a07e?w=300' },
-          { id: 'o1_sc1_i4', name: 'Mango Scoop',      price: 'Rs. 400', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1553530666-ba11a7da3888?w=300' },
-          { id: 'o1_sc1_i5', name: 'Mint Choc Chip',   price: 'Rs. 420', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1497034825429-c343d7c6a68f?w=300' },
-          { id: 'o1_sc1_i6', name: 'Cookie Dough',     price: 'Rs. 450', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1580915411954-282cb537dbe3?w=300' },
-        ],
-      },
-      {
-        id: 'o1_sc2', name: 'Cakes & Pastries',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Freshly baked cakes and pastries made in-house daily.',
-        items: [
-          { id: 'o1_sc2_i1', name: 'Chocolate Lava Cake', price: 'Rs. 680', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=300' },
-          { id: 'o1_sc2_i2', name: 'Cheesecake Slice',    price: 'Rs. 620', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1488477181946-6428a0291777?w=300' },
-          { id: 'o1_sc2_i3', name: 'Tiramisu',            price: 'Rs. 720', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1571877227200-a0d98ea607e9?w=300' },
-          { id: 'o1_sc2_i4', name: 'Brownie Sundae',      price: 'Rs. 580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1580915411954-282cb537dbe3?w=300' },
-          { id: 'o1_sc2_i5', name: 'Waffles',             price: 'Rs. 680', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1562376552-0d160a2f238d?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'o1_m1', name: 'Chocolate Lava Cake', price: 'Rs. 680', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=300' },
-      { id: 'o1_m2', name: 'Cheesecake Slice',    price: 'Rs. 620', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1488477181946-6428a0291777?w=300' },
-      { id: 'o1_m3', name: 'Brownie Sundae',      price: 'Rs. 580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1580915411954-282cb537dbe3?w=300' },
-      { id: 'o1_m4', name: 'Waffles',             price: 'Rs. 680', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1562376552-0d160a2f238d?w=300' },
-    ],
-  },
-  {
-    id: 'o2', name: 'Snacks', category: 'OTHER',
-    image: PLACEHOLDER, heroImage: PLACEHOLDER,
-    description: 'Light bites and snacks perfect for any time of day.',
-    subCategories: [
-      {
-        id: 'o2_sc1', name: 'Fried Snacks',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Crispy fried snacks made fresh to order.',
-        items: [
-          { id: 'o2_sc1_i1', name: 'French Fries',      price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?w=300' },
-          { id: 'o2_sc1_i2', name: 'Onion Rings',       price: 'Rs. 420', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1639024471283-03518883512d?w=300' },
-          { id: 'o2_sc1_i3', name: 'Mozzarella Sticks', price: 'Rs. 580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1548340748-6d2b7d7da280?w=300' },
-          { id: 'o2_sc1_i4', name: 'Chicken Wings',     price: 'Rs. 780', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=300' },
-          { id: 'o2_sc1_i5', name: 'Calamari',          price: 'Rs. 680', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1565299507177-b0ac66763828?w=300' },
-        ],
-      },
-      {
-        id: 'o2_sc2', name: 'Light Bites',
-        image: PLACEHOLDER, heroImage: PLACEHOLDER,
-        description: 'Healthier light bite options.',
-        items: [
-          { id: 'o2_sc2_i1', name: 'Garden Salad',  price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=300' },
-          { id: 'o2_sc2_i2', name: 'Caesar Salad',  price: 'Rs. 580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1546793665-c74683f339c1?w=300' },
-          { id: 'o2_sc2_i3', name: 'Bruschetta',    price: 'Rs. 520', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1572695157366-5e585ab2b69f?w=300' },
-          { id: 'o2_sc2_i4', name: 'Hummus & Pita', price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=300' },
-          { id: 'o2_sc2_i5', name: 'Spring Rolls',  price: 'Rs. 420', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=300' },
-        ],
-      },
-    ],
-    menuItems: [
-      { id: 'o2_m1', name: 'French Fries',  price: 'Rs. 480', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?w=300' },
-      { id: 'o2_m2', name: 'Chicken Wings', price: 'Rs. 780', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=300' },
-      { id: 'o2_m3', name: 'Caesar Salad',  price: 'Rs. 580', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1546793665-c74683f339c1?w=300' },
-      { id: 'o2_m4', name: 'Bruschetta',    price: 'Rs. 520', image: PLACEHOLDER, imageUrl: 'https://images.unsplash.com/photo-1572695157366-5e585ab2b69f?w=300' },
-    ],
-  },
-];
+const getLevelValue = (item: RawMenuRecord, level: number) =>
+  getText(item[LEVEL_KEYS[level - 1]] ?? item[`level${level}`]);
+
+const getLevelLabel = (item: RawMenuRecord, level: number) =>
+  getText(
+    item[`L${level}DES`]
+      ?? item[`L${level}Des`]
+      ?? item[`l${level}Des`]
+      ?? item[`l${level}des`],
+  );
+
+const getCategoryCode = (item: RawMenuRecord) =>
+  getText(item.Category ?? item.CategoryCode ?? item.category).toUpperCase() || 'OTHER';
+
+const getCategoryLabel = (item: RawMenuRecord, code: string) => {
+  const label = getText(item.CategoryName ?? item.CategoryLabel ?? item.categoryName);
+  if (label) return label.toUpperCase();
+  const fallback: Record<string, string> = {
+    F: 'FOOD',
+    FOOD: 'FOOD',
+    B: 'BEVERAGE',
+    BEVERAGE: 'BEVERAGE',
+    O: 'OTHER',
+    OTHER: 'OTHER',
+  };
+  return fallback[code] ?? code;
+};
+
+const getMenuItemCode = (item: RawMenuRecord) =>
+  getText(item.MenuItemCode ?? item.ItemCode ?? item.ItemId ?? item.Level7 ?? item.Level ?? item.code ?? item.id);
+
+const getMenuItemName = (item: RawMenuRecord) =>
+  getText(
+    item.MenuItmDes
+      ?? item.MenuItemDes
+      ?? item.ItemName
+      ?? item.itemName
+      ?? item.LDes
+      ?? getMenuItemCode(item),
+  );
+
+const getMenuItemPrice = (item: RawMenuRecord) =>
+  Number(item.SalesPrice ?? item.salesPrice ?? item.Price ?? item.price ?? 0) || 0;
+
+const formatPrice = (price: number) => `Rs. ${price.toLocaleString('en-LK', { maximumFractionDigits: 2 })}`;
+
+const isVisibleDiningItem = (item: RawMenuRecord) => {
+  const flags = [item.DisplayInFront, item.MenuAssiEnable, item.MenuItemEnable]
+    .map(getText)
+    .filter(Boolean);
+  return flags.length === 0 || flags.every((value) => value === '1' || value.toLowerCase() === 'true');
+};
+
+const getMenuItemImage = (item: RawMenuRecord): ImageSourcePropType => {
+  const itemCode = getMenuItemCode(item);
+  if (itemCode) {
+    try {
+      const cached = storage.getString(`item_pic:${itemCode}`)?.trim();
+      if (cached) {
+        return {
+          uri: cached.startsWith('data:') ? cached : `data:image/jpeg;base64,${cached}`,
+        } as ImageSourcePropType;
+      }
+    } catch {
+      // A placeholder is shown below if the local image cache cannot be read.
+    }
+  }
+
+  const imageUrl = getText(
+    item.ItemImageUrl
+      ?? item.ImageUrl
+      ?? item.imageUrl
+      ?? item.PhotoUrl
+      ?? item.photoUrl
+      ?? item.Image
+      ?? item.image,
+  );
+  return imageUrl ? ({ uri: imageUrl } as ImageSourcePropType) : PLACEHOLDER;
+};
+
+const toMenuItem = (item: RawMenuRecord): SubCatItem | null => {
+  const id = getMenuItemCode(item);
+  if (!id) return null;
+  return {
+    id,
+    name: getMenuItemName(item) || id,
+    price: formatPrice(getMenuItemPrice(item)),
+    image: getMenuItemImage(item),
+  };
+};
+
+/**
+ * Shapes the POS menu hierarchy for the visual Menu Card.
+ * Level 1 becomes the home-card (Chinese/Indian/etc.) and Level 2 becomes
+ * the detail-screen subcategory.  Any deeper levels remain inside their
+ * Level-2 group, so every enabled POS item is still available to add.
+ */
+const buildFoodItemsFromDiningData = (rawItems: RawMenuRecord[]): { tabs: MenuTab[]; foodItems: FoodItem[] } => {
+  const tabsByCode = new Map<string, MenuTab>();
+  const groups = new Map<string, { tabCode: string; name: string; records: RawMenuRecord[] }>();
+
+  rawItems.forEach((item) => {
+    if (!isVisibleDiningItem(item)) return;
+    const itemCode = getMenuItemCode(item);
+    if (!itemCode) return;
+
+    const tabCode = getCategoryCode(item);
+    const tabLabel = getCategoryLabel(item, tabCode);
+    if (!tabsByCode.has(tabCode)) tabsByCode.set(tabCode, { key: tabCode, label: tabLabel });
+
+    const levelOneCode = getLevelValue(item, 1);
+    const levelOneName = getLevelLabel(item, 1) || levelOneCode || tabLabel;
+    const groupKey = `${tabCode}::${levelOneCode || levelOneName}`;
+    const group = groups.get(groupKey) ?? { tabCode, name: levelOneName, records: [] };
+    group.records.push(item);
+    groups.set(groupKey, group);
+  });
+
+  const foodItems: FoodItem[] = [...groups.entries()].map(([groupKey, group]) => {
+    const subGroups = new Map<string, { name: string; records: RawMenuRecord[] }>();
+    const directRecords: RawMenuRecord[] = [];
+
+    group.records.forEach((record) => {
+      const levelTwoCode = getLevelValue(record, 2);
+      const levelTwoName = getLevelLabel(record, 2) || levelTwoCode;
+      if (!levelTwoCode && !levelTwoName) {
+        directRecords.push(record);
+        return;
+      }
+      const subKey = levelTwoCode || levelTwoName;
+      const subGroup = subGroups.get(subKey) ?? { name: levelTwoName || subKey, records: [] };
+      subGroup.records.push(record);
+      subGroups.set(subKey, subGroup);
+    });
+
+    const uniqueItems = (records: RawMenuRecord[]) => {
+      const items = new Map<string, SubCatItem>();
+      records.forEach((record) => {
+        const menuItem = toMenuItem(record);
+        if (menuItem && !items.has(menuItem.id)) items.set(menuItem.id, menuItem);
+      });
+      return [...items.values()];
+    };
+
+    const menuItems = uniqueItems(directRecords);
+    const subCategories: SubCategory[] = [...subGroups.entries()]
+      .map(([subKey, subGroup]) => {
+        const subItems = uniqueItems(subGroup.records);
+        const representativeImage = subItems[0]?.image ?? getMenuItemImage(subGroup.records[0]);
+        return {
+          id: `${groupKey}::${subKey}`,
+          name: subGroup.name,
+          image: representativeImage,
+          heroImage: representativeImage,
+          description: `Browse ${subGroup.name} items from the current Dining menu.`,
+          items: subItems,
+        };
+      })
+      .filter((subCategory) => subCategory.items.length > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const representativeImage = menuItems[0]?.image ?? subCategories[0]?.image ?? getMenuItemImage(group.records[0]);
+    return {
+      id: groupKey,
+      name: group.name,
+      category: group.tabCode,
+      image: representativeImage,
+      heroImage: representativeImage,
+      description: `Browse ${group.name} items from the current Dining menu.`,
+      subCategories,
+      menuItems,
+    };
+  }).filter((foodItem) => foodItem.menuItems.length > 0 || foodItem.subCategories.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const tabOrder = ['F', 'FOOD', 'B', 'BEVERAGE', 'S', 'O', 'OTHER'];
+  const tabIndex = (key: string) => {
+    const index = tabOrder.indexOf(key);
+    return index === -1 ? tabOrder.length : index;
+  };
+
+  return {
+    tabs: [...tabsByCode.values()].sort(
+      (a, b) => tabIndex(a.key) - tabIndex(b.key) || a.label.localeCompare(b.label),
+    ),
+    foodItems,
+  };
+};
 
 // ─── Searchable flat list ────────────────────────────────────────────────────
 interface SearchableItem extends SubCatItem {
-  category:    string;
+  category: string;
   subCategory: string;
 }
 
-const ALL_SEARCHABLE_ITEMS: SearchableItem[] = FOOD_ITEMS.flatMap(food => [
-  ...food.menuItems.map(item => ({
-    ...item,
-    category:    food.name,
-    subCategory: 'Menu',
-  })),
-  ...food.subCategories.flatMap(sc =>
-    sc.items.map(item => ({
-      ...item,
-      category:    food.name,
-      subCategory: sc.name,
-    }))
-  ),
-]);
+const buildSearchableItems = (foodItems: FoodItem[]): SearchableItem[] => {
+  const results = new Map<string, SearchableItem>();
+  foodItems.forEach((food) => {
+    food.menuItems.forEach((item) => {
+      if (!results.has(item.id)) {
+        results.set(item.id, { ...item, category: food.name, subCategory: 'Menu' });
+      }
+    });
+    food.subCategories.forEach((subCategory) => {
+      subCategory.items.forEach((item) => {
+        if (!results.has(item.id)) {
+          results.set(item.id, { ...item, category: food.name, subCategory: subCategory.name });
+        }
+      });
+    });
+  });
+  return [...results.values()];
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ICONS
@@ -854,9 +581,9 @@ interface ItemDetailModalProps {
 }
 
 const parsePrice = (priceStr: string): number => {
-  const cleaned = priceStr.replace(/^[^0-9]+/, '');
+  const cleaned = priceStr.replace(/[^0-9.]/g, '');
   const num = parseFloat(cleaned);
-  return isNaN(num) ? 0 : num;
+  return Number.isFinite(num) ? num : 0;
 };
 
 const ITEM_DESCRIPTIONS: Record<string, string> = {};
@@ -980,9 +707,10 @@ const ItemDetailModal = ({
 interface SearchOverlayProps {
   visible: boolean; onClose: () => void; onHomePress: () => void;
   cart: CartMap; onIncrement: (id: string) => void; onDecrement: (id: string) => void; m: Metrics;
+  searchItems: SearchableItem[];
 }
 
-const SearchOverlay = ({ visible, onClose, onHomePress, cart, onIncrement, onDecrement, m }: SearchOverlayProps) => {
+const SearchOverlay = ({ visible, onClose, onHomePress, cart, onIncrement, onDecrement, m, searchItems }: SearchOverlayProps) => {
   const insets            = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const inputRef          = useRef<TextInput>(null);
@@ -998,12 +726,12 @@ const SearchOverlay = ({ visible, onClose, onHomePress, cart, onIncrement, onDec
   const results = useMemo<SearchableItem[]>(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    return ALL_SEARCHABLE_ITEMS.filter(item =>
+    return searchItems.filter(item =>
       item.name.toLowerCase().includes(q) ||
       item.category.toLowerCase().includes(q) ||
       item.subCategory.toLowerCase().includes(q)
     );
-  }, [query]);
+  }, [query, searchItems]);
 
   useEffect(() => {
     if (visible) {
@@ -1096,8 +824,8 @@ const SearchOverlay = ({ visible, onClose, onHomePress, cart, onIncrement, onDec
             ) : (
               <>
                 <Text style={searchStyles.resultsCount}>
-                  {results.length} result{results.length !== 1 ? 's' : ''} for "
-                  <Text style={searchStyles.resultsQuery}>{query.trim()}</Text>"
+                  {results.length} result{results.length !== 1 ? 's' : ''} for &quot;
+                  <Text style={searchStyles.resultsQuery}>{query.trim()}</Text>&quot;
                 </Text>
                 <FlatList
                   data={results}
@@ -1517,7 +1245,7 @@ const BackHeader = ({ m, onBack }: { m: Metrics; onBack: () => void }) => {
 
 const SubItemsScreen = ({
   subCat, parentName, onBack, onHome, onCart,
-  cart, cartTotal, onIncrement, onDecrement,
+  cart, cartTotal, onIncrement, onDecrement, searchItems,
 }: {
   subCat:      SubCategory;
   parentName:  string;
@@ -1528,6 +1256,7 @@ const SubItemsScreen = ({
   cartTotal:   number;
   onIncrement: (id: string) => void;
   onDecrement: (id: string) => void;
+  searchItems: SearchableItem[];
 }) => {
   const { width, height } = useWindowDimensions();
   const m      = useMemo(() => getMetrics(width, height), [width, height]);
@@ -1602,7 +1331,7 @@ const SubItemsScreen = ({
         </View>
       </ScrollView>
       <FloatingBottomBar m={m} cartTotal={cartTotal} onHome={onHome} onCart={onCart} onSearchOpen={() => setSearchVisible(true)} />
-      <SearchOverlay visible={searchVisible} onClose={() => setSearchVisible(false)} onHomePress={onHome} cart={cart} onIncrement={onIncrement} onDecrement={onDecrement} m={m} />
+      <SearchOverlay visible={searchVisible} onClose={() => setSearchVisible(false)} onHomePress={onHome} cart={cart} onIncrement={onIncrement} onDecrement={onDecrement} m={m} searchItems={searchItems} />
       <ItemDetailModal item={selectedItem} visible={itemModalVisible} onClose={closeItemModal} cart={cart} onIncrement={onIncrement} onDecrement={onDecrement} m={m} />
     </View>
   );
@@ -1614,7 +1343,7 @@ const SubItemsScreen = ({
 
 const DetailScreen = ({
   item, onBack, onHome, onCart, onSubCatPress,
-  cart, cartTotal, onIncrement, onDecrement,
+  cart, cartTotal, onIncrement, onDecrement, searchItems,
 }: {
   item:          FoodItem;
   onBack:        () => void;
@@ -1625,6 +1354,7 @@ const DetailScreen = ({
   cartTotal:     number;
   onIncrement:   (id: string) => void;
   onDecrement:   (id: string) => void;
+  searchItems:   SearchableItem[];
 }) => {
   const { width, height } = useWindowDimensions();
   const m      = useMemo(() => getMetrics(width, height), [width, height]);
@@ -1695,7 +1425,7 @@ const DetailScreen = ({
       </ScrollView>
       {/* ✅ Fixed: use onCart prop instead of goToCart */}
       <FloatingBottomBar m={m} cartTotal={cartTotal} onHome={onHome} onCart={onCart} onSearchOpen={() => setSearchVisible(true)} />
-      <SearchOverlay visible={searchVisible} onClose={() => setSearchVisible(false)} onHomePress={onHome} cart={cart} onIncrement={onIncrement} onDecrement={onDecrement} m={m} />
+      <SearchOverlay visible={searchVisible} onClose={() => setSearchVisible(false)} onHomePress={onHome} cart={cart} onIncrement={onIncrement} onDecrement={onDecrement} m={m} searchItems={searchItems} />
       <ItemDetailModal item={selectedItem} visible={itemModalVisible} onClose={closeItemModal} cart={cart} onIncrement={onIncrement} onDecrement={onDecrement} m={m} />
     </View>
   );
@@ -1725,29 +1455,92 @@ const FoodMenuScreen = () => {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const [activeTabIndex, setActiveTabIndex] = useState(0);
-  const [screen, setScreen]                 = useState<Screen>({ name: 'home' });
-  const [searchVisible, setSearchVisible]   = useState(false);
+  // Uses the same synchronised cache as Dining → Item Selection.
+  const diningItems    = useItemStore((state) => state.items);
+  const isMenuHydrated = useItemStore((state) => state.isHydrated);
+  const hydrateItems   = useItemStore((state) => state.hydrateItems);
 
-  const { cart, increment, decrement, total: cartTotal, registerItems } = useCartContext();
+  const [activeTabKey, setActiveTabKey] = useState('');
+  const [screen, setScreen]             = useState<Screen>({ name: 'home' });
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [exitModalVisible, setExitModalVisible] = useState(false);
+
+  // This is the actual POS/Dining cart, not the old demo CartContext.
+  const realCartItems = useCartStore((state) => state.cartItems);
+  const addToRealCart = useCartStore((state) => state.addToCart);
+  const updateRealCartQuantity = useCartStore((state) => state.updateQuantity);
+  const setRealCartItems = useCartStore((state) => state.setCartItems);
+  const diningSession = useMenuSessionStore((state) => state.diningSession);
+  const savedCartItems = useMenuSessionStore((state) => state.savedCartItems);
 
   useEffect(() => {
-    const allItems = FOOD_ITEMS.flatMap(f => [
-      ...f.menuItems,
-      ...f.subCategories.flatMap(sc => sc.items),
-    ]);
-    registerItems(allItems);
-  }, [registerItems]);
+    void hydrateItems();
+  }, [hydrateItems]);
 
-  const activeTabKey = TABS[activeTabIndex].key;
+  // Restore a cart kept through the protected exit flow before showing the menu.
+  useEffect(() => {
+    if (realCartItems.length === 0 && savedCartItems.length > 0) {
+      setRealCartItems(savedCartItems);
+    }
+  }, [realCartItems.length, savedCartItems, setRealCartItems]);
 
-  const filteredItems = useMemo(
-    () => FOOD_ITEMS.filter(item => item.category === activeTabKey),
-    [activeTabKey],
+  const { tabs, foodItems } = useMemo(
+    () => buildFoodItemsFromDiningData(diningItems),
+    [diningItems],
   );
 
-  const goToCart = useCallback(() => router.push('/menu/menu_cart'), [router]);
-  const goHome   = useCallback(() => router.replace('/menu/menu_clear'), [router]);
+  const searchableItems = useMemo(() => buildSearchableItems(foodItems), [foodItems]);
+  const menuItemByCode = useMemo(
+    () => new Map(searchableItems.map((item) => [item.id, item])),
+    [searchableItems],
+  );
+
+  const cart = useMemo<CartMap>(() => Object.fromEntries(
+    realCartItems.map((item) => [item.menuItemCode, item.quantity]),
+  ), [realCartItems]);
+  const cartTotal = useMemo(
+    () => realCartItems.reduce((sum, item) => sum + item.quantity, 0),
+    [realCartItems],
+  );
+
+  const increment = useCallback((itemCode: string) => {
+    const item = menuItemByCode.get(itemCode);
+    if (!item) return;
+    addToRealCart({
+      menuItemCode: item.id,
+      menuItmDes: item.name,
+      salesPrice: parsePrice(item.price),
+      itemRemarks: '',
+    });
+  }, [addToRealCart, menuItemByCode]);
+
+  const decrement = useCallback((itemCode: string) => {
+    updateRealCartQuantity(itemCode, -1);
+  }, [updateRealCartQuantity]);
+
+  useEffect(() => {
+    setActiveTabKey((current) =>
+      tabs.some((tab) => tab.key === current) ? current : (tabs[0]?.key ?? ''),
+    );
+  }, [tabs]);
+
+  const activeTab = tabs.find((tab) => tab.key === activeTabKey);
+  const filteredItems = useMemo(
+    () => foodItems.filter((item) => item.category === activeTabKey),
+    [foodItems, activeTabKey],
+  );
+
+  const goToCart = useCallback(() => {
+    if (!diningSession) {
+      router.replace('/Screens/menutbl_selection');
+      return;
+    }
+    // Customers first review their order in the Menu Cart. Staff password
+    // confirmation there is required before the real Dining Cart opens.
+    router.push('/menu/menu_cart');
+  }, [diningSession, router]);
+
+  const goHome = useCallback(() => setExitModalVisible(true), []);
 
   const goToDetail   = useCallback((item: FoodItem) => setScreen({ name: 'detail', item }), []);
   const goToSubItems = useCallback(
@@ -1757,15 +1550,14 @@ const FoodMenuScreen = () => {
   );
 
   const goBack = useCallback(() => {
-    setScreen(prev => {
-      if (prev.name === 'subItems') {
-        const parent = FOOD_ITEMS.find(f => f.name === prev.parentName);
-        if (parent) return { name: 'detail', item: parent };
-        return { name: 'home' };
+    setScreen((previous) => {
+      if (previous.name === 'subItems') {
+        const parent = foodItems.find((food) => food.name === previous.parentName);
+        return parent ? { name: 'detail', item: parent } : { name: 'home' };
       }
       return { name: 'home' };
     });
-  }, []);
+  }, [foodItems]);
 
   const bottomPad = m.fabSize + m.bottomBarBottom + insets.bottom + 24;
 
@@ -1783,37 +1575,59 @@ const FoodMenuScreen = () => {
     tabTextActive: { color: 'white' },
     grid:          { paddingHorizontal: m.bodyPaddingH, paddingBottom: 20 },
     gridRow:       { justifyContent: 'space-between' },
+    loading:       { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+    loadingText:   { color: 'rgba(255,255,255,0.65)', fontSize: 14 },
   }), [m, bottomPad]);
+
+  if (!isMenuHydrated) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#1B1B1B" />
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color="#AB773C" />
+          <Text style={styles.loadingText}>Loading Dining menu…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (screen.name === 'subItems') {
     return (
-      <SubItemsScreen
-        subCat={screen.subCat}
-        parentName={screen.parentName}
-        onBack={goBack}
-        onHome={goHome}
-        onCart={goToCart}
-        cart={cart}
-        cartTotal={cartTotal}
-        onIncrement={increment}
-        onDecrement={decrement}
-      />
+      <>
+        <SubItemsScreen
+          subCat={screen.subCat}
+          parentName={screen.parentName}
+          onBack={goBack}
+          onHome={goHome}
+          onCart={goToCart}
+          cart={cart}
+          cartTotal={cartTotal}
+          onIncrement={increment}
+          onDecrement={decrement}
+          searchItems={searchableItems}
+        />
+        <ProtectedMenuExitModal visible={exitModalVisible} onClose={() => setExitModalVisible(false)} />
+      </>
     );
   }
 
   if (screen.name === 'detail') {
     return (
-      <DetailScreen
-        item={screen.item}
-        onBack={goBack}
-        onHome={goHome}
-        onCart={goToCart}
-        onSubCatPress={(sc, parentName) => goToSubItems(sc, parentName, screen.item.category)}
-        cart={cart}
-        cartTotal={cartTotal}
-        onIncrement={increment}
-        onDecrement={decrement}
-      />
+      <>
+        <DetailScreen
+          item={screen.item}
+          onBack={goBack}
+          onHome={goHome}
+          onCart={goToCart}
+          onSubCatPress={(subCategory, parentName) => goToSubItems(subCategory, parentName, screen.item.category)}
+          cart={cart}
+          cartTotal={cartTotal}
+          onIncrement={increment}
+          onDecrement={decrement}
+          searchItems={searchableItems}
+        />
+        <ProtectedMenuExitModal visible={exitModalVisible} onClose={() => setExitModalVisible(false)} />
+      </>
     );
   }
 
@@ -1831,38 +1645,48 @@ const FoodMenuScreen = () => {
       </View>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <PromoCarousel m={m} />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
-          {TABS.map((tab, idx) => (
-            <TouchableOpacity
-              key={tab.key}
-              style={[styles.tab, activeTabIndex === idx && styles.tabActive]}
-              onPress={() => setActiveTabIndex(idx)}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.tabText, activeTabIndex === idx && styles.tabTextActive]}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        {tabs.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
+            {tabs.map((tab) => (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.tab, activeTabKey === tab.key && styles.tabActive]}
+                onPress={() => setActiveTabKey(tab.key)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.tabText, activeTabKey === tab.key && styles.tabTextActive]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
         {filteredItems.length === 0 ? (
-          <EmptyTabState label={TABS[activeTabIndex].label} />
+          <EmptyTabState label={activeTab?.label ?? 'Dining menu'} />
         ) : (
           <FlatList
             data={filteredItems}
-            keyExtractor={item => item.id}
+            keyExtractor={(item) => item.id}
             numColumns={2}
             scrollEnabled={false}
             columnWrapperStyle={styles.gridRow}
             contentContainerStyle={styles.grid}
-            renderItem={({ item }) => (
-              <FoodCard item={item} onPress={goToDetail} m={m} />
-            )}
+            renderItem={({ item }) => <FoodCard item={item} onPress={goToDetail} m={m} />}
           />
         )}
       </ScrollView>
       <FloatingBottomBar m={m} cartTotal={cartTotal} onHome={goHome} onCart={goToCart} onSearchOpen={() => setSearchVisible(true)} />
-      <SearchOverlay visible={searchVisible} onClose={() => setSearchVisible(false)} onHomePress={goHome} cart={cart} onIncrement={increment} onDecrement={decrement} m={m} />
+      <SearchOverlay
+        visible={searchVisible}
+        onClose={() => setSearchVisible(false)}
+        onHomePress={goHome}
+        cart={cart}
+        onIncrement={increment}
+        onDecrement={decrement}
+        m={m}
+        searchItems={searchableItems}
+      />
+      <ProtectedMenuExitModal visible={exitModalVisible} onClose={() => setExitModalVisible(false)} />
     </SafeAreaView>
   );
 };

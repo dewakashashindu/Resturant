@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { ProtectedMenuExitModal } from '../../components/ProtectedMenuExitModal';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -181,6 +182,7 @@ const arrowStyles = StyleSheet.create({
 
 const WelcomeScreen = () => {
   const router = useRouter();
+  const [exitModalVisible, setExitModalVisible] = useState(false);
 
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const floatAnim  = useRef(new Animated.Value(0)).current;
@@ -330,12 +332,13 @@ const WelcomeScreen = () => {
             borderRadius: circleSize / 2,
           }]}
           activeOpacity={0.8}
-          onPress={() => router.push('/menu/menu_clear' as any)}
+          onPress={() => setExitModalVisible(true)}
         >
           <HomeIcon />
         </TouchableOpacity>
 
       </View>
+      <ProtectedMenuExitModal visible={exitModalVisible} onClose={() => setExitModalVisible(false)} />
     </SafeAreaView>
   );
 };

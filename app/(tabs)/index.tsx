@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useAuthStore } from '../../services/authStore';
+import { useMenuSessionStore } from '../../services/menuSessionStore';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -21,6 +22,7 @@ export default function HomeScreen() {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const userName = useAuthStore((state) => state.user?.userName);
+  const savedMenuSession = useMenuSessionStore((state) => state.diningSession);
   const displayName = userName ? `Mr. ${userName}` : 'Mr. Perera';
 
   useEffect(() => {
@@ -217,7 +219,15 @@ export default function HomeScreen() {
                   height:          cardHeight,
                 },
               ]}
-              onPress={() => router.push(item.route as any)}
+              onPress={() => {
+                // A protected "Keep Cart & Exit" keeps this Dining menu session.
+                // Tapping Menu Card again resumes it instead of asking for a table twice.
+                if (item.title === 'Menu Card' && savedMenuSession) {
+                  router.push('/menu/menu_welcome' as any);
+                  return;
+                }
+                router.push(item.route as any);
+              }}
             >
               <View style={styles.cardCircle} />
 

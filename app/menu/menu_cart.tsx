@@ -1,18 +1,26 @@
 import { useRouter } from 'expo-router';
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-    Image,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Image,
+  ImageSourcePropType,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CartItem, useCartContext } from './CartContext';
+import { ProtectedMenuExitModal } from '../../components/ProtectedMenuExitModal';
+import { apiClient } from '../../services/api';
+import { useCartStore } from '../../services/cartStore';
+import { useMenuSessionStore } from '../../services/menuSessionStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME
@@ -35,6 +43,16 @@ const C = {
   confirm:     '#3D8C5E',
   confirmSoft: 'rgba(61,140,94,0.18)',
 } as const;
+
+const PLACEHOLDER = require('../../assets/images/image-removebg-preview.png');
+
+type CustomerCartItem = {
+  id: string;
+  name: string;
+  price: string;
+  image: ImageSourcePropType;
+  qty: number;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -124,7 +142,7 @@ const HomeIcon = () => (
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface CartRowProps {
-  item:     CartItem;
+  item:     CustomerCartItem;
   onInc:    (id: string) => void;
   onDec:    (id: string) => void;
   onRemove: (id: string) => void;
@@ -177,6 +195,8 @@ const CartRow = React.memo(({ item, onInc, onDec, onRemove }: CartRowProps) => {
     </View>
   );
 });
+
+CartRow.displayName = 'CartRow';
 
 const rowStyles = StyleSheet.create({
   card: {
@@ -322,7 +342,7 @@ const SummaryFooter = ({ onConfirm, onHome, insetBottom }: SummaryFooterProps) =
       {/* Place Order */}
       <TouchableOpacity style={footerStyles.confirmBtn} onPress={onConfirm} activeOpacity={0.88}>
         <CheckIcon />
-        <Text style={footerStyles.confirmTxt}>Place Order</Text>
+        <Text style={footerStyles.confirmTxt}>Confirm Order</Text>
       </TouchableOpacity>
     </View>
   </View>
@@ -394,25 +414,92 @@ const footerStyles = StyleSheet.create({
 const ReadyToEatScreen = () => {
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
-  const { cartItems, increment, decrement, remove, clearAll } = useCartContext();
+  const realCartItems = useCartStore((state) => state.cartItems);
+  const updateQuantity = useCartStore((state) => state.updateQuantity);
+  const clearCart = useCartStore((state) => state.clearCart);
+  const diningSession = useMenuSessionStore((state) => state.diningSession);
+  const clearSavedCartItems = useMenuSessionStore((state) => state.clearSavedCartItems);
+
+  const [handoffVisible, setHandoffVisible] = useState(false);
+  const [exitModalVisible, setExitModalVisible] = useState(false);
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [verifying, setVerifying] = useState(false);
+
+  const cartItems = useMemo<CustomerCartItem[]>(() => realCartItems.map((item) => ({
+    id: item.menuItemCode,
+    name: item.menuItmDes,
+    price: formatPrice(item.salesPrice),
+    image: PLACEHOLDER,
+    qty: item.quantity,
+  })), [realCartItems]);
 
   const totalItems = useMemo(
-    () => cartItems.reduce((sum: number, item: CartItem) => sum + item.qty, 0),
+    () => cartItems.reduce((sum, item) => sum + item.qty, 0),
     [cartItems],
   );
 
   const handleBack = useCallback(() => router.back(), [router]);
+  const handleHome = useCallback(() => setExitModalVisible(true), []);
 
-  // ── Home button → password screen (consistent across all 3 screens) ───────
-  const handleHome = useCallback(
-    () => router.push('/menu/menu_clear' as any),
-    [router],
-  );
+  const increment = useCallback((itemCode: string) => updateQuantity(itemCode, 1), [updateQuantity]);
+  const decrement = useCallback((itemCode: string) => updateQuantity(itemCode, -1), [updateQuantity]);
+  const remove = useCallback((itemCode: string) => {
+    const current = realCartItems.find((item) => item.menuItemCode === itemCode);
+    if (current) updateQuantity(itemCode, -current.quantity);
+  }, [realCartItems, updateQuantity]);
 
-  const handleConfirm = useCallback(() => {
-    clearAll();
-    router.back();
-  }, [clearAll, router]);
+  const handleClear = useCallback(() => {
+    clearCart();
+    clearSavedCartItems();
+  }, [clearCart, clearSavedCartItems]);
+
+  const openHandoff = () => {
+    if (!cartItems.length) return;
+    setPassword('');
+    setPasswordError('');
+    setHandoffVisible(true);
+  };
+
+  const handoffToMainCart = async () => {
+    const value = password.trim();
+    if (!value) {
+      setPasswordError('Enter the logged-in user password to continue.');
+      return;
+    }
+    if (!diningSession) {
+      setPasswordError('Table session is missing. Please select the table again.');
+      return;
+    }
+
+    setVerifying(true);
+    setPasswordError('');
+    try {
+      const result = await apiClient.verifyCurrentPassword(value);
+      if (!result.ok || !result.data?.ok) {
+        setPasswordError(result.data?.message || 'Incorrect password.');
+        return;
+      }
+      setHandoffVisible(false);
+      setPassword('');
+      router.push({
+        pathname: '/Screens/cart',
+        params: {
+          tableName: diningSession.tableName,
+          tableNo: diningSession.tableNo,
+          tableId: diningSession.groupId,
+          localPax: diningSession.localPax,
+          foreignPax: diningSession.foreignPax,
+          floor: diningSession.floor,
+          orderType: diningSession.orderType,
+        },
+      });
+    } catch {
+      setPasswordError('Unable to verify password. Please try again.');
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   const isEmpty = cartItems.length === 0;
 
@@ -436,7 +523,7 @@ const ReadyToEatScreen = () => {
         </View>
 
         {!isEmpty && (
-          <TouchableOpacity onPress={clearAll} activeOpacity={0.75} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity onPress={handleClear} activeOpacity={0.75} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Text style={styles.clearTxt}>Clear all</Text>
           </TouchableOpacity>
         )}
@@ -472,12 +559,63 @@ const ReadyToEatScreen = () => {
           </ScrollView>
 
           <SummaryFooter
-            onConfirm={handleConfirm}
+            onConfirm={openHandoff}
             onHome={handleHome}
             insetBottom={insets.bottom}
           />
         </>
       )}
+
+      <Modal
+        visible={handoffVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !verifying && setHandoffVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={verifying ? undefined : () => setHandoffVisible(false)}>
+          <View style={styles.handoffOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.handoffCard}>
+                <View style={styles.handoffIcon}><Text style={styles.handoffIconText}>🔐</Text></View>
+                <Text style={styles.handoffTitle}>Staff confirmation</Text>
+                <Text style={styles.handoffDescription}>
+                  Please enter the logged-in user password to send this customer order to the main cart.
+                </Text>
+                <TextInput
+                  style={[styles.handoffInput, Boolean(passwordError) && styles.handoffInputError]}
+                  value={password}
+                  onChangeText={(value) => { setPassword(value); if (passwordError) setPasswordError(''); }}
+                  placeholder="User password / PIN"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  secureTextEntry
+                  autoCapitalize="none"
+                  editable={!verifying}
+                  returnKeyType="done"
+                  onSubmitEditing={() => void handoffToMainCart()}
+                />
+                {passwordError ? <Text style={styles.handoffError}>{passwordError}</Text> : null}
+                <View style={styles.handoffActions}>
+                  <TouchableOpacity
+                    style={styles.handoffCancel}
+                    onPress={() => setHandoffVisible(false)}
+                    disabled={verifying}
+                  >
+                    <Text style={styles.handoffCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.handoffConfirm}
+                    onPress={() => void handoffToMainCart()}
+                    disabled={verifying}
+                  >
+                    {verifying ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.handoffConfirmText}>Confirm</Text>}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+      <ProtectedMenuExitModal visible={exitModalVisible} onClose={() => setExitModalVisible(false)} />
     </SafeAreaView>
   );
 };
@@ -555,6 +693,64 @@ const styles = StyleSheet.create({
     fontSize:   13,
     fontWeight: '400',
   },
+  handoffOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: 'rgba(0,0,0,0.68)',
+  },
+  handoffCard: {
+    backgroundColor: C.surface,
+    borderRadius: 22,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  handoffIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: C.goldSoft,
+    marginBottom: 14,
+  },
+  handoffIconText: { fontSize: 22 },
+  handoffTitle: { color: C.white, fontSize: 20, fontWeight: '800' },
+  handoffDescription: { color: C.whiteMid, fontSize: 13, lineHeight: 19, marginTop: 8, marginBottom: 17 },
+  handoffInput: {
+    height: 52,
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    color: C.white,
+    fontSize: 14,
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  handoffInputError: { borderColor: C.danger },
+  handoffError: { color: C.danger, fontSize: 12, marginTop: 7 },
+  handoffActions: { flexDirection: 'row', gap: 10, marginTop: 20 },
+  handoffCancel: {
+    flex: 1,
+    height: 48,
+    borderRadius: 13,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  handoffCancelText: { color: C.whiteMid, fontSize: 14, fontWeight: '700' },
+  handoffConfirm: {
+    flex: 1,
+    height: 48,
+    borderRadius: 13,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: C.confirm,
+  },
+  handoffConfirmText: { color: C.white, fontSize: 14, fontWeight: '800' },
 });
 
 export default ReadyToEatScreen;
