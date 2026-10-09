@@ -582,8 +582,12 @@ interface ItemDetailModalProps {
 }
 
 const parsePrice = (priceStr: string): number => {
-  const cleaned = priceStr.replace(/[^0-9.]/g, '');
-  const num = parseFloat(cleaned);
+  // Match the number itself instead of stripping characters globally. The old
+  // approach kept the decimal dot in the "Rs." prefix, turning "Rs. 1,660"
+  // into ".1660" and saving the item price as 0.166.
+  const match = String(priceStr ?? '').match(/-?[\d,]+(?:\.\d+)?/);
+  if (!match) return 0;
+  const num = Number(match[0].replace(/,/g, ''));
   return Number.isFinite(num) ? num : 0;
 };
 

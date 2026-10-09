@@ -99,23 +99,38 @@ const getCustomerCartProductImage = (
 };
 
 type CustomerCartItem = {
+  // `id` is unique per display row. The same product can have an existing
+  // read-only row and a separate new/editable row when guests add more of it.
   id: string;
+  itemCode: string;
   name: string;
-  price: string;
+  unitPrice: number;
   image: ImageSourcePropType;
   qty: number;
-  existingBillQty: number;
+  itemRemarks: string;
+  readOnly: boolean;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const parsePriceNum = (price: string): number => {
-  const match = price.match(/[\d,]+(\.\d+)?/);
-  if (!match) return 0;
-  const n = parseFloat(match[0].replace(/,/g, ''));
-  return isNaN(n) ? 0 : n;
+const getCurrentMenuPrice = (menuRecord?: Record<string, any>): number =>
+  Number(
+    menuRecord?.SalesPrice
+      ?? menuRecord?.salesPrice
+      ?? menuRecord?.Price
+      ?? menuRecord?.price
+      ?? 0,
+  ) || 0;
+
+const resolveDisplayPrice = (savedPrice: number, menuRecord?: Record<string, any>): number => {
+  const currentMenuPrice = getCurrentMenuPrice(menuRecord);
+  // Older Menu Card orders were affected by the "Rs." parsing bug and saved
+  // values such as 0.166 instead of 1660. Use the live menu price only for
+  // that clear invalid-price pattern; normal historical bill prices stay intact.
+  if (savedPrice > 0 && !(savedPrice < 1 && currentMenuPrice >= 1)) return savedPrice;
+  return currentMenuPrice || savedPrice || 0;
 };
 
 const formatPrice = (num: number): string => {
@@ -195,58 +210,71 @@ const HomeIcon = () => (
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface CartRowProps {
-  item:     CustomerCartItem;
-  onInc:    (id: string) => void;
-  onDec:    (id: string) => void;
-  onRemove: (id: string) => void;
+  item: CustomerCartItem;
+  onInc: (itemCode: string) => void;
+  onDec: (itemCode: string) => void;
+  onRemove: (itemCode: string) => void;
+  onRemarks: (item: CustomerCartItem) => void;
 }
 
-const CartRow = React.memo(({ item, onInc, onDec, onRemove }: CartRowProps) => {
-  const lineTotal = parsePriceNum(item.price) * item.qty;
-  const hasOnlyExistingBillQty = item.qty <= item.existingBillQty;
+const CartRow = React.memo(({ item, onInc, onDec, onRemove, onRemarks }: CartRowProps) => {
+  const lineTotal = item.unitPrice * item.qty;
 
   return (
-    <View style={rowStyles.card}>
+    <View style={[rowStyles.card, item.readOnly && rowStyles.cardReadOnly]}>
       <Image source={item.image} style={rowStyles.image} resizeMode="cover" />
 
       <View style={rowStyles.details}>
         <View style={rowStyles.topRow}>
-          <Text style={rowStyles.name} numberOfLines={2}>{item.name}</Text>
-          <TouchableOpacity
-            style={[rowStyles.trashBtn, hasOnlyExistingBillQty && rowStyles.trashBtnDisabled]}
-            onPress={() => onRemove(item.id)}
-            activeOpacity={0.7}
-            disabled={hasOnlyExistingBillQty}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <TrashIcon />
-          </TouchableOpacity>
-        </View>
-
-        <Text style={rowStyles.unitPrice}>{item.price} / item</Text>
-
-        <View style={rowStyles.bottomRow}>
-          <View style={rowStyles.stepper}>
-            <TouchableOpacity
-              style={[rowStyles.stepBtn, hasOnlyExistingBillQty && rowStyles.stepBtnDim]}
-              onPress={() => onDec(item.id)}
-              activeOpacity={0.7}
-              disabled={hasOnlyExistingBillQty}
-            >
-              <Text style={rowStyles.stepTxt}>−</Text>
-            </TouchableOpacity>
-            <Text style={rowStyles.qtyTxt}>{item.qty}</Text>
-            <TouchableOpacity
-              style={rowStyles.stepBtn}
-              onPress={() => onInc(item.id)}
-              activeOpacity={0.7}
-            >
-              <Text style={rowStyles.stepTxt}>+</Text>
-            </TouchableOpacity>
+          <View style={rowStyles.nameWrap}>
+            <Text style={rowStyles.name} numberOfLines={2}>{item.name}</Text>
+            <View style={[rowStyles.statusBadge, item.readOnly ? rowStyles.existingBadge : rowStyles.newBadge]}>
+              <Text style={rowStyles.statusBadgeText}>{item.readOnly ? 'ALREADY ON BILL' : 'NEW ITEM'}</Text>
+            </View>
           </View>
-
-          <Text style={rowStyles.lineTotal}>{formatPrice(lineTotal)}</Text>
+          {!item.readOnly && (
+            <TouchableOpacity
+              style={rowStyles.trashBtn}
+              onPress={() => onRemove(item.itemCode)}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <TrashIcon />
+            </TouchableOpacity>
+          )}
         </View>
+
+        <Text style={rowStyles.unitPrice}>{formatPrice(item.unitPrice)} / item</Text>
+
+        {item.readOnly ? (
+          <View style={rowStyles.readOnlyRow}>
+            <Text style={rowStyles.readOnlyText}>Already ordered — read only</Text>
+            <Text style={rowStyles.lineTotal}>{formatPrice(lineTotal)}</Text>
+          </View>
+        ) : (
+          <>
+            <TouchableOpacity style={rowStyles.remarkBtn} onPress={() => onRemarks(item)} activeOpacity={0.75}>
+              <Text style={rowStyles.remarkBtnText}>
+                {item.itemRemarks.trim() ? 'Edit Order Remark' : 'Add Order Remark'}
+              </Text>
+            </TouchableOpacity>
+            {item.itemRemarks.trim() ? (
+              <Text style={rowStyles.remarkPreview} numberOfLines={1}>{item.itemRemarks}</Text>
+            ) : null}
+            <View style={rowStyles.bottomRow}>
+              <View style={rowStyles.stepper}>
+                <TouchableOpacity style={rowStyles.stepBtn} onPress={() => onDec(item.itemCode)} activeOpacity={0.7}>
+                  <Text style={rowStyles.stepTxt}>−</Text>
+                </TouchableOpacity>
+                <Text style={rowStyles.qtyTxt}>{item.qty}</Text>
+                <TouchableOpacity style={rowStyles.stepBtn} onPress={() => onInc(item.itemCode)} activeOpacity={0.7}>
+                  <Text style={rowStyles.stepTxt}>+</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={rowStyles.lineTotal}>{formatPrice(lineTotal)}</Text>
+            </View>
+          </>
+        )}
       </View>
     </View>
   );
@@ -281,26 +309,49 @@ const rowStyles = StyleSheet.create({
     alignItems:     'flex-start',
     justifyContent: 'space-between',
   },
+  cardReadOnly: {
+    backgroundColor: '#262626',
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  nameWrap: { flex: 1, marginRight: 8 },
   name: {
     color:       C.whiteHigh,
     fontSize:    15,
     fontWeight:  '600',
-    flex:        1,
-    marginRight: 8,
     lineHeight:  21,
   },
+  statusBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 7,
+  },
+  existingBadge: { backgroundColor: 'rgba(255,255,255,0.10)' },
+  newBadge: { backgroundColor: C.confirmSoft },
+  statusBadgeText: { color: C.whiteMid, fontSize: 9, fontWeight: '700', letterSpacing: 0.45 },
   trashBtn: {
     padding:         4,
     borderRadius:    8,
     backgroundColor: C.dangerSoft,
   },
-  trashBtnDisabled: { opacity: 0.35 },
   unitPrice: {
     color:      C.whiteMid,
     fontSize:   12,
     fontWeight: '400',
     marginTop:  4,
   },
+  readOnlyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 13,
+  },
+  readOnlyText: { color: C.whiteLow, fontSize: 12, fontStyle: 'italic' },
+  remarkBtn: { alignSelf: 'flex-start', marginTop: 8, paddingVertical: 3 },
+  remarkBtnText: { color: C.gold, fontSize: 12, fontWeight: '600' },
+  remarkPreview: { color: C.whiteMid, fontSize: 12, fontStyle: 'italic', marginTop: 1 },
+
   bottomRow: {
     flexDirection:  'row',
     alignItems:     'center',
@@ -473,6 +524,7 @@ const ReadyToEatScreen = () => {
   const insets  = useSafeAreaInsets();
   const realCartItems = useCartStore((state) => state.cartItems);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
+  const upsertCartItem = useCartStore((state) => state.upsertCartItem);
   const setCartItems = useCartStore((state) => state.setCartItems);
   const clearCart = useCartStore((state) => state.clearCart);
   const menuItems = useItemStore((state) => state.items);
@@ -485,6 +537,8 @@ const ReadyToEatScreen = () => {
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const [remarkItem, setRemarkItem] = useState<CustomerCartItem | null>(null);
+  const [remarkDraft, setRemarkDraft] = useState('');
 
   const menuItemByCode = useMemo(() => {
     const itemsByCode = new Map<string, Record<string, any>>();
@@ -498,25 +552,77 @@ const ReadyToEatScreen = () => {
   const existingBillQuantityByCode = useMemo(() => new Map(
     (diningSession?.existingBillItems ?? []).map((item) => [item.menuItemCode, item.quantity]),
   ), [diningSession?.existingBillItems]);
+  const existingBillRemarkByCode = useMemo(() => new Map(
+    (diningSession?.existingBillItems ?? []).map((item) => [item.menuItemCode, (item.itemRemarks ?? '').trim()]),
+  ), [diningSession?.existingBillItems]);
 
-  const cartItems = useMemo<CustomerCartItem[]>(() => realCartItems.map((item) => ({
-    id: item.menuItemCode,
-    name: item.menuItmDes,
-    price: formatPrice(item.salesPrice),
-    image: getCustomerCartProductImage(item.menuItemCode, menuItemByCode.get(item.menuItemCode)),
-    qty: item.quantity,
-    existingBillQty: existingBillQuantityByCode.get(item.menuItemCode) ?? 0,
-  })), [existingBillQuantityByCode, menuItemByCode, realCartItems]);
+  const cartItems = useMemo<CustomerCartItem[]>(() => {
+    const rows: CustomerCartItem[] = [];
+
+    realCartItems.forEach((item) => {
+      const existingBillQty = Math.min(
+        item.quantity,
+        Math.max(0, existingBillQuantityByCode.get(item.menuItemCode) ?? 0),
+      );
+      const menuRecord = menuItemByCode.get(item.menuItemCode);
+      const unitPrice = resolveDisplayPrice(item.salesPrice, menuRecord);
+      const image = getCustomerCartProductImage(item.menuItemCode, menuRecord);
+
+      // Render the previous bill quantity as an entirely separate, noninteractive
+      // row. The aggregated real cart remains untouched for Main Cart handoff.
+      if (existingBillQty > 0) {
+        rows.push({
+          id: `${item.menuItemCode}-existing`,
+          itemCode: item.menuItemCode,
+          name: item.menuItmDes,
+          unitPrice,
+          image,
+          qty: existingBillQty,
+          itemRemarks: '',
+          readOnly: true,
+        });
+      }
+
+      const newQty = item.quantity - existingBillQty;
+      if (newQty > 0) {
+        const baselineRemark = existingBillRemarkByCode.get(item.menuItemCode) ?? '';
+        // addToCart preserves a prior line's text when the customer adds an
+        // item without a remark. Do not surface that historical bill remark on
+        // the NEW ITEM row as though the customer can edit it.
+        const newItemRemark = (item.itemRemarks ?? '').trim() === baselineRemark
+          ? ''
+          : item.itemRemarks ?? '';
+        rows.push({
+          id: `${item.menuItemCode}-new`,
+          itemCode: item.menuItemCode,
+          name: item.menuItmDes,
+          unitPrice,
+          image,
+          qty: newQty,
+          itemRemarks: newItemRemark,
+          readOnly: false,
+        });
+      }
+    });
+
+    return rows;
+  }, [existingBillQuantityByCode, existingBillRemarkByCode, menuItemByCode, realCartItems]);
 
   const totalItems = useMemo(
-    () => cartItems.reduce((sum, item) => sum + item.qty, 0),
-    [cartItems],
+    () => realCartItems.reduce((sum, item) => sum + item.quantity, 0),
+    [realCartItems],
   );
 
   const handleBack = useCallback(() => router.back(), [router]);
   const handleHome = useCallback(() => setExitModalVisible(true), []);
 
-  const increment = useCallback((itemCode: string) => updateQuantity(itemCode, 1), [updateQuantity]);
+  const increment = useCallback((itemCode: string) => {
+    const current = realCartItems.find((item) => item.menuItemCode === itemCode);
+    const existingBillQuantity = existingBillQuantityByCode.get(itemCode) ?? 0;
+    // Only the separate NEW ITEM row can reach this handler. Keep a guard here
+    // as well so an already-confirmed line can never be changed indirectly.
+    if (current && current.quantity > existingBillQuantity) updateQuantity(itemCode, 1);
+  }, [existingBillQuantityByCode, realCartItems, updateQuantity]);
   const decrement = useCallback((itemCode: string) => {
     const current = realCartItems.find((item) => item.menuItemCode === itemCode);
     const existingBillQuantity = existingBillQuantityByCode.get(itemCode) ?? 0;
@@ -529,6 +635,24 @@ const ReadyToEatScreen = () => {
       updateQuantity(itemCode, existingBillQuantity - current.quantity);
     }
   }, [existingBillQuantityByCode, realCartItems, updateQuantity]);
+
+  const openRemarks = useCallback((item: CustomerCartItem) => {
+    if (item.readOnly) return;
+    setRemarkItem(item);
+    setRemarkDraft(item.itemRemarks);
+  }, []);
+
+  const saveRemarks = useCallback(() => {
+    if (!remarkItem || remarkItem.readOnly) return;
+    const current = realCartItems.find((item) => item.menuItemCode === remarkItem.itemCode);
+    const existingBillQuantity = existingBillQuantityByCode.get(remarkItem.itemCode) ?? 0;
+    // No baseline record is ever updated by the customer remark dialog.
+    if (current && current.quantity > existingBillQuantity) {
+      upsertCartItem({ ...current, itemRemarks: remarkDraft.trim() });
+    }
+    setRemarkItem(null);
+    setRemarkDraft('');
+  }, [existingBillQuantityByCode, realCartItems, remarkDraft, remarkItem, upsertCartItem]);
 
   const handleClear = useCallback(() => {
     const existingBillItems = diningSession?.existingBillItems ?? [];
@@ -567,6 +691,17 @@ const ReadyToEatScreen = () => {
       if (!result.ok || !result.data?.ok) {
         setPasswordError(result.data?.message || 'Incorrect password.');
         return;
+      }
+
+      // Correct any cart rows persisted by an older Menu Card build that saved
+      // `Rs. 1,660` as 0.166. This keeps the Main Cart / submitted order total
+      // in sync with the corrected Menu Cart display.
+      const correctedCartItems = realCartItems.map((item) => ({
+        ...item,
+        salesPrice: resolveDisplayPrice(item.salesPrice, menuItemByCode.get(item.menuItemCode)),
+      }));
+      if (correctedCartItems.some((item, index) => item.salesPrice !== realCartItems[index]?.salesPrice)) {
+        setCartItems(correctedCartItems);
       }
 
       const existingInvoiceNo = String(diningSession.existingInvoiceNo ?? '').trim();
@@ -665,6 +800,7 @@ const ReadyToEatScreen = () => {
                 onInc={increment}
                 onDec={decrement}
                 onRemove={remove}
+                onRemarks={openRemarks}
               />
             ))}
 
@@ -678,6 +814,55 @@ const ReadyToEatScreen = () => {
           />
         </>
       )}
+
+      {/* Remarks are deliberately available here, on the Menu Cart, not on the item/details screen. */}
+      <Modal
+        visible={Boolean(remarkItem)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRemarkItem(null)}
+      >
+        <TouchableWithoutFeedback onPress={() => setRemarkItem(null)}>
+          <View style={styles.remarkOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.remarkCard}>
+                <Text style={styles.remarkTitle}>Order Remark</Text>
+                <Text style={styles.remarkSubtitle} numberOfLines={2}>{remarkItem?.name}</Text>
+                <View style={styles.remarkChips}>
+                  {['No Spicy', 'Extra Spicy', 'Less Sugar', 'No Onions', 'Takeaway'].map((remark) => (
+                    <TouchableOpacity
+                      key={remark}
+                      style={[styles.remarkChip, remarkDraft === remark && styles.remarkChipSelected]}
+                      onPress={() => setRemarkDraft(remark)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.remarkChipText, remarkDraft === remark && styles.remarkChipTextSelected]}>{remark}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <TextInput
+                  style={styles.remarkInput}
+                  value={remarkDraft}
+                  onChangeText={setRemarkDraft}
+                  placeholder="Type custom remark"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  multiline
+                  maxLength={160}
+                  autoFocus
+                />
+                <View style={styles.remarkActions}>
+                  <TouchableOpacity style={styles.remarkCancel} onPress={() => setRemarkItem(null)}>
+                    <Text style={styles.remarkCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.remarkSave} onPress={saveRemarks}>
+                    <Text style={styles.remarkSaveText}>Save Remark</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
 
       <Modal
         visible={handoffVisible}
@@ -806,6 +991,67 @@ const styles = StyleSheet.create({
     fontSize:   13,
     fontWeight: '400',
   },
+  remarkOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: 'rgba(0,0,0,0.68)',
+  },
+  remarkCard: {
+    backgroundColor: C.surface,
+    borderRadius: 22,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  remarkTitle: { color: C.white, fontSize: 20, fontWeight: '800' },
+  remarkSubtitle: { color: C.whiteMid, fontSize: 13, marginTop: 5, marginBottom: 16 },
+  remarkChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+  remarkChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  remarkChipSelected: { backgroundColor: C.goldSoft, borderColor: C.gold },
+  remarkChipText: { color: C.whiteMid, fontSize: 12, fontWeight: '600' },
+  remarkChipTextSelected: { color: C.gold },
+  remarkInput: {
+    minHeight: 82,
+    maxHeight: 120,
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: C.white,
+    fontSize: 14,
+    textAlignVertical: 'top',
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  remarkActions: { flexDirection: 'row', gap: 10, marginTop: 18 },
+  remarkCancel: {
+    flex: 1,
+    height: 48,
+    borderRadius: 13,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  remarkCancelText: { color: C.whiteMid, fontSize: 14, fontWeight: '700' },
+  remarkSave: {
+    flex: 1,
+    height: 48,
+    borderRadius: 13,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: C.confirm,
+  },
+  remarkSaveText: { color: C.white, fontSize: 14, fontWeight: '800' },
   handoffOverlay: {
     flex: 1,
     justifyContent: 'center',

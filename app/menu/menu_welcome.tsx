@@ -1,7 +1,9 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  BackHandler,
   Dimensions,
   Easing,
   Image,
@@ -186,6 +188,21 @@ const WelcomeScreen = () => {
 
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const floatAnim  = useRef(new Animated.Value(0)).current;
+
+  // Android's system/navigation-bar Back button must follow the same protected
+  // exit flow as the on-screen Home button. This listener is active only while
+  // the welcome screen is focused, so normal Back navigation inside the menu
+  // still works until the user returns here.
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        setExitModalVisible(true);
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, []),
+  );
 
   useEffect(() => {
     Animated.loop(
