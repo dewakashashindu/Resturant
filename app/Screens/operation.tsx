@@ -20,30 +20,35 @@ import { apiClient } from '../../services/api';
 // ─── Static data ──────────────────────────────────────────────────────────────
 const MODES: {
   label: string;
+  visible: boolean;
   color: string;
   ionIcon: React.ComponentProps<typeof Ionicons>['name'];
   route: string | null;
 }[] = [
   {
     label: 'Dining',
+    visible: true,
     color: '#B9A0D5',
     ionIcon: 'restaurant-outline',
     route: '/Screens/tableselection',
   },
   {
     label: 'Take Away',
+    visible: true,
     color: '#8D9ED4',
     ionIcon: 'bag-handle-outline',
     route: '/Screens/TakeAway',
   },
   {
     label: 'Delivery',
+    visible: false,
     color: '#A9ABCF',
     ionIcon: 'bicycle-outline',
     route: null,
   },
   {
     label: 'Pickup',
+    visible: false,
     color: '#BC8EB6',
     ionIcon: 'storefront-outline',
     route: null,
@@ -123,9 +128,9 @@ export default function ModeSelectionScreen() {
         {/* MAIN CARD */}
         <View style={s.mainCard}>
           <View style={s.grid}>
-            {MODES.map((mode, i) => (
+          {MODES.filter((mode) => mode.visible).map((mode) => (
               <TouchableOpacity
-                key={i}
+              key={mode.label}
                 activeOpacity={0.82}
                 style={[s.modeCard, { backgroundColor: mode.color }]}
                 onPress={() => { if (mode.route) router.push(mode.route as any); }}

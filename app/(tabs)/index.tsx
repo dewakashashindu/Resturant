@@ -73,6 +73,7 @@ export default function HomeScreen() {
   const cards: {
     title: string;
     subtitle: string;
+    visible: boolean;
     color: string;
     iconBg: string;
     route: string;
@@ -81,6 +82,7 @@ export default function HomeScreen() {
     {
       title: 'Order Taking',
       subtitle: 'Table POS',
+      visible: true,
       color: 'rgba(255,153,142,0.5)',
       iconBg: 'rgba(255,153,142,0.6)',
       route: '/Screens/operation',
@@ -89,6 +91,7 @@ export default function HomeScreen() {
     {
       title: 'Dashboard',
       subtitle: 'Live Overview',
+      visible: true,
       color: 'rgba(151,173,210,0.5)',
       iconBg: 'rgba(151,173,210,0.6)',
       route: '/Screens/Dashboard',
@@ -97,6 +100,7 @@ export default function HomeScreen() {
     {
       title: 'Menu Card',
       subtitle: 'Items & Pricing',
+      visible: true,
       color: 'rgba(255,248,131,0.5)',
       iconBg: 'rgba(255,248,131,0.6)',
       route: '/Screens/menutbl_selection',
@@ -105,6 +109,7 @@ export default function HomeScreen() {
     {
       title: 'Feedback Collector',
       subtitle: 'Guest Feedback',
+      visible: false,
       color: 'rgba(129,113,183,0.5)',
       iconBg: 'rgba(129,113,183,0.6)',
       route: '/Screens/white',
@@ -113,6 +118,7 @@ export default function HomeScreen() {
     {
       title: 'Sales Report',
       subtitle: 'Revenue Report',
+      visible: false,
       color: 'rgba(144,123,22,0.5)',
       iconBg: 'rgba(144,123,22,0.6)',
       route: '/Screens/white',
@@ -121,6 +127,7 @@ export default function HomeScreen() {
     {
       title: 'Settings',
       subtitle: 'System Controls',
+      visible: true,
       color: 'rgba(66,119,164,0.5)',
       iconBg: 'rgba(66,119,164,0.6)',
       route: '/Screens/settings',
@@ -129,6 +136,7 @@ export default function HomeScreen() {
     {
   title: 'KDS',
   subtitle: 'Kitchen Display',
+  visible: false,
   color: 'rgba(34,139,87,0.5)',
   iconBg: 'rgba(34,139,87,0.6)',
   route: '/Screens/KDSHomeScreen',
@@ -198,9 +206,9 @@ export default function HomeScreen() {
 
         {/* GRID */}
         <View style={[styles.grid, { gap: cardGap }]}>
-          {cards.map((item, index) => (
+          {cards.filter((item) => item.visible).map((item) => (
             <TouchableOpacity
-              key={index}
+              key={item.title}
               style={[
                 styles.card,
                 {
