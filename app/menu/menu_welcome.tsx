@@ -15,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import CoffeeLoader from '../../components/CoffeeLoader';
 import { ProtectedMenuExitModal } from '../../components/ProtectedMenuExitModal';
 import { useItemStore } from '../../services/itemStore';
 
@@ -257,6 +258,12 @@ const WelcomeScreen = () => {
     setIsOpeningMenu(true);
 
     try {
+      // Yield two frames before the menu hydration work. This guarantees the
+      // loading layer is painted even when parsing/caching a large menu keeps
+      // the JavaScript thread busy for a moment.
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
       await hydrateMenuItems();
       router.push('/menu/menu_cato');
     } catch {
@@ -392,11 +399,11 @@ const WelcomeScreen = () => {
 
       {isOpeningMenu ? (
         <View style={styles.menuLoadingOverlay}>
-          <View style={styles.menuLoadingCard}>
-            <ActivityIndicator size="large" color="#F4C36D" />
-            <Text style={styles.menuLoadingTitle}>Preparing your menu</Text>
-            <Text style={styles.menuLoadingText}>Please wait a moment...</Text>
-          </View>
+        <View style={styles.menuLoadingCard}>
+          <CoffeeLoader />
+          <Text style={styles.menuLoadingTitle}>Preparing your menu</Text>
+          <Text style={styles.menuLoadingText}>Please wait a moment...</Text>
+        </View>
         </View>
       ) : null}
 
@@ -479,9 +486,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.48)',
   },
   menuLoadingCard: {
-    minWidth: 208,
+    minWidth: 220,
     paddingHorizontal: 24,
-    paddingVertical: 22,
+    paddingTop: 74,
+    paddingBottom: 24,
     alignItems: 'center',
     borderRadius: 20,
     backgroundColor: '#252525',
