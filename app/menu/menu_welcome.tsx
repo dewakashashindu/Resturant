@@ -2,6 +2,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   BackHandler,
   Dimensions,
@@ -15,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import { ProtectedMenuExitModal } from '../../components/ProtectedMenuExitModal';
+import { useItemStore } from '../../services/itemStore';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -185,16 +187,19 @@ const arrowStyles = StyleSheet.create({
 const WelcomeScreen = () => {
   const router = useRouter();
   const [exitModalVisible, setExitModalVisible] = useState(false);
+  const [isOpeningMenu, setIsOpeningMenu] = useState(false);
+  const openingMenuRef = useRef(false);
+  const hydrateMenuItems = useItemStore((state) => state.hydrateItems);
 
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const floatAnim  = useRef(new Animated.Value(0)).current;
 
-  // Android's system/navigation-bar Back button must follow the same protected
-  // exit flow as the on-screen Home button. This listener is active only while
-  // the welcome screen is focused, so normal Back navigation inside the menu
-  // still works until the user returns here.
+  // Reset the menu-button guard when the customer returns here. Android's
+  // system/navigation-bar Back button follows the protected exit flow too.
   useFocusEffect(
     useCallback(() => {
+      openingMenuRef.current = false;
+      setIsOpeningMenu(false);
       const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
         setExitModalVisible(true);
         return true;
@@ -203,6 +208,13 @@ const WelcomeScreen = () => {
       return () => subscription.remove();
     }, []),
   );
+
+  // Load the Dining menu while the customer is reading this welcome screen.
+  // Opening Menu Card can then use the ready cache rather than start a full
+  // item download only after the button is pressed.
+  useEffect(() => {
+    void hydrateMenuItems();
+  }, [hydrateMenuItems]);
 
   useEffect(() => {
     Animated.loop(
@@ -236,6 +248,24 @@ const WelcomeScreen = () => {
     inputRange:  [0, 1],
     outputRange: ['0deg', '360deg'],
   });
+  const openFoodMenu = useCallback(async () => {
+    // A ref closes the tiny gap before React re-renders, so rapid taps cannot
+    // queue multiple menu routes. Keep the customer on this screen with a
+    // clear loader until the preloaded Dining menu is actually ready.
+    if (openingMenuRef.current) return;
+    openingMenuRef.current = true;
+    setIsOpeningMenu(true);
+
+    try {
+      await hydrateMenuItems();
+      router.push('/menu/menu_cato');
+    } catch {
+      // hydrateItems safely falls back to the local cache, but do not leave a
+      // customer stuck on the loading state if an unexpected error occurs.
+      openingMenuRef.current = false;
+      setIsOpeningMenu(false);
+    }
+  }, [hydrateMenuItems, router]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -258,7 +288,7 @@ const WelcomeScreen = () => {
       />
 
       {/* ── Gradient Overlay ── */}
-      <View style={styles.gradientOverlay} />
+      <View pointerEvents="none" style={styles.gradientOverlay} />
 
       {/* ── Logo ── */}
       <Image
@@ -326,11 +356,15 @@ const WelcomeScreen = () => {
             paddingRight: isTablet ? 14 : 10,
           }]}
           activeOpacity={0.8}
-          onPress={() => router.push('/menu/menu_cato')}
+          onPress={openFoodMenu}
+          disabled={isOpeningMenu}
         >
-          <Text style={[styles.menuButtonText, { fontSize: btnTextFs }]}>
-            Go to Food Menu
-          </Text>
+          <View style={styles.menuButtonLabel}>
+            {isOpeningMenu ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
+            <Text style={[styles.menuButtonText, { fontSize: btnTextFs }]}>
+              {isOpeningMenu ? 'Loading Menu...' : 'Go to Food Menu'}
+            </Text>
+          </View>
 
           <View style={[styles.arrowCircle, {
             width:        arrowSize,
@@ -355,6 +389,17 @@ const WelcomeScreen = () => {
         </TouchableOpacity>
 
       </View>
+
+      {isOpeningMenu ? (
+        <View style={styles.menuLoadingOverlay}>
+          <View style={styles.menuLoadingCard}>
+            <ActivityIndicator size="large" color="#F4C36D" />
+            <Text style={styles.menuLoadingTitle}>Preparing your menu</Text>
+            <Text style={styles.menuLoadingText}>Please wait a moment...</Text>
+          </View>
+        </View>
+      ) : null}
+
       <ProtectedMenuExitModal visible={exitModalVisible} onClose={() => setExitModalVisible(false)} />
     </SafeAreaView>
   );
@@ -370,7 +415,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#1B1B1B',
     overflow:        'hidden',
   },
-
   backgroundImage: {
     position: 'absolute',
   },
@@ -417,10 +461,35 @@ const styles = StyleSheet.create({
     justifyContent:  'space-between',
   },
 
+  menuButtonLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   menuButtonText: {
     color:      'white',
     fontWeight: '700',
   },
+
+  menuLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.48)',
+  },
+  menuLoadingCard: {
+    minWidth: 208,
+    paddingHorizontal: 24,
+    paddingVertical: 22,
+    alignItems: 'center',
+    borderRadius: 20,
+    backgroundColor: '#252525',
+    borderWidth: 1,
+    borderColor: 'rgba(244,195,109,0.34)',
+  },
+  menuLoadingTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '800', marginTop: 14 },
+  menuLoadingText: { color: 'rgba(255,255,255,0.62)', fontSize: 12, marginTop: 5 },
 
   arrowCircle: {
     backgroundColor: 'rgba(255,255,255,0.15)',

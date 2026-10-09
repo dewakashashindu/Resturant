@@ -999,25 +999,25 @@ const CartFlyAnimation = ({
     const animation = Animated.parallel([
       Animated.timing(translateX, {
         toValue: deltaX,
-        duration: 480,
+        duration: 700,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(translateY, {
         toValue: deltaY,
-        duration: 480,
+        duration: 700,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(scale, {
         toValue: 0.30,
-        duration: 480,
+        duration: 700,
         easing: Easing.inOut(Easing.quad),
         useNativeDriver: true,
       }),
       Animated.sequence([
-        Animated.delay(335),
-        Animated.timing(opacity, { toValue: 0, duration: 145, useNativeDriver: true }),
+        Animated.delay(500),
+        Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }),
       ]),
     ]);
 
