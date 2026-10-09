@@ -9,7 +9,9 @@ import React, {
 import {
   ActivityIndicator,
   Animated,
+  Easing,
   FlatList,
+  GestureResponderEvent,
   Image,
   ImageSourcePropType,
   Keyboard,
@@ -81,6 +83,13 @@ export interface PromoBanner {
 }
 
 type AnyMenuItem = SubCatItem & { category?: string; subCategory?: string };
+
+type CartFlySource = { x: number; y: number };
+type CartFlight = CartFlySource & {
+  id: number;
+  image: ImageSourcePropType;
+  imageUrl?: string;
+};
 
 type Screen =
   | { name: 'home' }
@@ -523,7 +532,7 @@ const ExpandIcon = ({ size = 14 }: { size?: number }) => (
 
 interface AddQtyButtonProps {
   itemId: string; qty: number;
-  onIncrement: (id: string) => void; onDecrement: (id: string) => void;
+  onIncrement: (id: string, source?: CartFlySource) => void; onDecrement: (id: string) => void;
   fontSize?: number; paddingH?: number; paddingV?: number;
 }
 
@@ -531,7 +540,14 @@ const AddQtyButton = ({
   itemId, qty, onIncrement, onDecrement,
   fontSize = 8, paddingH = 16, paddingV = 4,
 }: AddQtyButtonProps) => {
-  const handleIncrement = useCallback(() => onIncrement(itemId), [itemId, onIncrement]);
+  // pageX/pageY let the flying image begin exactly where the customer pressed
+  // ADD / +, instead of appearing from a fixed point on the screen.
+  const handleIncrement = useCallback((event: GestureResponderEvent) => {
+    onIncrement(itemId, {
+      x: Number(event?.nativeEvent?.pageX) || 0,
+      y: Number(event?.nativeEvent?.pageY) || 0,
+    });
+  }, [itemId, onIncrement]);
   const handleDecrement = useCallback(() => onDecrement(itemId), [itemId, onDecrement]);
 
   if (qty === 0) {
@@ -940,6 +956,143 @@ const FloatingBottomBar = ({ m, cartTotal, onHome, onCart, onSearchOpen }: Float
     </View>
   );
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FLY-TO-CART ANIMATION
+// A short-lived, transparent Modal keeps the animation above item/detail/search
+// modals too, while pointerEvents="none" means it never blocks the customer.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CartFlyAnimation = ({
+  flight,
+  m,
+  onComplete,
+}: {
+  flight: CartFlight | null;
+  m: Metrics;
+  onComplete: (id: number) => void;
+}) => {
+  const insets = useSafeAreaInsets();
+  const translateX = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(1)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+  const size = m.isTablet ? 62 : m.isSmall ? 38 : 50;
+
+  useEffect(() => {
+    if (!flight) return;
+
+    const targetX = m.width - m.bottomBarPaddingH - m.fabSize / 2;
+    const targetY = m.height - insets.bottom - m.bottomBarBottom - m.fabSize / 2;
+    const deltaX = targetX - flight.x;
+    const deltaY = targetY - flight.y;
+
+    translateX.stopAnimation();
+    translateY.stopAnimation();
+    scale.stopAnimation();
+    opacity.stopAnimation();
+    translateX.setValue(0);
+    translateY.setValue(0);
+    scale.setValue(1);
+    opacity.setValue(1);
+
+    const animation = Animated.parallel([
+      Animated.timing(translateX, {
+        toValue: deltaX,
+        duration: 480,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: deltaY,
+        duration: 480,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(scale, {
+        toValue: 0.30,
+        duration: 480,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.sequence([
+        Animated.delay(335),
+        Animated.timing(opacity, { toValue: 0, duration: 145, useNativeDriver: true }),
+      ]),
+    ]);
+
+    animation.start(({ finished }) => {
+      if (finished) onComplete(flight.id);
+    });
+
+    return () => animation.stop();
+  }, [flight, insets.bottom, m, onComplete, opacity, scale, translateX, translateY]);
+
+  if (!flight) return null;
+
+  const source = flight.imageUrl ? { uri: flight.imageUrl } : flight.image;
+  return (
+    <Modal
+      visible
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={() => onComplete(flight.id)}
+    >
+      <View pointerEvents="none" style={flyStyles.overlay}>
+        <Animated.View
+          style={[
+            flyStyles.sprite,
+            {
+              width: size,
+              height: size,
+              borderRadius: size / 2,
+              left: Math.max(0, flight.x - size / 2),
+              top: Math.max(0, flight.y - size / 2),
+              opacity,
+              transform: [{ translateX }, { translateY }, { scale }],
+            },
+          ]}
+        >
+          <Image source={source} style={flyStyles.image} resizeMode="cover" />
+          <View style={flyStyles.plusBadge}><Text style={flyStyles.plusText}>+1</Text></View>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+};
+
+const flyStyles = StyleSheet.create({
+  overlay: { flex: 1 },
+  sprite: {
+    position: 'absolute',
+    overflow: 'visible',
+    borderWidth: 2,
+    borderColor: '#F4C36D',
+    backgroundColor: '#2A2A2A',
+    shadowColor: '#AB773C',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.55,
+    shadowRadius: 9,
+    elevation: 12,
+  },
+  image: { width: '100%', height: '100%', borderRadius: 999 },
+  plusBadge: {
+    position: 'absolute',
+    right: -7,
+    top: -7,
+    minWidth: 21,
+    height: 21,
+    paddingHorizontal: 4,
+    borderRadius: 11,
+    backgroundColor: '#3D8C5E',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  plusText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800' },
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROMO CAROUSEL
@@ -1469,6 +1622,8 @@ const FoodMenuScreen = () => {
   const [screen, setScreen]             = useState<Screen>({ name: 'home' });
   const [searchVisible, setSearchVisible] = useState(false);
   const [exitModalVisible, setExitModalVisible] = useState(false);
+  const [cartFlight, setCartFlight] = useState<CartFlight | null>(null);
+  const cartFlightId = useRef(0);
 
   // This is the actual POS/Dining cart, not the old demo CartContext.
   const realCartItems = useCartStore((state) => state.cartItems);
@@ -1533,7 +1688,26 @@ const FoodMenuScreen = () => {
     [realCartItems],
   );
 
-  const increment = useCallback((itemCode: string) => {
+  const finishCartFlight = useCallback((id: number) => {
+    setCartFlight((current) => current?.id === id ? null : current);
+  }, []);
+
+  const startCartFlight = useCallback((item: SearchableItem, source?: CartFlySource) => {
+    // `source` is unavailable only for a programmatic add. In that rare case,
+    // start near the centre rather than skipping the cart feedback altogether.
+    const fallback: CartFlySource = { x: m.width * 0.55, y: m.height * 0.58 };
+    const point: CartFlySource = source && source.x > 0 && source.y > 0 ? source : fallback;
+    cartFlightId.current += 1;
+    setCartFlight({
+      id: cartFlightId.current,
+      x: point.x,
+      y: point.y,
+      image: item.image,
+      imageUrl: item.imageUrl,
+    });
+  }, [m.height, m.width]);
+
+  const increment = useCallback((itemCode: string, source?: CartFlySource) => {
     const item = menuItemByCode.get(itemCode);
     if (!item) return;
     addToRealCart({
@@ -1542,7 +1716,8 @@ const FoodMenuScreen = () => {
       salesPrice: parsePrice(item.price),
       itemRemarks: '',
     });
-  }, [addToRealCart, menuItemByCode]);
+    startCartFlight(item, source);
+  }, [addToRealCart, menuItemByCode, startCartFlight]);
 
   const decrement = useCallback((itemCode: string) => {
     const currentQuantity = realCartItems.find((item) => item.menuItemCode === itemCode)?.quantity ?? 0;
@@ -1614,6 +1789,10 @@ const FoodMenuScreen = () => {
     loadingText:   { color: 'rgba(255,255,255,0.65)', fontSize: 14 },
   }), [m, bottomPad]);
 
+  const cartFlyOverlay = (
+    <CartFlyAnimation flight={cartFlight} m={m} onComplete={finishCartFlight} />
+  );
+
   if (!isMenuHydrated) {
     return (
       <SafeAreaView style={styles.container}>
@@ -1642,6 +1821,7 @@ const FoodMenuScreen = () => {
           searchItems={searchableItems}
         />
         <ProtectedMenuExitModal visible={exitModalVisible} onClose={() => setExitModalVisible(false)} />
+        {cartFlyOverlay}
       </>
     );
   }
@@ -1662,6 +1842,7 @@ const FoodMenuScreen = () => {
           searchItems={searchableItems}
         />
         <ProtectedMenuExitModal visible={exitModalVisible} onClose={() => setExitModalVisible(false)} />
+        {cartFlyOverlay}
       </>
     );
   }
@@ -1722,6 +1903,7 @@ const FoodMenuScreen = () => {
         searchItems={searchableItems}
       />
       <ProtectedMenuExitModal visible={exitModalVisible} onClose={() => setExitModalVisible(false)} />
+      {cartFlyOverlay}
     </SafeAreaView>
   );
 };
