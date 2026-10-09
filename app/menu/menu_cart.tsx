@@ -20,7 +20,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProtectedMenuExitModal } from '../../components/ProtectedMenuExitModal';
 import { apiClient } from '../../services/api';
 import { useCartStore } from '../../services/cartStore';
+import { ITEM_PIC_PREFIX, useItemStore } from '../../services/itemStore';
 import { useMenuSessionStore } from '../../services/menuSessionStore';
+import { useOrderStore } from '../../services/orderStore';
+import { storage } from '../../services/storage';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME
@@ -46,12 +49,62 @@ const C = {
 
 const PLACEHOLDER = require('../../assets/images/image-removebg-preview.png');
 
+/**
+ * Menu images are stored independently in MMKV by itemStore so the normal item
+ * cache stays small. Resolve the same cached ItemPic / URL used by Menu Card,
+ * keyed by the real Dining item code in cartStore.
+ */
+const getCustomerCartProductImage = (
+  itemCode: string,
+  menuRecord?: Record<string, any>,
+): ImageSourcePropType => {
+  const normalizedCode = String(itemCode ?? '').trim();
+
+  try {
+    const cachedPicture = normalizedCode
+      ? storage.getString(`${ITEM_PIC_PREFIX}${normalizedCode}`)?.trim()
+      : '';
+    if (cachedPicture) {
+      return {
+        uri: cachedPicture.startsWith('data:')
+          ? cachedPicture
+          : `data:image/jpeg;base64,${cachedPicture}`,
+      } as ImageSourcePropType;
+    }
+  } catch {
+    // Continue to the URL / placeholder fallback if local image cache fails.
+  }
+
+  const itemPicture = String(menuRecord?.ItemPic ?? '').trim();
+  if (itemPicture) {
+    return {
+      uri: itemPicture.startsWith('data:')
+        ? itemPicture
+        : `data:image/jpeg;base64,${itemPicture}`,
+    } as ImageSourcePropType;
+  }
+
+  const imageUrl = String(
+    menuRecord?.ItemImageUrl
+      ?? menuRecord?.ImageUrl
+      ?? menuRecord?.imageUrl
+      ?? menuRecord?.PhotoUrl
+      ?? menuRecord?.photoUrl
+      ?? menuRecord?.Image
+      ?? menuRecord?.image
+      ?? '',
+  ).trim();
+
+  return imageUrl ? ({ uri: imageUrl } as ImageSourcePropType) : PLACEHOLDER;
+};
+
 type CustomerCartItem = {
   id: string;
   name: string;
   price: string;
   image: ImageSourcePropType;
   qty: number;
+  existingBillQty: number;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,6 +203,7 @@ interface CartRowProps {
 
 const CartRow = React.memo(({ item, onInc, onDec, onRemove }: CartRowProps) => {
   const lineTotal = parsePriceNum(item.price) * item.qty;
+  const hasOnlyExistingBillQty = item.qty <= item.existingBillQty;
 
   return (
     <View style={rowStyles.card}>
@@ -159,9 +213,10 @@ const CartRow = React.memo(({ item, onInc, onDec, onRemove }: CartRowProps) => {
         <View style={rowStyles.topRow}>
           <Text style={rowStyles.name} numberOfLines={2}>{item.name}</Text>
           <TouchableOpacity
-            style={rowStyles.trashBtn}
+            style={[rowStyles.trashBtn, hasOnlyExistingBillQty && rowStyles.trashBtnDisabled]}
             onPress={() => onRemove(item.id)}
             activeOpacity={0.7}
+            disabled={hasOnlyExistingBillQty}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <TrashIcon />
@@ -173,9 +228,10 @@ const CartRow = React.memo(({ item, onInc, onDec, onRemove }: CartRowProps) => {
         <View style={rowStyles.bottomRow}>
           <View style={rowStyles.stepper}>
             <TouchableOpacity
-              style={[rowStyles.stepBtn, item.qty <= 1 && rowStyles.stepBtnDim]}
+              style={[rowStyles.stepBtn, hasOnlyExistingBillQty && rowStyles.stepBtnDim]}
               onPress={() => onDec(item.id)}
               activeOpacity={0.7}
+              disabled={hasOnlyExistingBillQty}
             >
               <Text style={rowStyles.stepTxt}>−</Text>
             </TouchableOpacity>
@@ -238,6 +294,7 @@ const rowStyles = StyleSheet.create({
     borderRadius:    8,
     backgroundColor: C.dangerSoft,
   },
+  trashBtnDisabled: { opacity: 0.35 },
   unitPrice: {
     color:      C.whiteMid,
     fontSize:   12,
@@ -416,9 +473,12 @@ const ReadyToEatScreen = () => {
   const insets  = useSafeAreaInsets();
   const realCartItems = useCartStore((state) => state.cartItems);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
+  const setCartItems = useCartStore((state) => state.setCartItems);
   const clearCart = useCartStore((state) => state.clearCart);
+  const menuItems = useItemStore((state) => state.items);
   const diningSession = useMenuSessionStore((state) => state.diningSession);
   const clearSavedCartItems = useMenuSessionStore((state) => state.clearSavedCartItems);
+  const saveCartItems = useMenuSessionStore((state) => state.saveCartItems);
 
   const [handoffVisible, setHandoffVisible] = useState(false);
   const [exitModalVisible, setExitModalVisible] = useState(false);
@@ -426,13 +486,27 @@ const ReadyToEatScreen = () => {
   const [passwordError, setPasswordError] = useState('');
   const [verifying, setVerifying] = useState(false);
 
+  const menuItemByCode = useMemo(() => {
+    const itemsByCode = new Map<string, Record<string, any>>();
+    menuItems.forEach((item) => {
+      const itemCode = String(item.MenuItemCode ?? item.ItemCode ?? item.itemCode ?? '').trim();
+      if (itemCode) itemsByCode.set(itemCode, item);
+    });
+    return itemsByCode;
+  }, [menuItems]);
+
+  const existingBillQuantityByCode = useMemo(() => new Map(
+    (diningSession?.existingBillItems ?? []).map((item) => [item.menuItemCode, item.quantity]),
+  ), [diningSession?.existingBillItems]);
+
   const cartItems = useMemo<CustomerCartItem[]>(() => realCartItems.map((item) => ({
     id: item.menuItemCode,
     name: item.menuItmDes,
     price: formatPrice(item.salesPrice),
-    image: PLACEHOLDER,
+    image: getCustomerCartProductImage(item.menuItemCode, menuItemByCode.get(item.menuItemCode)),
     qty: item.quantity,
-  })), [realCartItems]);
+    existingBillQty: existingBillQuantityByCode.get(item.menuItemCode) ?? 0,
+  })), [existingBillQuantityByCode, menuItemByCode, realCartItems]);
 
   const totalItems = useMemo(
     () => cartItems.reduce((sum, item) => sum + item.qty, 0),
@@ -443,16 +517,30 @@ const ReadyToEatScreen = () => {
   const handleHome = useCallback(() => setExitModalVisible(true), []);
 
   const increment = useCallback((itemCode: string) => updateQuantity(itemCode, 1), [updateQuantity]);
-  const decrement = useCallback((itemCode: string) => updateQuantity(itemCode, -1), [updateQuantity]);
+  const decrement = useCallback((itemCode: string) => {
+    const current = realCartItems.find((item) => item.menuItemCode === itemCode);
+    const existingBillQuantity = existingBillQuantityByCode.get(itemCode) ?? 0;
+    if (current && current.quantity > existingBillQuantity) updateQuantity(itemCode, -1);
+  }, [existingBillQuantityByCode, realCartItems, updateQuantity]);
   const remove = useCallback((itemCode: string) => {
     const current = realCartItems.find((item) => item.menuItemCode === itemCode);
-    if (current) updateQuantity(itemCode, -current.quantity);
-  }, [realCartItems, updateQuantity]);
+    const existingBillQuantity = existingBillQuantityByCode.get(itemCode) ?? 0;
+    if (current && current.quantity > existingBillQuantity) {
+      updateQuantity(itemCode, existingBillQuantity - current.quantity);
+    }
+  }, [existingBillQuantityByCode, realCartItems, updateQuantity]);
 
   const handleClear = useCallback(() => {
+    const existingBillItems = diningSession?.existingBillItems ?? [];
+    if (existingBillItems.length > 0) {
+      // Keep already-confirmed bill items and clear only this customer's new additions.
+      setCartItems(existingBillItems);
+      saveCartItems(existingBillItems);
+      return;
+    }
     clearCart();
     clearSavedCartItems();
-  }, [clearCart, clearSavedCartItems]);
+  }, [clearCart, clearSavedCartItems, diningSession?.existingBillItems, saveCartItems, setCartItems]);
 
   const openHandoff = () => {
     if (!cartItems.length) return;
@@ -480,6 +568,25 @@ const ReadyToEatScreen = () => {
         setPasswordError(result.data?.message || 'Incorrect password.');
         return;
       }
+
+      const existingInvoiceNo = String(diningSession.existingInvoiceNo ?? '').trim();
+      const existingBillItems = diningSession.existingBillItems ?? [];
+      if (existingInvoiceNo && existingBillItems.length > 0) {
+        // Main Cart's add-more path needs the original bill quantities as its
+        // baseline so an item already on the bill is increased, not replaced.
+        useOrderStore.getState().setLastConfirmedOrder({
+          orderType: 'DI',
+          tableNo: diningSession.tableNo,
+          userId: 'SYSTEM',
+          tableGrpId: diningSession.groupId,
+          lPax: Number(diningSession.localPax) || 0,
+          fPax: Number(diningSession.foreignPax) || 0,
+          invoiceNo: existingInvoiceNo,
+          createdAt: new Date().toISOString(),
+          items: existingBillItems,
+        });
+      }
+
       setHandoffVisible(false);
       setPassword('');
       router.push({
@@ -492,6 +599,12 @@ const ReadyToEatScreen = () => {
           foreignPax: diningSession.foreignPax,
           floor: diningSession.floor,
           orderType: diningSession.orderType,
+          // Existing-table customer orders must append to this invoice.
+          fromBilling: existingInvoiceNo ? '1' : undefined,
+          invoiceNo: existingInvoiceNo || undefined,
+          // Lets Main Cart remove the persisted Menu Card snapshot only after
+          // the real Dining order is successfully submitted.
+          menuCardOrder: '1',
         },
       });
     } catch {

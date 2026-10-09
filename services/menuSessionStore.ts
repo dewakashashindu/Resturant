@@ -14,6 +14,10 @@ export type MenuDiningSession = {
   localPax: string;
   foreignPax: string;
   orderType: 'DINING';
+  // Present only when the customer is adding to an already-open Dining bill.
+  // The baseline quantities keep old bill items from being edited as new items.
+  existingInvoiceNo?: string;
+  existingBillItems?: CartItem[];
 };
 
 type MenuSessionStore = {
@@ -25,20 +29,23 @@ type MenuSessionStore = {
   clearDiningSession: () => void;
 };
 
+const sanitizeCartItems = (value: unknown): CartItem[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item: any) => ({
+      menuItemCode: String(item?.menuItemCode ?? ''),
+      menuItmDes: String(item?.menuItmDes ?? ''),
+      salesPrice: Number(item?.salesPrice ?? 0) || 0,
+      quantity: Math.max(0, Number(item?.quantity ?? 0) || 0),
+      itemRemarks: String(item?.itemRemarks ?? ''),
+    }))
+    .filter((item: CartItem) => item.menuItemCode && item.quantity > 0);
+};
+
 const readSavedCartItems = (): CartItem[] => {
   try {
     const raw = storage.getString(MENU_DINING_CART_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((item: any) => ({
-        menuItemCode: String(item?.menuItemCode ?? ''),
-        menuItmDes: String(item?.menuItmDes ?? ''),
-        salesPrice: Number(item?.salesPrice ?? 0) || 0,
-        quantity: Math.max(0, Number(item?.quantity ?? 0) || 0),
-        itemRemarks: String(item?.itemRemarks ?? ''),
-      }))
-      .filter((item: CartItem) => item.menuItemCode && item.quantity > 0);
+    return sanitizeCartItems(raw ? JSON.parse(raw) : []);
   } catch {
     return [];
   }
@@ -59,6 +66,8 @@ const readSavedSession = (): MenuDiningSession | null => {
       localPax: String(data.localPax ?? '0'),
       foreignPax: String(data.foreignPax ?? '0'),
       orderType: 'DINING',
+      existingInvoiceNo: String(data.existingInvoiceNo ?? '').trim() || undefined,
+      existingBillItems: sanitizeCartItems(data.existingBillItems),
     };
   } catch {
     return null;
@@ -79,6 +88,8 @@ export const useMenuSessionStore = create<MenuSessionStore>((set) => ({
       localPax: String(session.localPax ?? '0'),
       foreignPax: String(session.foreignPax ?? '0'),
       orderType: 'DINING',
+      existingInvoiceNo: String(session.existingInvoiceNo ?? '').trim() || undefined,
+      existingBillItems: sanitizeCartItems(session.existingBillItems),
     };
     storage.set(MENU_DINING_SESSION_KEY, JSON.stringify(normalized));
     set({ diningSession: normalized });

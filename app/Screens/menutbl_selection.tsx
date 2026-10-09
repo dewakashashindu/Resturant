@@ -5,6 +5,7 @@ import { useAuthStore } from '../../services/authStore';
 
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   FlatList,
   Modal,
@@ -25,9 +26,15 @@ interface TableGroup {
   label: string;
 }
 
+type TableStatus = 'available' | 'occupied' | 'reserved';
+
 interface TableItem {
   id: string;
   label: string;
+  status: TableStatus;
+  existingInvoiceNo?: string;
+  existingLocalPax?: string;
+  existingForeignPax?: string;
 }
 
 
@@ -75,6 +82,7 @@ const TableSelectionScreen = () => {
   const [tableDropdownVisible, setTableDropdownVisible] = useState(false);
   const [loadingGroups, setLoadingGroups] = useState(true);
   const [loadingTables, setLoadingTables] = useState(false);
+  const [checkingOccupiedTable, setCheckingOccupiedTable] = useState(false);
   const [groupError, setGroupError] = useState('');
   const [tableError, setTableError] = useState('');
 
@@ -123,10 +131,18 @@ const TableSelectionScreen = () => {
       }
       const records: any[] = Array.isArray(result.data?.tables) ? result.data.tables : [];
       setTables(records
-        .map((table: any): TableItem => ({
-          id: String(table.TableNo ?? '').trim(),
-          label: String(table.TableNo ?? '').trim(),
-        }))
+        .map((table: any): TableItem => {
+          const isReserved = String(table.ResID ?? '').trim() !== '';
+          const isAvailable = String(table.Vaccant ?? '').trim().toUpperCase() === 'Y';
+
+          return {
+            id: String(table.TableNo ?? '').trim(),
+            label: String(table.TableNo ?? '').trim(),
+            // Match the normal Dining table rules so the customer menu can
+            // identify an already-open table before starting a new order.
+            status: isReserved ? 'reserved' : isAvailable ? 'available' : 'occupied',
+          };
+        })
         .filter((table) => Boolean(table.id)));
     } catch {
       setTableError('Unable to load tables.');
@@ -143,25 +159,85 @@ const TableSelectionScreen = () => {
     void loadTables(group);
   };
 
-  const handleTableSelect = (table: TableItem): void => {
-    setSelectedTable(table);
-    setTableDropdownVisible(false);
+  const handleTableSelect = async (table: TableItem): Promise<void> => {
+    // Available and reserved tables can continue through the normal Menu Card
+    // setup. Occupied tables must first be linked to their existing bill.
+    if (table.status !== 'occupied') {
+      setSelectedTable(table);
+      setTableDropdownVisible(false);
+      return;
+    }
+
+    setCheckingOccupiedTable(true);
+    try {
+      const response = await apiClient.getActiveBillItems(table.id);
+      const bill = response.ok ? response.data?.data : null;
+      const invoiceNo = String(bill?.invoiceNo ?? '').trim();
+
+      if (!invoiceNo) {
+        Alert.alert(
+          'Table already occupied',
+          `Table ${table.label} is marked as occupied. An existing bill could not be loaded, so a new customer order was not started. Please select another table.`,
+          [{ text: 'Select another table', style: 'cancel', onPress: () => setSelectedTable(null) }],
+        );
+        return;
+      }
+
+      Alert.alert(
+        'Existing bill found',
+        `Table ${table.label} already has an open bill. Do you want to add this customer's items to that bill?`,
+        [
+          {
+            text: 'Select another table',
+            style: 'cancel',
+            onPress: () => setSelectedTable(null),
+          },
+          {
+            text: 'Add to this bill',
+            onPress: () => {
+              setSelectedTable({
+                ...table,
+                existingInvoiceNo: invoiceNo,
+                existingLocalPax: String(bill?.lPax ?? bill?.LPax ?? '0'),
+                existingForeignPax: String(bill?.fPax ?? bill?.FPax ?? '0'),
+              });
+              setTableDropdownVisible(false);
+            },
+          },
+        ],
+      );
+    } catch {
+      Alert.alert(
+        'Could not check table bill',
+        'This table is marked as occupied. Please select another table and try again.',
+        [{ text: 'Select another table', style: 'cancel', onPress: () => setSelectedTable(null) }],
+      );
+    } finally {
+      setCheckingOccupiedTable(false);
+    }
   };
 
-  const handleConfirm = (): void => {
-    if (!selectedGroup || !selectedTable) return;
+  const continueToPaxCount = (group: TableGroup, table: TableItem): void => {
     router.push({
       pathname: '/Screens/paxcount',
       params: {
         menuFlow: '1',
-        groupId: selectedGroup.id,
-        groupLabel: selectedGroup.label,
-        tableId: selectedTable.id,
-        tableName: selectedTable.id,
-        tableNo: selectedTable.id,
-        floor: selectedGroup.label,
+        groupId: group.id,
+        groupLabel: group.label,
+        tableId: table.id,
+        tableName: table.id,
+        tableNo: table.id,
+        floor: group.label,
+        existingInvoiceNo: table.existingInvoiceNo ?? '',
+        existingLocalPax: table.existingLocalPax ?? '',
+        existingForeignPax: table.existingForeignPax ?? '',
       },
     });
+  };
+
+  const handleConfirm = (): void => {
+    if (!selectedGroup || !selectedTable || checkingOccupiedTable) return;
+    continueToPaxCount(selectedGroup, selectedTable);
   };
 
   // ── Renderers ──
@@ -194,17 +270,34 @@ const TableSelectionScreen = () => {
         styles.tableItem,
         selectedTable?.id === item.id && styles.selectedTableItem,
       ]}
-      onPress={() => handleTableSelect(item)}
+      onPress={() => void handleTableSelect(item)}
       activeOpacity={0.7}
     >
-      <Text
-        style={[
-          styles.tableItemText,
-          selectedTable?.id === item.id && styles.selectedTableItemText,
-        ]}
-      >
-        {item.label}
-      </Text>
+      <View style={styles.tableItemCopy}>
+        <Text
+          style={[
+            styles.tableItemText,
+            selectedTable?.id === item.id && styles.selectedTableItemText,
+          ]}
+        >
+          {item.label}
+        </Text>
+        <View style={[
+          styles.tableStatusPill,
+          item.status === 'occupied' && styles.tableStatusOccupied,
+          item.status === 'reserved' && styles.tableStatusReserved,
+          item.status === 'available' && styles.tableStatusAvailable,
+        ]}>
+          <Text style={[
+            styles.tableStatusText,
+            item.status === 'occupied' && styles.tableStatusOccupiedText,
+            item.status === 'reserved' && styles.tableStatusReservedText,
+            item.status === 'available' && styles.tableStatusAvailableText,
+          ]}>
+            {item.status === 'occupied' ? 'Occupied' : item.status === 'reserved' ? 'Reserved' : 'Available'}
+          </Text>
+        </View>
+      </View>
       {selectedTable?.id === item.id && <Text style={styles.checkmark}>✓</Text>}
     </TouchableOpacity>
   );
@@ -288,13 +381,17 @@ const TableSelectionScreen = () => {
         <TouchableOpacity
           style={[
             styles.confirmButton,
-            (!selectedGroup || !selectedTable) && styles.confirmButtonDisabled,
+            (!selectedGroup || !selectedTable || checkingOccupiedTable) && styles.confirmButtonDisabled,
           ]}
-          onPress={handleConfirm}
+          onPress={() => void handleConfirm()}
           activeOpacity={0.8}
-          disabled={!selectedGroup || !selectedTable}
+          disabled={!selectedGroup || !selectedTable || checkingOccupiedTable}
         >
-          <Text style={styles.confirmText}>Confirm</Text>
+          {checkingOccupiedTable ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.confirmText}>Confirm</Text>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -584,6 +681,24 @@ const styles = StyleSheet.create({
     marginHorizontal: scaleW(8),
     paddingHorizontal: scaleW(20),
   },
+  tableItemCopy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scaleW(9),
+    flexShrink: 1,
+  },
+  tableStatusPill: {
+    borderRadius: scaleW(10),
+    paddingHorizontal: scaleW(8),
+    paddingVertical: scaleH(3),
+  },
+  tableStatusAvailable: { backgroundColor: 'rgba(71, 133, 91, 0.12)' },
+  tableStatusOccupied: { backgroundColor: 'rgba(201, 119, 52, 0.14)' },
+  tableStatusReserved: { backgroundColor: 'rgba(78, 142, 196, 0.14)' },
+  tableStatusText: { fontSize: scaleFont(11), fontWeight: '600' },
+  tableStatusAvailableText: { color: '#3C7A4B' },
+  tableStatusOccupiedText: { color: '#B46220' },
+  tableStatusReservedText: { color: '#3977AD' },
   selectedTableItem: {
     backgroundColor: 'rgba(98, 145, 185, 0.15)',
   },

@@ -21,6 +21,7 @@ import { apiClient, getCachedOrderDescriptions } from '../../services/api';
 import { useAuthStore } from '../../services/authStore';
 import { CartItem, useCartStore } from '../../services/cartStore';
 import useItemStore from '../../services/itemStore';
+import { useMenuSessionStore } from '../../services/menuSessionStore';
 import { useOrderStore } from '../../services/orderStore';
 
 type CartDisplayItem = CartItem & {
@@ -43,6 +44,7 @@ export default function CartScreen() {
     contactNumber: routeContactNumber,
     customerName:  routeCustomerName,
     remark:        routeRemark,
+    menuCardOrder,
   } = useLocalSearchParams<{
     tableName?: string;
     tableId?: string;
@@ -57,9 +59,11 @@ export default function CartScreen() {
     contactNumber?: string;
     customerName?: string;
     remark?: string;
+    menuCardOrder?: string;
   }>();
 
   const isFromBilling = fromBilling === '1';
+  const isMenuCardOrder = menuCardOrder === '1';
   const cartStoreOrderType = useCartStore((state) => state.orderType);
   // BUG FIX: when fromBilling, cartStore.orderType may be null (cleared on Add More).
   // Fall back to the route param which BillingScreen passed explicitly.
@@ -622,6 +626,13 @@ export default function CartScreen() {
           createdAt: lastConfirmedOrder?.createdAt ?? new Date().toISOString(),
           invoiceNo: finalInvoiceNo,
         });
+      }
+
+      // The Menu Card handoff is now safely stored as a real Dining bill.
+      // Remove only its persisted table/pax/cart snapshot so Dashboard → Menu
+      // Card cannot later resume and submit the same customer order again.
+      if (isMenuCardOrder) {
+        useMenuSessionStore.getState().clearDiningSession();
       }
 
       router.push({

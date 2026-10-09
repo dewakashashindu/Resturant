@@ -30,6 +30,7 @@ import { ProtectedMenuExitModal } from '../../components/ProtectedMenuExitModal'
 import { useCartStore } from '../../services/cartStore';
 import { useItemStore } from '../../services/itemStore';
 import { useMenuSessionStore } from '../../services/menuSessionStore';
+import { useOrderStore } from '../../services/orderStore';
 import { storage } from '../../services/storage';
 
 const LOGO        = require('../../assets/images/CAPTURE 1.png');
@@ -1472,6 +1473,31 @@ const FoodMenuScreen = () => {
   const setRealCartItems = useCartStore((state) => state.setCartItems);
   const diningSession = useMenuSessionStore((state) => state.diningSession);
   const savedCartItems = useMenuSessionStore((state) => state.savedCartItems);
+  const lastConfirmedOrder = useOrderStore((state) => state.lastConfirmedOrder);
+
+  const existingBillQuantityByCode = useMemo(() => new Map(
+    (diningSession?.existingBillItems ?? []).map((item) => [item.menuItemCode, item.quantity]),
+  ), [diningSession?.existingBillItems]);
+
+  useEffect(() => {
+    const invoiceNo = String(diningSession?.existingInvoiceNo ?? '').trim();
+    const existingBillItems = diningSession?.existingBillItems ?? [];
+    if (!invoiceNo || existingBillItems.length === 0) return;
+    if (lastConfirmedOrder?.invoiceNo === invoiceNo) return;
+
+    // Rebuild the add-more baseline after a saved Menu Card session is resumed.
+    useOrderStore.getState().setLastConfirmedOrder({
+      orderType: 'DI',
+      tableNo: diningSession?.tableNo ?? '',
+      userId: 'SYSTEM',
+      tableGrpId: diningSession?.groupId ?? '',
+      lPax: Number(diningSession?.localPax ?? 0) || 0,
+      fPax: Number(diningSession?.foreignPax ?? 0) || 0,
+      invoiceNo,
+      createdAt: new Date().toISOString(),
+      items: existingBillItems,
+    });
+  }, [diningSession, lastConfirmedOrder?.invoiceNo]);
 
   useEffect(() => {
     void hydrateItems();
@@ -1515,8 +1541,13 @@ const FoodMenuScreen = () => {
   }, [addToRealCart, menuItemByCode]);
 
   const decrement = useCallback((itemCode: string) => {
+    const currentQuantity = realCartItems.find((item) => item.menuItemCode === itemCode)?.quantity ?? 0;
+    const existingBillQuantity = existingBillQuantityByCode.get(itemCode) ?? 0;
+    // Existing bill quantities are read-only for the customer. Only items
+    // added during this Menu Card visit can be reduced or removed.
+    if (currentQuantity <= existingBillQuantity) return;
     updateRealCartQuantity(itemCode, -1);
-  }, [updateRealCartQuantity]);
+  }, [existingBillQuantityByCode, realCartItems, updateRealCartQuantity]);
 
   useEffect(() => {
     setActiveTabKey((current) =>

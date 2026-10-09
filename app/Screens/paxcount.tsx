@@ -1,6 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Image,
   Platform,
   StatusBar,
@@ -12,29 +14,47 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useCartStore } from '../../services/cartStore';
+import { apiClient } from '../../services/api';
+import { CartItem, useCartStore } from '../../services/cartStore';
 import { useMenuSessionStore } from '../../services/menuSessionStore';
+import { useOrderStore } from '../../services/orderStore';
 
 export default function PaxCountScreen() {
   const router = useRouter();
   const clearCart = useCartStore((state) => state.clearCart);
+  const setCartItems = useCartStore((state) => state.setCartItems);
   const setOrderType = useCartStore((state) => state.setOrderType);
   const setDiningSession = useMenuSessionStore((state) => state.setDiningSession);
   const clearDiningSession = useMenuSessionStore((state) => state.clearDiningSession);
+  const saveCartItems = useMenuSessionStore((state) => state.saveCartItems);
   const { width, height } = useWindowDimensions();
   
   // Receives both regular Dining navigation and the Menu Card table flow.
-  const { tableName, floor, menuFlow, groupId, groupLabel, tableId } = useLocalSearchParams<{
+  const {
+    tableName,
+    floor,
+    menuFlow,
+    groupId,
+    groupLabel,
+    tableId,
+    existingInvoiceNo,
+    existingLocalPax,
+    existingForeignPax,
+  } = useLocalSearchParams<{
     tableName: string;
     floor?: string;
     menuFlow?: string;
     groupId?: string;
     groupLabel?: string;
     tableId?: string;
+    existingInvoiceNo?: string;
+    existingLocalPax?: string;
+    existingForeignPax?: string;
   }>();
 
-  const [localPax, setLocalPax]   = useState('');
-  const [foreignPax, setForeignPax] = useState('');
+  const [localPax, setLocalPax] = useState(() => String(existingLocalPax ?? ''));
+  const [foreignPax, setForeignPax] = useState(() => String(existingForeignPax ?? ''));
+  const [continuing, setContinuing] = useState(false);
 
   const isTablet = width  >= 600;
   const isSmall  = height < 700;
@@ -57,7 +77,118 @@ export default function PaxCountScreen() {
   const inputMB       = isTablet ? 16  : isSmall ? 10  : 12;
   
   // Validates that at least one of the inputs contains text
-  const canContinue   = localPax.trim() !== '' || foreignPax.trim() !== '';
+  const canContinue = localPax.trim() !== '' || foreignPax.trim() !== '';
+  const activeExistingInvoiceNo = String(existingInvoiceNo ?? '').trim();
+
+  const handleConfirm = async (): Promise<void> => {
+    if (!canContinue || continuing) return;
+
+    const localPaxValue = localPax.trim() || '0';
+    const foreignPaxValue = foreignPax.trim() || '0';
+
+    // An occupied-table choice means new customer items must append to the
+    // current bill, never create a second invoice for the same table.
+    if (menuFlow === '1' && activeExistingInvoiceNo) {
+      setContinuing(true);
+      try {
+        const response = await apiClient.getActiveBillItems(
+          String(tableName ?? ''),
+          activeExistingInvoiceNo,
+        );
+        const bill = response.ok ? response.data?.data : null;
+        const invoiceNo = String(bill?.invoiceNo ?? activeExistingInvoiceNo).trim();
+        const existingItems: CartItem[] = Array.isArray(bill?.items)
+          ? bill.items
+              .map((item: any) => ({
+                menuItemCode: String(item?.menuItemCode ?? item?.ItemCode ?? item?.itemCode ?? '').trim(),
+                menuItmDes: String(item?.menuItmDes ?? item?.MenuItmDes ?? item?.ItemDescription ?? ''),
+                salesPrice: Number(item?.salesPrice ?? item?.SalesPrice ?? 0) || 0,
+                quantity: Math.max(0, Number(item?.quantity ?? item?.QTY ?? 0) || 0),
+                itemRemarks: String(item?.itemRemarks ?? item?.ItemRemarks ?? ''),
+              }))
+              .filter((item: CartItem) => item.menuItemCode && item.quantity > 0)
+          : [];
+
+        if (!invoiceNo || existingItems.length === 0) {
+          Alert.alert('Bill unavailable', 'The selected table bill is no longer available. Please select the table again.');
+          return;
+        }
+
+        const resolvedLocalPax = String(bill?.lPax ?? bill?.LPax ?? localPaxValue);
+        const resolvedForeignPax = String(bill?.fPax ?? bill?.FPax ?? foreignPaxValue);
+        const resolvedTableNo = String(bill?.tableNo ?? tableName ?? '').trim();
+
+        clearDiningSession();
+        setCartItems(existingItems);
+        setOrderType('DINING');
+        useOrderStore.getState().setLastConfirmedOrder({
+          orderType: String(bill?.orderType ?? 'DI') || 'DI',
+          tableNo: resolvedTableNo,
+          userId: String(bill?.userId ?? 'SYSTEM'),
+          tableGrpId: String(bill?.tableGrpId ?? groupId ?? ''),
+          lPax: Number(resolvedLocalPax) || 0,
+          fPax: Number(resolvedForeignPax) || 0,
+          invoiceNo,
+          createdAt: new Date().toISOString(),
+          items: existingItems,
+        });
+        setDiningSession({
+          groupId: String(groupId ?? bill?.tableGrpId ?? ''),
+          groupLabel: String(groupLabel ?? floor ?? ''),
+          tableName: resolvedTableNo,
+          tableNo: resolvedTableNo,
+          floor: String(floor ?? ''),
+          localPax: resolvedLocalPax,
+          foreignPax: resolvedForeignPax,
+          orderType: 'DINING',
+          existingInvoiceNo: invoiceNo,
+          existingBillItems: existingItems,
+        });
+        saveCartItems(existingItems);
+        router.push('/menu/menu_welcome');
+      } catch {
+        Alert.alert('Bill unavailable', 'Unable to load the selected table bill. Please try again.');
+      } finally {
+        setContinuing(false);
+      }
+      return;
+    }
+
+    clearCart();
+    clearDiningSession();
+    useOrderStore.getState().clearLastConfirmedOrder();
+    setOrderType('DINING');
+
+    // Menu Card flow: persist the invisible table/pax context, then continue
+    // through Welcome → Menu Card. The Cart receives these values later when
+    // the user opens the real Dining cart.
+    if (menuFlow === '1') {
+      setDiningSession({
+        groupId: String(groupId ?? ''),
+        groupLabel: String(groupLabel ?? floor ?? ''),
+        tableName: String(tableName ?? ''),
+        tableNo: String(tableName ?? ''),
+        floor: String(floor ?? ''),
+        localPax: localPaxValue,
+        foreignPax: foreignPaxValue,
+        orderType: 'DINING',
+      });
+      router.push('/menu/menu_welcome');
+      return;
+    }
+
+    router.push({
+      pathname: '/Screens/selectitems',
+      params: {
+        tableName: tableName || '',
+        localPax: localPaxValue,
+        foreignPax: foreignPaxValue,
+        floor: floor || '',
+        tableId: tableId || '',
+        orderType: 'DINING',
+      },
+    });
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -129,51 +260,17 @@ export default function PaxCountScreen() {
             style={[
               styles.nextButton, 
               { height: btnH, marginTop: isSmall ? 8 : 12 },
-              !canContinue && styles.disabledButton // Visual indicator if disabled
+              (!canContinue || continuing) && styles.disabledButton,
             ]}
             activeOpacity={0.8}
-            onPress={() => {
-              if (!canContinue) return;
-
-              clearCart();
-              clearDiningSession();
-              setOrderType('DINING');
-
-              const localPaxValue = localPax.trim() || '0';
-              const foreignPaxValue = foreignPax.trim() || '0';
-
-              // Menu Card flow: persist the invisible table/pax context, then
-              // continue through Welcome → Menu Card. The Cart receives these
-              // values later when the user opens the real Dining cart.
-              if (menuFlow === '1') {
-                setDiningSession({
-                  groupId: String(groupId ?? ''),
-                  groupLabel: String(groupLabel ?? floor ?? ''),
-                  tableName: String(tableName ?? ''),
-                  tableNo: String(tableName ?? ''),
-                  floor: String(floor ?? ''),
-                  localPax: localPaxValue,
-                  foreignPax: foreignPaxValue,
-                  orderType: 'DINING',
-                });
-                router.push('/menu/menu_welcome');
-                return;
-              }
-
-              router.push({
-                pathname: '/Screens/selectitems',
-                params: {
-                  tableName: tableName || '',
-                  localPax: localPaxValue,
-                  foreignPax: foreignPaxValue,
-                  floor: floor || '',
-                  tableId: tableId || '',
-                  orderType: 'DINING',
-                },
-              });
-            }}
+            onPress={() => void handleConfirm()}
+            disabled={!canContinue || continuing}
           >
-            <Text style={[styles.nextText, { fontSize: btnFs }]}>Confirm</Text>
+            {continuing ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={[styles.nextText, { fontSize: btnFs }]}>Confirm</Text>
+            )}
            
           </TouchableOpacity>
 
