@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../services/authStore';
+import { useNotificationStore } from '../services/notificationStore';
 
 // ─── Screens that belong to the Order Taking flow ───────────────────────────
 const ORDER_TAKING_SCREENS = [
@@ -33,6 +34,12 @@ const TABS = [
     icon: 'receipt-outline' as React.ComponentProps<typeof Ionicons>['name'],
     route: '/Screens/operation',
   },
+  {
+    name: 'notifications',
+    label: 'Alerts',
+    icon: 'notifications-outline' as React.ComponentProps<typeof Ionicons>['name'],
+    route: '/Screens/notifications',
+  },
 ] as const;
 
 const BAR_COLOR = 'rgb(66, 118, 164)';
@@ -46,6 +53,7 @@ export default function BottomBar() {
   const insets   = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const clearSession = useAuthStore((s) => s.clearSession);
+  const unreadCount = useNotificationStore((s) => s.unreadCount());
 
   // ── Hide Android OS navigation bar ────────────────────────────────────────
   useEffect(() => {
@@ -70,9 +78,11 @@ export default function BottomBar() {
 
   // ── Active tab detection ───────────────────────────────────────────────────
   const currentSegment = segments[segments.length - 1] ?? '';
-  const activeTabName: string = ORDER_TAKING_SCREENS.includes(currentSegment)
-    ? 'operation'
-    : 'index';
+  const activeTabName: string = currentSegment === 'notifications'
+    ? 'notifications'
+    : ORDER_TAKING_SCREENS.includes(currentSegment)
+      ? 'operation'
+      : 'index';
 
   // ── Logout ────────────────────────────────────────────────────────────────
   const handleLogout = useCallback(async () => {
@@ -113,7 +123,14 @@ export default function BottomBar() {
               accessibilityState={{ selected: isActive }}
               hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
             >
-              <Ionicons name={tab.icon} size={iconSize} color="#fff" />
+              <View style={styles.iconWrap}>
+                <Ionicons name={tab.icon} size={iconSize} color="#fff" />
+                {tab.name === 'notifications' && unreadCount > 0 ? (
+                  <View style={styles.unreadBadge}>
+                    <Text style={styles.unreadBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                  </View>
+                ) : null}
+              </View>
               <Text
                 style={[styles.navText, { fontSize: textSize }]}
                 allowFontScaling={false}
@@ -188,6 +205,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 3,
   },
+  iconWrap: { position: 'relative', justifyContent: 'center', alignItems: 'center' },
+  unreadBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -11,
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: BAR_COLOR,
+    backgroundColor: '#E84B4B',
+  },
+  unreadBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800' },
   divider: {
     width: 1,
     height: '60%',

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -373,6 +373,7 @@ interface ItemCardProps {
   remarks?: string;
   onIncrement?: () => void;
   onDecrement?: () => void;
+  canDecrement?: boolean;
   onPressDetails?: () => void;
   path?: string[];
   cardWidth: number;
@@ -390,6 +391,7 @@ const ItemCard = ({
   remarks,
   onIncrement,
   onDecrement,
+  canDecrement = true,
   onPressDetails,
   path,
   cardWidth,
@@ -475,7 +477,12 @@ const ItemCard = ({
       <View style={cs.qtyRow}>
         {displayQuantity > 0 ? (
           <>
-            <TouchableOpacity style={cs.qtyBtn} onPress={() => onDecrement?.()} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={[cs.qtyBtn, !canDecrement && { opacity: 0.35 }]}
+              onPress={() => onDecrement?.()}
+              disabled={!canDecrement}
+              activeOpacity={0.8}
+            >
               <Text style={cs.qtyBtnText}>-</Text>
             </TouchableOpacity>
             <Text style={cs.qtyNumber}>{displayQuantity}</Text>
@@ -836,20 +843,27 @@ export default function ItemSelection() {
     setSearchQuery('');
   };
 
+  // For an occupied bill show the real total (for example 5 → 8), not just
+  // the three additions. The original billed quantity remains the floor.
   const getCartQuantity = (menuItemCode: string) => {
     const normalizedCode = normalizeMenuItemCode(menuItemCode);
-    const totalQty = cartItems.find((item) => item.menuItemCode === normalizedCode)?.quantity ?? 0;
-    if (isFromBilling) {
-      const existingQty = existingQtyByCode[normalizedCode] ?? 0;
-      return Math.max(0, totalQty - existingQty);
-    }
-    return totalQty;
+    return cartItems.find((item) => item.menuItemCode === normalizedCode)?.quantity ?? 0;
   };
 
   const getExistingQty = (menuItemCode: string) => {
     if (!isFromBilling) return 0;
     return existingQtyByCode[normalizeMenuItemCode(menuItemCode)] ?? 0;
   };
+
+  // An occupied bill can be increased from Item Selection, but its original
+  // quantity is protected: 5 on the bill may become 8, then only reduce to 5.
+  const decrementItemQuantity = useCallback((menuItemCode: string) => {
+    const normalizedCode = normalizeMenuItemCode(menuItemCode);
+    const currentQty = cartItems.find((item) => item.menuItemCode === normalizedCode)?.quantity ?? 0;
+    const minimumQty = isFromBilling ? (existingQtyByCode[normalizedCode] ?? 0) : 0;
+    if (currentQty <= minimumQty) return;
+    updateQuantity(normalizedCode, -1);
+  }, [cartItems, existingQtyByCode, isFromBilling, updateQuantity]);
 
   const getCartRemarks = (menuItemCode: string) => {
     const normalizedCode = normalizeMenuItemCode(menuItemCode);
@@ -1352,7 +1366,8 @@ export default function ItemSelection() {
                       })
                     }
                     onIncrement={() => updateQuantity(item.code, 1)}
-                    onDecrement={() => updateQuantity(item.code, -1)}
+                    onDecrement={() => decrementItemQuantity(item.code)}
+                    canDecrement={getCartQuantity(item.code) > getExistingQty(item.code)}
                   />
                 ))
               )}
@@ -1420,7 +1435,8 @@ export default function ItemSelection() {
                       })
                     }
                     onIncrement={() => updateQuantity(row.Level, 1)}
-                    onDecrement={() => updateQuantity(row.Level, -1)}
+                    onDecrement={() => decrementItemQuantity(row.Level)}
+                    canDecrement={getCartQuantity(row.Level) > getExistingQty(row.Level)}
                   />
                 ))}
                 {(categoriesRows.length + itemsRows.length) % COLUMNS !== 0 && (

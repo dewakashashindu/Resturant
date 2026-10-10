@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useAuthStore } from '../../services/authStore';
 import { useMenuSessionStore } from '../../services/menuSessionStore';
+import { useNotificationStore } from '../../services/notificationStore';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -23,6 +24,7 @@ export default function HomeScreen() {
 
   const userName = useAuthStore((state) => state.user?.userName);
   const savedMenuSession = useMenuSessionStore((state) => state.diningSession);
+  const unreadCount = useNotificationStore((state) => state.unreadCount());
   const displayName = userName ? `Mr. ${userName}` : 'Mr. Perera';
 
   useEffect(() => {
@@ -93,7 +95,7 @@ export default function HomeScreen() {
     {
       title: 'Dashboard',
       subtitle: 'Live Overview',
-      visible: true,
+      visible: false,
       color: 'rgba(151,173,210,0.5)',
       iconBg: 'rgba(151,173,210,0.6)',
       route: '/Screens/Dashboard',
@@ -138,7 +140,7 @@ export default function HomeScreen() {
     {
   title: 'KDS',
   subtitle: 'Kitchen Display',
-  visible: false,
+  visible: true,
   color: 'rgba(34,139,87,0.5)',
   iconBg: 'rgba(34,139,87,0.6)',
   route: '/Screens/KDSHomeScreen',
@@ -163,6 +165,21 @@ export default function HomeScreen() {
         ]}
       >
         <View style={styles.circle} />
+
+        {/* Notification inbox — top-right blue header shortcut. */}
+        <TouchableOpacity
+          style={[styles.headerNotificationButton, { top: isTablet ? 20 : isSmall ? 12 : 20 }]}
+          onPress={() => router.push('/Screens/notifications' as any)}
+          accessibilityRole="button"
+          accessibilityLabel={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
+        >
+          <Ionicons name="notifications-outline" size={isTablet ? 27 : 23} color="#FFFFFF" />
+          {unreadCount > 0 ? (
+            <View style={styles.headerUnreadBadge}>
+              <Text style={styles.headerUnreadBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          ) : null}
+        </TouchableOpacity>
 
         {/* LOGO */}
         <View style={styles.logoContainer}>
@@ -274,6 +291,34 @@ const styles = StyleSheet.create({
     backgroundColor: '#002748',
     justifyContent: 'space-between',
   },
+  headerNotificationButton: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 5,
+    width: 42,
+    height: 42,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.20)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  headerUnreadBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: '#002748',
+    backgroundColor: '#E84B4B',
+  },
+  headerUnreadBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800' },
   circle: {
     position: 'absolute',
     width: 220,

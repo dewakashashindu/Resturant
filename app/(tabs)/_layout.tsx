@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../services/authStore';
+import { useNotificationStore } from '../../services/notificationStore';
 
 // ─── Breakpoints ────────────────────────────────────────────────────────────
 // Small phone  : width < 360
@@ -42,6 +43,7 @@ function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const clearSession = useAuthStore((s) => s.clearSession);
+  const unreadCount = useNotificationStore((s) => s.unreadCount());
   const { iconSize, textSize, navContentHeight, isTablet } = useBreakpoint();
 
   // Landscape on Android: cutout can be on left/right, not just bottom
@@ -92,8 +94,40 @@ function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
         </Text>
       </TouchableOpacity>
 
-      {/* Divider — visible but subtle on tablets */}
-      {isTablet && <View style={styles.divider} />}
+      {/* Order Taking */}
+      <TouchableOpacity
+        style={[styles.navItem, { minHeight: navContentHeight }]}
+        onPress={() => router.push('/Screens/operation' as any)}
+        accessibilityRole="button"
+        accessibilityLabel="Order Taking"
+        hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+      >
+        <Ionicons name="receipt-outline" size={iconSize} color="#fff" />
+        <Text style={[styles.navText, { fontSize: textSize }]} allowFontScaling={false} numberOfLines={1}>
+          Order Taking
+        </Text>
+      </TouchableOpacity>
+
+      {/* Notifications — centred in the four-item navigation bar. */}
+      <TouchableOpacity
+        style={[styles.navItem, { minHeight: navContentHeight }]}
+        onPress={() => router.push('/Screens/notifications' as any)}
+        accessibilityRole="button"
+        accessibilityLabel={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
+        hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+      >
+        <View style={styles.notificationIconWrap}>
+          <Ionicons name="notifications" size={iconSize} color="#fff" />
+          {unreadCount > 0 ? (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          ) : null}
+        </View>
+        <Text style={[styles.navText, { fontSize: textSize }]} allowFontScaling={false} numberOfLines={1}>
+          Alerts
+        </Text>
+      </TouchableOpacity>
 
       {/* Logout */}
       <TouchableOpacity
@@ -181,6 +215,23 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginTop: 3,
   },
+
+  notificationIconWrap: { position: 'relative', justifyContent: 'center', alignItems: 'center' },
+  unreadBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -11,
+    minWidth: 17,
+    height: 17,
+    paddingHorizontal: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: BAR_COLOR,
+    backgroundColor: '#E84B4B',
+  },
+  unreadBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800' },
 
   divider: {
     width: 1,

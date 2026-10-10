@@ -160,7 +160,13 @@ const readSnapshot = (raw?: string | null): MenuSnapshot => {
 /**
  * Returns current local date as "YYYY-MM-DD" — used for stale-check only.
  */
-const getTodayDate = () => new Date().toISOString().slice(0, 10);
+// Menu cache freshness follows the restaurant device's local calendar day,
+// so the daily first-login refresh happens after local midnight (not UTC 00:00).
+export const getMenuSyncLocalDate = () => {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+};
 
 /**
  * Returns a human-readable local datetime string for display in Settings.
@@ -181,6 +187,45 @@ const getDisplayTimestamp = (): string => {
 const readStoredSyncDate = (): string | null => {
   const raw = storage.getString(ITEM_LAST_SYNC_DATE_KEY);
   return raw ? String(raw).trim().slice(0, 10) : null;
+};
+
+const fetchAllMenuItemsInBatches = async (
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<{ ok: boolean; items: RawItem[]; error?: string }> => {
+  const allItems: RawItem[] = [];
+  const pageSize = 50;
+  let cursor: string | undefined;
+  let total = 0;
+
+  while (true) {
+    const response = await apiClient.getMenuItems({ cursor, limit: pageSize });
+    if (!response.ok) {
+      return {
+        ok: false,
+        items: [],
+        error: String((response.data as any)?.message ?? (response.data as any)?.error ?? 'Failed to fetch menu data'),
+      };
+    }
+
+    const payload = response.data ?? {};
+    const pageItems: RawItem[] = Array.isArray((payload as any).items)
+      ? (payload as any).items
+      : Array.isArray(payload)
+        ? payload
+        : [];
+    total = Number((payload as any).total ?? total ?? 0) || total;
+    allItems.push(...pageItems);
+    onProgress?.(allItems.length, total);
+
+    const hasMore = Boolean((payload as any).hasMore);
+    const nextCursor = typeof (payload as any).nextCursor === 'string'
+      ? (payload as any).nextCursor
+      : undefined;
+    if (!hasMore || pageItems.length === 0 || !nextCursor || nextCursor === cursor) break;
+    cursor = nextCursor;
+  }
+
+  return { ok: true, items: allItems };
 };
 
 const persistSnapshot = (items: RawItem[], displayTimestamp: string | null) => {
@@ -231,7 +276,7 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
       try {
         const snapshot = readSnapshot(storage.getString(ITEM_CACHE_KEY));
         const storedSyncDate = readStoredSyncDate();
-        const todayDate = getTodayDate();
+        const todayDate = getMenuSyncLocalDate();
 
         // Always clear the flag here so a crash in the login prefetch doesn't
         // cause an infinite re-sync loop.
@@ -282,20 +327,21 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
   prefetchMenuBootstrapData: async () => {
     // Full sync — no `since` filter. Used on first launch or stale-day refresh.
     try {
-      const [categoriesResponse, itemsResponse] = await Promise.all([
+      const [categoriesResponse, itemsResult] = await Promise.all([
         apiClient.getCategories(),
-        apiClient.getMenuItems(), // no `since` → full pull
+        fetchAllMenuItemsInBatches(),
       ]);
 
-      const categoriesPayload = categoriesResponse.data ?? {};
-      const itemsPayload = itemsResponse.data ?? {};
+      if (!itemsResult.ok) {
+        set({ syncError: itemsResult.error ?? 'Failed to fetch menu data' });
+        return false;
+      }
 
+      const categoriesPayload = categoriesResponse.data ?? {};
       const categories = Array.isArray((categoriesPayload as any).categories)
         ? (categoriesPayload as any).categories
         : [];
-      const items = Array.isArray((itemsPayload as any).items)
-        ? (itemsPayload as any).items
-        : [];
+      const items = itemsResult.items;
 
       const displayTimestamp = getDisplayTimestamp();
 
@@ -333,24 +379,31 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
 
     try {
       set({ syncProgress: 18, syncStage: 'Downloading menu items...' });
-      const [itemsResponse, categoriesResponse] = await Promise.all([
-        apiClient.getMenuItems(), // full pull — no since param
+      const [itemsResult, categoriesResponse] = await Promise.all([
+        fetchAllMenuItemsInBatches((loaded, total) => {
+          // The cursor API intentionally avoids a costly COUNT(*) against the
+          // large view. Give a smooth conservative visual estimate until the
+          // final page confirms the total number of downloaded items.
+          const downloadPercent = total > 0
+            ? loaded / total
+            : Math.min(0.95, loaded / 3000);
+          set({
+            syncProgress: 18 + Math.round(downloadPercent * 40),
+            syncStage: total > 0
+              ? `Downloading menu items: ${loaded.toLocaleString()} / ${total.toLocaleString()}`
+              : `Downloading menu items: ${loaded.toLocaleString()}`,
+          });
+        }),
         apiClient.getCategories(),
       ]);
 
-      if (!itemsResponse.ok) {
-        const err = (itemsResponse as any).error ?? 'Failed to fetch menu data';
-        console.log('[ItemStore] syncMenuData: getMenuItems failed', {
-          ok: itemsResponse.ok,
-          error: (itemsResponse as any).error,
-        });
-        set({ syncError: String(err), syncProgress: 0, syncStage: 'Sync failed' });
+      if (!itemsResult.ok) {
+        console.log('[ItemStore] syncMenuData: getMenuItems failed', itemsResult.error);
+        set({ syncError: itemsResult.error ?? 'Failed to fetch menu data', syncProgress: 0, syncStage: 'Sync failed' });
         return false;
       }
 
-      const itemsPayload = itemsResponse.data ?? {};
-      const items: RawItem[] = Array.isArray(itemsPayload.items) ? itemsPayload.items : [];
-
+      const items = itemsResult.items;
       const categoriesPayload = categoriesResponse.data ?? {};
       const categories = Array.isArray((categoriesPayload as any).categories)
         ? (categoriesPayload as any).categories

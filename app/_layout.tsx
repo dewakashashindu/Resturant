@@ -8,15 +8,14 @@ import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { AppProvider } from '../AppContext';
+import NotificationToastBubble from '../components/NotificationToastBubble';
 import { syncGlobalOrderDescriptions } from '../services/api';
 import { useAuthStore } from '../services/authStore';
-import useItemStore from '../services/itemStore';
-
-import { AppProvider } from '../AppContext';
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
-// Background ගිය timestamp save/read කරන key
+
 const BG_TIMESTAMP_KEY = 'app_background_timestamp';
 const AUTO_LOGOUT_DELAY_MS = 1 * 60 * 1000; // 1 minute
 
@@ -39,7 +38,6 @@ function AuthGate() {
   const isHydrated = useAuthStore((state) => state.isHydrated);
   const hydrateAuth = useAuthStore((state) => state.hydrateAuth);
   const clearSession = useAuthStore((state) => state.clearSession);
-  const hydrateItems = useItemStore((state) => state.hydrateItems);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const isAuthenticated = Boolean(token);
@@ -47,9 +45,8 @@ function AuthGate() {
   // App start වෙද්දී — background ගිය time check කරලා logout වෙන්නද බලනවා
   useEffect(() => {
     void syncGlobalOrderDescriptions();
-    void hydrateItems().catch((error) => {
-      console.log('[AuthGate] hydrateItems failed', error);
-    });
+    // Menu data is intentionally hydrated only after a successful password
+    // login (or by explicit Settings sync), never before credentials confirm.
     void hydrateAuth()
       .catch((error) => {
         console.log('[AuthGate] hydrateAuth failed', error);
@@ -73,7 +70,7 @@ function AuthGate() {
         }
         void SplashScreen.hideAsync().catch(() => {});
       });
-  }, [hydrateAuth, hydrateItems, clearSession]);
+  }, [hydrateAuth, clearSession]);
 
   // Redirect — isAuthenticated change වෙද්දී
   useEffect(() => {
@@ -147,23 +144,27 @@ function AuthGate() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="auth/login" options={{ headerShown: false }} />
-      <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="auth/forgotpassword" options={{ headerShown: false }} />
-      <Stack.Screen name="auth/resetpassword" options={{ headerShown: false }} />
-      <Stack.Screen name="Screens/operation" options={{ headerShown: false }} />
-      <Stack.Screen name="Screens/tableselection" options={{ headerShown: false }} />
-      <Stack.Screen name="Screens/definetable" options={{ headerShown: false }} />
-      <Stack.Screen name="Screens/paxcount" options={{ headerShown: false }} />
-      <Stack.Screen name="Screens/selectitems" options={{ headerShown: false }} />
-      <Stack.Screen name="Screens/cart" options={{ headerShown: false }} />
-      <Stack.Screen name="Screens/settings" options={{ headerShown: false }} />
-      <Stack.Screen name="auth/changepassword" options={{ headerShown: false }} />
-      <Stack.Screen name="Screens/BillingScreen" options={{ headerShown: false }} />
-      <Stack.Screen name="Screens/manageaccess" options={{ headerShown: false }} />
-    </Stack>
+    <View style={styles.navigationRoot}>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="auth/login" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/forgotpassword" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/resetpassword" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/operation" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/tableselection" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/definetable" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/paxcount" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/selectitems" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/cart" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/settings" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/notifications" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/changepassword" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/BillingScreen" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/manageaccess" options={{ headerShown: false }} />
+      </Stack>
+      <NotificationToastBubble />
+    </View>
   );
 }
 
@@ -183,6 +184,7 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
+  navigationRoot: { flex: 1 },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   SafeAreaView,
@@ -17,7 +18,7 @@ import {
 import { apiClient, setBackendIP } from '../../services/api';
 import { useAuthStore } from '../../services/authStore';
 import { getUniqueDeviceId } from '../../services/deviceIdService';
-import useItemStore from '../../services/itemStore';
+import useItemStore, { getMenuSyncLocalDate } from '../../services/itemStore';
 import { AUTH_SESSION_KEYS, storage } from '../../services/storage';
 
 export default function LoginScreen() {
@@ -28,6 +29,7 @@ export default function LoginScreen() {
   const [passwordError, setPasswordError] = useState('');
   const [usernameChecking, setUsernameChecking] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isDailyFirstSync, setIsDailyFirstSync] = useState(false);
 
   const [devIP, setDevIP] = useState((global as any).backendIP || '192.168.8.100');
 
@@ -35,6 +37,9 @@ export default function LoginScreen() {
   const { width, height } = useWindowDimensions();
   const setSession = useAuthStore((state) => state.setSession);
   const hydrateItems = useItemStore((state) => state.hydrateItems);
+  const syncMenuData = useItemStore((state) => state.syncMenuData);
+  const syncProgress = useItemStore((state) => state.syncProgress);
+  const syncStage = useItemStore((state) => state.syncStage);
 
   const isTablet = width >= 600;
   const isSmall  = height < 700;
@@ -269,6 +274,43 @@ export default function LoginScreen() {
 
         console.log('[Login Success Check] Extracted Group ID:', loggedInGroupId);
 
+        // ── STEP 3: DAILY MENU CACHE CHECK (after password confirmation) ───────
+        // The first successful login after local midnight performs one full,
+        // visible sync. Same-day logins load the existing MMKV cache only.
+        const todayDate = getMenuSyncLocalDate();
+        const lastSyncDate = String(storage.getString('menu_items_last_sync_date_v1') ?? '').slice(0, 10);
+        const hasMenuCache = Boolean(storage.getString('menu_items_cache_v1')?.trim());
+        const needsDailySync = lastSyncDate !== todayDate || !hasMenuCache;
+
+        setIsDailyFirstSync(needsDailySync);
+        setIsSyncing(true);
+        try {
+          // Commit the progress overlay before starting large menu/image work.
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          });
+
+          if (needsDailySync) {
+            const synced = await syncMenuData();
+            if (!synced) {
+              setPasswordError('Menu sync failed. Check the server connection and try again.');
+              return;
+            }
+          } else {
+            // Same-day login: cache only — no full menu API request.
+            await hydrateItems();
+          }
+        } catch (syncError) {
+          console.log('[Login] menu sync failed', syncError);
+          setPasswordError('Unable to prepare the menu. Please try again.');
+          return;
+        } finally {
+          setIsSyncing(false);
+          setIsDailyFirstSync(false);
+        }
+
+        // Session/navigation happens only after the menu is prepared. This
+        // prevents AuthGate from opening the operational screens too early.
         setSession({
           token: result.data.token,
           user: {
@@ -283,20 +325,6 @@ export default function LoginScreen() {
             locCode:  result.data.user?.locCode  || null,
           },
         });
-
-        // ── STEP 3: SYNC MENU DATA (await before navigating) ──────────────────
-        // First login of the day OR fresh login flag → full API pull.
-        // Same-day re-login → MMKV cache still fresh, prefetch is fast no-op.
-        // Either way we wait so items are ready when tabs mount.
-        try {
-          setIsSyncing(true);
-          await hydrateItems();  // checks flag+date — skips API if same-day re-login
-        } catch (syncError) {
-          // Non-fatal — stale cache (or empty on first ever launch) is fine.
-          console.log('[Login] menu prefetch failed (non-fatal, cache used)', syncError);
-        } finally {
-          setIsSyncing(false);
-        }
 
         router.replace('/(tabs)');
         return;
@@ -540,6 +568,26 @@ export default function LoginScreen() {
         </TouchableOpacity>
       </View>
 
+      {isSyncing && isDailyFirstSync ? (
+        <View style={styles.dailySyncOverlay}>
+          <View style={styles.dailySyncCard}>
+            <View style={styles.dailySyncIcon}>
+              <ActivityIndicator size="large" color="#FFFFFF" />
+            </View>
+            <Text style={styles.dailySyncTitle}>Daily Menu Update</Text>
+            <Text style={styles.dailySyncSubtitle}>Preparing today’s menu for you</Text>
+            <View style={styles.dailySyncProgressHeader}>
+              <Text style={styles.dailySyncStage} numberOfLines={1}>{syncStage || 'Starting update...'}</Text>
+              <Text style={styles.dailySyncPercent}>{syncProgress}%</Text>
+            </View>
+            <View style={styles.dailySyncTrack}>
+              <View style={[styles.dailySyncFill, { width: `${Math.max(0, Math.min(100, syncProgress))}%` }]} />
+            </View>
+            <Text style={styles.dailySyncNote}>Please keep the app open until the update finishes.</Text>
+          </View>
+        </View>
+      ) : null}
+
     </SafeAreaView>
   );
 }
@@ -565,6 +613,59 @@ const styles = StyleSheet.create({
     bottom:          -60,
     right:           -70,
   },
+
+  dailySyncOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    backgroundColor: 'rgba(0,39,72,0.60)',
+  },
+  dailySyncCard: {
+    width: '100%',
+    maxWidth: 390,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    alignItems: 'center',
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    elevation: 12,
+  },
+  dailySyncIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#002748',
+  },
+  dailySyncTitle: { color: '#002748', fontSize: 21, fontWeight: '800', marginTop: 16 },
+  dailySyncSubtitle: { color: '#64748B', fontSize: 13, marginTop: 6 },
+  dailySyncProgressHeader: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 25,
+  },
+  dailySyncStage: { flex: 1, color: '#334155', fontSize: 12, fontWeight: '600' },
+  dailySyncPercent: { color: '#002748', fontSize: 13, fontWeight: '800' },
+  dailySyncTrack: {
+    width: '100%',
+    height: 10,
+    marginTop: 9,
+    overflow: 'hidden',
+    borderRadius: 8,
+    backgroundColor: '#E6EEF3',
+  },
+  dailySyncFill: { height: '100%', borderRadius: 8, backgroundColor: '#075EA7' },
+  dailySyncNote: { color: '#94A3B8', fontSize: 11, textAlign: 'center', lineHeight: 17, marginTop: 13 },
 
   logoContainer: {
     alignItems: 'center',

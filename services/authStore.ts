@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
-import { FRESH_LOGIN_FLAG_KEY } from './itemStore';
+import { FRESH_LOGIN_FLAG_KEY, getMenuSyncLocalDate } from './itemStore';
 import { AUTH_SESSION_KEYS, storage } from './storage';
 
 type AuthUser = {
@@ -158,7 +158,7 @@ storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
     // has changed since the last sync. Same-day re-logins reuse the MMKV
     // cache and skip the API call entirely.
     const lastSyncDate = String(storage.getString('menu_items_last_sync_date_v1') ?? '').slice(0, 10);
-    const todayDate = new Date().toISOString().slice(0, 10);
+    const todayDate = getMenuSyncLocalDate();
     if (lastSyncDate !== todayDate) {
       storage.set(FRESH_LOGIN_FLAG_KEY, '1');
     }

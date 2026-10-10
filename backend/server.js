@@ -41,7 +41,6 @@ app.get('/test', (_req, res) => {
 const dbConfig = {
   user: sysConfig.DB_USER,
   password: sysConfig.DB_PASS,
-  // DLL එකෙන් එන 'dewaka' වෙනුවට Local SQL Server Instance එක Override කරන්න
   server: process.env.DB_SERVER || 'localhost\\SQL2008',
   database: sysConfig.DB_NAME,
   options: {
@@ -56,6 +55,7 @@ const dbConfig = {
     idleTimeoutMillis: 30000,
   },
 };
+
 
 const remarksDbConfig = {
   user: sysConfig.REMARKS_DB_USER || sysConfig.DB_USER,
@@ -1150,12 +1150,20 @@ const itemPicToDataUri = (raw) => {
 
 app.get('/api/menu/items', async (req, res) => {
   try {
-    console.log('[Backend] GET /api/menu/items (full sync)');
+    // ItemPic values are BLOBs. Query the small menu page first and fetch only
+    // that page's pictures separately; joining pictures to the large view can
+    // exhaust SQL Server's internal memory pool even with OFFSET pagination.
+    const requestedLimit = Number(req.query.limit ?? 50);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(100, Math.max(1, Math.floor(requestedLimit))) : 50;
+    const after = typeof req.query.after === 'string' ? req.query.after.trim() : '';
+    console.log(`[Backend] GET /api/menu/items page after=${after || '(start)'} limit=${limit}`);
 
     const pool = await poolPromise;
-
-    const result = await pool.request().query(`
-      SELECT
+    const pageRequest = pool.request();
+    pageRequest.input('after', sql.VarChar(100), after);
+    pageRequest.input('limit', sql.Int, limit);
+    const pageResult = await pageRequest.query(`
+      SELECT TOP (@limit)
         a.MenuItemCode,
         a.MenuItmDes,
         a.SalesPrice,
@@ -1166,52 +1174,65 @@ app.get('/api/menu/items', async (req, res) => {
         a.DisplayInFront,
         a.MenuAssiEnable,
         a.MenuItemEnable,
-        a.LISTINGORDER,
-        m.ItemPic
+        a.LISTINGORDER
       FROM Vw_MenuAssignment a WITH (NOLOCK)
-      LEFT JOIN Tbl_MenuItems m WITH (NOLOCK)
-        ON RTRIM(LTRIM(m.MenuItmId)) = RTRIM(LTRIM(a.MenuItemCode))
       WHERE a.DisplayInFront = '1'
         AND a.MenuAssiEnable = '1'
         AND a.MenuItemEnable = '1'
+        AND a.MenuItemCode > @after
+      ORDER BY a.MenuItemCode
     `);
+    const rows = pageResult?.recordset ?? [];
 
-    const rows = result && result.recordset ? result.recordset : [];
+    // This query reads at most `limit` images. It deliberately does not join
+    // Tbl_MenuItems to Vw_MenuAssignment, preventing a huge BLOB hash/sort.
+    const codes = [...new Set(rows.map((row) => String(row.MenuItemCode ?? '').trim()).filter(Boolean))];
+    const pictureByCode = new Map();
+    if (codes.length) {
+      const pictureRequest = pool.request();
+      const parameters = codes.map((code, index) => {
+        const name = `code${index}`;
+        pictureRequest.input(name, sql.VarChar(100), code);
+        return `@${name}`;
+      });
+      const pictureResult = await pictureRequest.query(`
+        SELECT MenuItmId, ItemPic
+        FROM Tbl_MenuItems WITH (NOLOCK)
+        WHERE MenuItmId IN (${parameters.join(', ')})
+      `);
+      for (const picture of pictureResult?.recordset ?? []) {
+        pictureByCode.set(String(picture.MenuItmId ?? '').trim(), picture.ItemPic);
+      }
+    }
 
-    // Convert ItemPic (ICO/BMP binary) → PNG data URI that React Native can render.
-    // Items without a picture get ItemPic: null so the app shows a placeholder.
-    const seen = new Map(); // cache conversions — same picture reused across variants
+    const seen = new Map();
     const processedRows = rows.map((row) => {
-      if (!row.ItemPic) return row;
+      const rawPicture = pictureByCode.get(String(row.MenuItemCode ?? '').trim());
+      if (!rawPicture) return { ...row, ItemPic: null };
       try {
-        // Fingerprint: length + bytes from start, middle and end.
-        // The old slice(0,32) only covered the ICO file header which is
-        // identical for every .ico file — so every item got the SAME first
-        // picture. Sampling three positions gives a unique key per image.
-        const buf = row.ItemPic;
+        const buf = rawPicture;
         const mid = Math.floor(buf.length / 2);
         const key = `${buf.length}_${buf.toString('hex', 0, 8)}_${buf.toString('hex', mid, mid + 8)}_${buf.toString('hex', Math.max(0, buf.length - 8))}`;
-        if (!seen.has(key)) {
-          const uri = itemPicToDataUri(row.ItemPic);
-          if (!uri) console.log("[ItemPic] FAILED", row.MenuItemCode, "hex=", row.ItemPic.toString("hex").slice(0,16), "len=", row.ItemPic.length);
-          seen.set(key, uri);
-        }
+        if (!seen.has(key)) seen.set(key, itemPicToDataUri(buf));
         return { ...row, ItemPic: seen.get(key) };
-      } catch (e) {
-        console.log("[ItemPic] EXCEPTION", row.MenuItemCode, e.message, "hex=", row.ItemPic ? row.ItemPic.toString("hex").slice(0,16) : "null");
+      } catch (error) {
+        console.log('[ItemPic] EXCEPTION', row.MenuItemCode, error.message);
         return { ...row, ItemPic: null };
       }
     });
 
-    const withPic = processedRows.filter(r => r.ItemPic).length;
-    console.log('[Backend] /api/menu/items returned rows=', rows.length, 'withPic=', withPic);
-
+    const nextCursor = processedRows.length
+      ? String(processedRows[processedRows.length - 1].MenuItemCode ?? '').trim()
+      : null;
+    console.log(`[Backend] /api/menu/items page rows=${processedRows.length}`);
     return res.json({
       items: processedRows,
+      limit,
+      hasMore: processedRows.length === limit && Boolean(nextCursor),
+      nextCursor,
       lastSyncTime: new Date().toISOString(),
       ok: true,
     });
-
   } catch (error) {
     console.log('[Backend] /api/menu/items error', error && error.message ? error.message : error);
     return res.status(500).json({

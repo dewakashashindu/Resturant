@@ -813,9 +813,11 @@ export const apiClient = {
     return { ok: response.ok, data };
   },
 
-  getMenuItems: async () => {
+  getMenuItems: async (options?: { cursor?: string; limit?: number }) => {
     try {
-      const url = `${getDynamicApiBaseUrl()}/api/menu/items`;
+      const limit = Math.min(100, Math.max(1, Number(options?.limit ?? 50) || 50));
+      const cursor = options?.cursor ? `&after=${encodeURIComponent(options.cursor)}` : '';
+      const url = `${getDynamicApiBaseUrl()}/api/menu/items?limit=${limit}${cursor}`;
       console.log('[api] getMenuItems URL=', url);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 s timeout
