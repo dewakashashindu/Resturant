@@ -38,6 +38,78 @@ app.get('/test', (_req, res) => {
 });
 
 
+/**
+ * The foreground app calls this endpoint every few seconds. `afterId` makes
+ * the request cheap: only new queue records for that approved device are sent.
+ */
+app.get('/api/notifications', async (req, res) => {
+  try {
+    const deviceId = String(req.query.deviceId ?? '').trim();
+    const parsedAfterId = Number(req.query.afterId ?? 0);
+    const afterId = Number.isFinite(parsedAfterId) ? Math.max(0, Math.floor(parsedAfterId)) : 0;
+    if (!deviceId) {
+      return res.status(400).json({ ok: false, message: 'deviceId is required.' });
+    }
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('DeviceId', sql.NVarChar(128), deviceId)
+      .input('AfterId', sql.BigInt, afterId)
+      .query(`
+        SELECT TOP (100)
+          NotificationId, TargetDeviceId, NotificationType, Title, Message,
+          TableNo, InvoiceNo, ItemCode, PayloadJson, CreatedAt, ExpiresAt
+        FROM dbo.Tbl_AppNotifications WITH (NOLOCK)
+        WHERE TargetDeviceId = @DeviceId
+          AND NotificationId > @AfterId
+          AND (ExpiresAt IS NULL OR ExpiresAt > SYSDATETIME())
+        ORDER BY NotificationId ASC
+      `);
+
+    return res.json({ ok: true, notifications: result.recordset ?? [] });
+  } catch (error) {
+    console.log('[Notifications] fetch error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+// Optional LAN-only helper for Kitchen/administration integrations. The kitchen
+// may also INSERT directly into Tbl_AppNotifications instead.
+app.post('/api/notifications', async (req, res) => {
+  try {
+    const deviceId = String(req.body?.targetDeviceId ?? req.body?.deviceId ?? '').trim();
+    const title = String(req.body?.title ?? '').trim();
+    const message = String(req.body?.message ?? '').trim();
+    const notificationType = String(req.body?.notificationType ?? 'general').trim().slice(0, 40) || 'general';
+    if (!deviceId || !title || !message) {
+      return res.status(400).json({ ok: false, message: 'targetDeviceId, title and message are required.' });
+    }
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('DeviceId', sql.NVarChar(128), deviceId)
+      .input('Type', sql.NVarChar(40), notificationType)
+      .input('Title', sql.NVarChar(160), title.slice(0, 160))
+      .input('Message', sql.NVarChar(500), message.slice(0, 500))
+      .input('TableNo', sql.NVarChar(50), String(req.body?.tableNo ?? '').trim() || null)
+      .input('InvoiceNo', sql.NVarChar(50), String(req.body?.invoiceNo ?? '').trim() || null)
+      .input('ItemCode', sql.NVarChar(50), String(req.body?.itemCode ?? '').trim() || null)
+      .input('PayloadJson', sql.NVarChar(sql.MAX), req.body?.payload ? JSON.stringify(req.body.payload) : null)
+      .query(`
+        INSERT INTO dbo.Tbl_AppNotifications
+          (TargetDeviceId, NotificationType, Title, Message, TableNo, InvoiceNo, ItemCode, PayloadJson)
+        OUTPUT INSERTED.NotificationId, INSERTED.CreatedAt
+        VALUES (@DeviceId, @Type, @Title, @Message, @TableNo, @InvoiceNo, @ItemCode, @PayloadJson)
+      `);
+
+    return res.status(201).json({ ok: true, notification: result.recordset?.[0] ?? null });
+  } catch (error) {
+    console.log('[Notifications] insert error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+
 const dbConfig = {
   user: sysConfig.DB_USER,
   password: sysConfig.DB_PASS,
@@ -100,6 +172,38 @@ const poolPromise = new sql.ConnectionPool(dbConfig)
     };
     return dummyPool;
   });
+
+// ─── App notification queue ─────────────────────────────────────────────────
+// Kitchen/other local systems insert one row into this queue. The mobile app
+// polls through the LAN backend, so phones never connect to MSSQL directly.
+const ensureAppNotificationQueue = async (pool) => {
+  if (!pool?.__connected) return;
+  await pool.request().query(`
+    IF OBJECT_ID(N'dbo.Tbl_AppNotifications', N'U') IS NULL
+    BEGIN
+      CREATE TABLE dbo.Tbl_AppNotifications (
+        NotificationId BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        TargetDeviceId NVARCHAR(128) NOT NULL,
+        NotificationType NVARCHAR(40) NOT NULL CONSTRAINT DF_AppNotifications_Type DEFAULT N'general',
+        Title NVARCHAR(160) NOT NULL,
+        Message NVARCHAR(500) NOT NULL,
+        TableNo NVARCHAR(50) NULL,
+        InvoiceNo NVARCHAR(50) NULL,
+        ItemCode NVARCHAR(50) NULL,
+        PayloadJson NVARCHAR(MAX) NULL,
+        CreatedAt DATETIME2 NOT NULL CONSTRAINT DF_AppNotifications_CreatedAt DEFAULT SYSDATETIME(),
+        ExpiresAt DATETIME2 NULL
+      );
+      CREATE INDEX IX_AppNotifications_Device_Id
+        ON dbo.Tbl_AppNotifications (TargetDeviceId, NotificationId);
+    END
+  `);
+  console.log('[Notifications] Tbl_AppNotifications is ready');
+};
+
+void poolPromise
+  .then((pool) => ensureAppNotificationQueue(pool))
+  .catch((error) => console.log('[Notifications] queue setup failed', error?.message ?? error));
 
 // Validators
 const usernamePattern = /^[A-Za-z0-9]{4,8}$/;

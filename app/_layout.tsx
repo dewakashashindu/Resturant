@@ -8,14 +8,15 @@ import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { AppProvider } from '../AppContext';
-import NotificationToastBubble from '../components/NotificationToastBubble';
 import { syncGlobalOrderDescriptions } from '../services/api';
 import { useAuthStore } from '../services/authStore';
+import { AppProvider } from '../AppContext';
+import NotificationPolling from '../components/NotificationPolling';
+import NotificationToastBubble from '../components/NotificationToastBubble';
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
-
+// Background ගිය timestamp save/read කරන key
 const BG_TIMESTAMP_KEY = 'app_background_timestamp';
 const AUTO_LOGOUT_DELAY_MS = 1 * 60 * 1000; // 1 minute
 
@@ -163,6 +164,7 @@ function AuthGate() {
         <Stack.Screen name="Screens/BillingScreen" options={{ headerShown: false }} />
         <Stack.Screen name="Screens/manageaccess" options={{ headerShown: false }} />
       </Stack>
+      <NotificationPolling />
       <NotificationToastBubble />
     </View>
   );

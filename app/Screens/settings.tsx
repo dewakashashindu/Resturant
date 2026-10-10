@@ -10,6 +10,7 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   useWindowDimensions,
@@ -19,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
 import { useAuthStore } from '../../services/authStore';
 import useItemStore from '../../services/itemStore';
+import { useNotificationStore } from '../../services/notificationStore';
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
@@ -45,6 +47,8 @@ export default function SettingsScreen() {
   const isHydrated   = useItemStore((s) => s.isHydrated);
   const user         = useAuthStore((s) => s.user);
   const updatePicture= useAuthStore((s) => s.updatePicture);
+  const notificationPreferences = useNotificationStore((s) => s.preferences);
+  const updateNotificationPreferences = useNotificationStore((s) => s.updatePreferences);
 
   console.log('Current User Group ID is:', user?.groupId);
 
@@ -425,6 +429,41 @@ export default function SettingsScreen() {
             <View style={s.syncInfoCard}>
               <Text style={s.syncInfoLabel}>Last Sync</Text>
               <Text style={s.syncInfoValue}>{lastSyncTime}</Text>
+            </View>
+
+            <Text style={s.sectionLabel}>Notification Alerts</Text>
+            <View style={s.notificationSettingsCard}>
+              <View style={s.notificationSettingRow}>
+                <View style={s.notificationSettingIcon}>
+                  <Ionicons name="volume-high-outline" size={21} color="#002748" />
+                </View>
+                <View style={s.notificationSettingText}>
+                  <Text style={s.notificationSettingLabel}>Notification Sound</Text>
+                  <Text style={s.notificationSettingSub}>Play a sound for new alerts</Text>
+                </View>
+                <Switch
+                  value={notificationPreferences.soundEnabled}
+                  onValueChange={(soundEnabled) => updateNotificationPreferences({ soundEnabled })}
+                  trackColor={{ false: '#CBD5E1', true: '#75A6CE' }}
+                  thumbColor={notificationPreferences.soundEnabled ? '#075EA7' : '#F8FAFC'}
+                />
+              </View>
+              <View style={s.notificationSettingsDivider} />
+              <View style={s.notificationSettingRow}>
+                <View style={s.notificationSettingIcon}>
+                  <Ionicons name="phone-portrait-outline" size={21} color="#002748" />
+                </View>
+                <View style={s.notificationSettingText}>
+                  <Text style={s.notificationSettingLabel}>Vibration</Text>
+                  <Text style={s.notificationSettingSub}>Vibrate when a new alert arrives</Text>
+                </View>
+                <Switch
+                  value={notificationPreferences.vibrationEnabled}
+                  onValueChange={(vibrationEnabled) => updateNotificationPreferences({ vibrationEnabled })}
+                  trackColor={{ false: '#CBD5E1', true: '#75A6CE' }}
+                  thumbColor={notificationPreferences.vibrationEnabled ? '#075EA7' : '#F8FAFC'}
+                />
+              </View>
             </View>
           </>
         )}
@@ -916,6 +955,36 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontWeight: '700',
       fontFamily: 'Roboto',
     },
+
+    // ── Notification Preferences ─────────────────────────────────────────────
+    notificationSettingsCard: {
+      backgroundColor: '#FFF',
+      borderRadius: scale(syncCardBR),
+      paddingHorizontal: scale(syncCardPad),
+      elevation: 2,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.06,
+      shadowRadius: 4,
+    },
+    notificationSettingRow: {
+      minHeight: scale(isSmall ? 66 : 74),
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    notificationSettingIcon: {
+      width: scale(isSmall ? 36 : 42),
+      height: scale(isSmall ? 36 : 42),
+      marginRight: scale(isSmall ? 10 : 12),
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: scale(12),
+      backgroundColor: 'rgba(0,39,72,0.10)',
+    },
+    notificationSettingText: { flex: 1, paddingRight: scale(8) },
+    notificationSettingLabel: { fontSize: scale(isSmall ? 13 : 15), fontWeight: '700', color: '#002748' },
+    notificationSettingSub: { fontSize: scale(isSmall ? 10 : 12), color: '#64748B', marginTop: scale(3) },
+    notificationSettingsDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#E5E7EB' },
 
     // ── Photo Action Sheet ───────────────────────────────────────────────────
     sheetOverlay: {

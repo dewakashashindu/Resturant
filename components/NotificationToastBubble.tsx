@@ -1,12 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useSegments } from 'expo-router';
 import React, { useEffect, useRef } from 'react';
 import {
-    Animated,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Animated,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../services/authStore';
@@ -17,8 +17,14 @@ import { useNotificationStore } from '../services/notificationStore';
  * future kitchen READY event is visible while the user is inside Menu Card,
  * Item Selection, Cart, or any other workflow.
  */
-export default function NotificationToastBubble() {
+type NotificationToastBubbleProps = {
+  /** Menu has its own navigator layer, so it renders a local foreground overlay. */
+  allowMenu?: boolean;
+};
+
+export default function NotificationToastBubble({ allowMenu = false }: NotificationToastBubbleProps) {
   const router = useRouter();
+  const segments = useSegments();
   const insets = useSafeAreaInsets();
   const token = useAuthStore((state) => state.token);
   const notifications = useNotificationStore((state) => state.notifications);
@@ -47,7 +53,8 @@ export default function NotificationToastBubble() {
     ]).start();
   }, [notification?.id, opacity, token, translateX]);
 
-  if (!notification || !token) return null;
+  const isMenuRoute = segments[0] === 'menu';
+  if (!notification || !token || (isMenuRoute && !allowMenu)) return null;
 
   const openInbox = () => {
     markAsRead(notification.id);

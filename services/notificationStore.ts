@@ -2,7 +2,14 @@ import { create } from 'zustand';
 import { storage } from './storage';
 
 const NOTIFICATIONS_KEY = 'app_notifications_v1';
+const NOTIFICATION_PREFERENCES_KEY = 'app_notification_preferences_v1';
+const LAST_NOTIFICATION_ID_PREFIX = 'app_notification_last_id:';
 const MAX_STORED_NOTIFICATIONS = 100;
+
+export type NotificationPreferences = {
+  soundEnabled: boolean;
+  vibrationEnabled: boolean;
+};
 
 export type AppNotificationKind = 'kitchen-item-ready' | 'kitchen-order-ready' | 'general';
 
@@ -24,13 +31,18 @@ type IncomingNotification = Omit<AppNotification, 'id' | 'createdAt' | 'read'> &
 type NotificationState = {
   notifications: AppNotification[];
   activeToastId: string | null;
+  preferences: NotificationPreferences;
   unreadCount: () => number;
   receiveNotification: (notification: IncomingNotification) => void;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
   dismissToast: () => void;
   clearAll: () => void;
+  updatePreferences: (preferences: Partial<NotificationPreferences>) => void;
 };
+
+export const getLastNotificationIdKey = (deviceId: string) =>
+  `${LAST_NOTIFICATION_ID_PREFIX}${String(deviceId ?? '').trim()}`;
 
 const readSavedNotifications = (): AppNotification[] => {
   try {
@@ -53,7 +65,20 @@ const persistNotifications = (notifications: AppNotification[]) => {
   }
 };
 
+const readPreferences = (): NotificationPreferences => {
+  try {
+    const parsed = JSON.parse(storage.getString(NOTIFICATION_PREFERENCES_KEY) ?? '{}');
+    return {
+      soundEnabled: parsed?.soundEnabled !== false,
+      vibrationEnabled: parsed?.vibrationEnabled !== false,
+    };
+  } catch {
+    return { soundEnabled: true, vibrationEnabled: true };
+  }
+};
+
 const initialNotifications = readSavedNotifications();
+const initialPreferences = readPreferences();
 
 /**
  * Shared UI notification inbox. The kitchen/push implementation will call
@@ -63,6 +88,7 @@ const initialNotifications = readSavedNotifications();
 export const useNotificationStore = create<NotificationState>((set, get) => ({
   notifications: initialNotifications,
   activeToastId: null,
+  preferences: initialPreferences,
 
   unreadCount: () => get().notifications.filter((notification) => !notification.read).length,
 
@@ -110,5 +136,15 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       // The in-memory inbox still clears if storage is temporarily unavailable.
     }
     set({ notifications: [], activeToastId: null });
+  },
+
+  updatePreferences: (patch) => {
+    const preferences = { ...get().preferences, ...patch };
+    try {
+      storage.set(NOTIFICATION_PREFERENCES_KEY, JSON.stringify(preferences));
+    } catch (error) {
+      console.log('[NotificationStore] failed to save preferences', error);
+    }
+    set({ preferences });
   },
 }));

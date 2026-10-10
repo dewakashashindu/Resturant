@@ -2,16 +2,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import {
-    Alert,
-    Image,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    useWindowDimensions,
-    View,
+  Alert,
+  Image,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppNotification, useNotificationStore } from '../../services/notificationStore';
@@ -123,6 +123,7 @@ export default function NotificationsScreen() {
                   <Text style={styles.cardMessage}>{notification.message}</Text>
                   <View style={styles.metaRow}>
                     {notification.tableNo ? <Text style={styles.tablePill}>Table {notification.tableNo}</Text> : null}
+                    {notification.invoiceNo ? <Text style={styles.invoicePill}>Invoice {notification.invoiceNo}</Text> : null}
                     <Text style={styles.time}>{relativeTime(notification.createdAt)}</Text>
                   </View>
                 </View>
@@ -184,8 +185,9 @@ const styles = StyleSheet.create({
   cardTitle: { flex: 1, color: '#002748', fontSize: 14, fontWeight: '800' },
   unreadDot: { width: 8, height: 8, marginLeft: 7, borderRadius: 4, backgroundColor: '#075EA7' },
   cardMessage: { color: '#526270', fontSize: 12, lineHeight: 18, marginTop: 3 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 8 },
   tablePill: { color: '#075EA7', fontSize: 11, fontWeight: '700' },
+  invoicePill: { color: '#64748B', fontSize: 11, fontWeight: '600' },
   time: { color: '#94A3B8', fontSize: 11 },
   emptyWrap: { flex: 1, paddingHorizontal: 42, justifyContent: 'center', alignItems: 'center' },
   emptyIconWrap: {

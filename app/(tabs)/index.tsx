@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   Image,
   SafeAreaView,
   ScrollView,
@@ -13,8 +14,10 @@ import {
   View,
 } from 'react-native';
 import { useAuthStore } from '../../services/authStore';
+import { useCartStore } from '../../services/cartStore';
 import { useMenuSessionStore } from '../../services/menuSessionStore';
 import { useNotificationStore } from '../../services/notificationStore';
+import { useOrderStore } from '../../services/orderStore';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -24,6 +27,9 @@ export default function HomeScreen() {
 
   const userName = useAuthStore((state) => state.user?.userName);
   const savedMenuSession = useMenuSessionStore((state) => state.diningSession);
+  const clearMenuSession = useMenuSessionStore((state) => state.clearDiningSession);
+  const clearCart = useCartStore((state) => state.clearCart);
+  const clearLastConfirmedOrder = useOrderStore((state) => state.clearLastConfirmedOrder);
   const unreadCount = useNotificationStore((state) => state.unreadCount());
   const displayName = userName ? `Mr. ${userName}` : 'Mr. Perera';
 
@@ -49,6 +55,37 @@ export default function HomeScreen() {
   };
 
   const greetingText = getGreeting(currentDate);
+
+  const openMenuCard = () => {
+    if (!savedMenuSession) {
+      router.push('/Screens/menutbl_selection' as any);
+      return;
+    }
+
+    // Starting a new Menu Card order is an intentional choice, not a protected
+    // exit. Therefore this prompt never asks for a staff password.
+    Alert.alert(
+      'Saved Menu Card',
+      'A Menu Card order is already in progress. Would you like to continue it or clear it and start a new order?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear & New',
+          style: 'destructive',
+          onPress: () => {
+            clearCart();
+            clearMenuSession();
+            clearLastConfirmedOrder();
+            router.push('/Screens/menutbl_selection' as any);
+          },
+        },
+        {
+          text: 'Continue Existing',
+          onPress: () => router.push('/menu/menu_welcome' as any),
+        },
+      ],
+    );
+  };
 
   const isTablet = width >= 600;
   const isSmall  = height < 680;
@@ -95,7 +132,7 @@ export default function HomeScreen() {
     {
       title: 'Dashboard',
       subtitle: 'Live Overview',
-      visible: false,
+      visible: true,
       color: 'rgba(151,173,210,0.5)',
       iconBg: 'rgba(151,173,210,0.6)',
       route: '/Screens/Dashboard',
@@ -237,10 +274,8 @@ export default function HomeScreen() {
                 },
               ]}
               onPress={() => {
-                // A protected "Keep Cart & Exit" keeps this Dining menu session.
-                // Tapping Menu Card again resumes it instead of asking for a table twice.
-                if (item.title === 'Menu Card' && savedMenuSession) {
-                  router.push('/menu/menu_welcome' as any);
+                if (item.title === 'Menu Card') {
+                  openMenuCard();
                   return;
                 }
                 router.push(item.route as any);

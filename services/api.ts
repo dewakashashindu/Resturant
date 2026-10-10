@@ -813,6 +813,27 @@ export const apiClient = {
     return { ok: response.ok, data };
   },
 
+  getDeviceNotifications: async (deviceId: string, afterId: number) => {
+    try {
+      const safeDeviceId = encodeURIComponent(String(deviceId ?? '').trim());
+      const safeAfterId = Math.max(0, Math.floor(Number(afterId) || 0));
+      const url = `${getDynamicApiBaseUrl()}/api/notifications?deviceId=${safeDeviceId}&afterId=${safeAfterId}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      let response: Response;
+      try {
+        response = await fetch(url, { signal: controller.signal });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] getDeviceNotifications failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
   getMenuItems: async (options?: { cursor?: string; limit?: number }) => {
     try {
       const limit = Math.min(100, Math.max(1, Number(options?.limit ?? 50) || 50));

@@ -36,6 +36,14 @@
         }
       ],
       "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/appiconw.png",
+          "color": "#002748",
+          "sounds": ["./assets/sounds/notification-chime.wav"]
+        }
+      ],
       "@react-native-community/datetimepicker",
       [
         "expo-speech-recognition",
