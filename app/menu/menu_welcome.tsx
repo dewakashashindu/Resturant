@@ -256,6 +256,7 @@ const WelcomeScreen = () => {
     if (openingMenuRef.current) return;
     openingMenuRef.current = true;
     setIsOpeningMenu(true);
+    const loaderStartedAt = Date.now();
 
     try {
       // Yield two frames before the menu hydration work. This guarantees the
@@ -265,6 +266,15 @@ const WelcomeScreen = () => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
       });
       await hydrateMenuItems();
+
+      // The requested CoffeeLoader design is a complete six-second cycle.
+      // Keep it visible for that full cycle even when the menu cache is ready,
+      // otherwise its cup remains at the initial x=0 keyframe and never reaches
+      // the visible left-to-right travel portion.
+      const remainingLoaderTime = Math.max(0, 6_000 - (Date.now() - loaderStartedAt));
+      if (remainingLoaderTime > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, remainingLoaderTime));
+      }
       router.push('/menu/menu_cato');
     } catch {
       // hydrateItems safely falls back to the local cache, but do not leave a

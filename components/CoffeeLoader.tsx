@@ -28,24 +28,27 @@ const Smoke = ({ delay }: SmokeProps) => {
           toValue: 1,
           duration: DURATION,
           easing: Easing.linear,
-          useNativeDriver: true,
+          // Interpolation below uses easing. Expo's native Animated driver
+          // does not support that combination, so keep this visual timeline
+          // JS-driven rather than throwing a runtime error.
+          useNativeDriver: false,
         }),
       ),
     ]);
-
     animation.start();
     return () => animation.stop();
   }, [delay, progress]);
 
-  // Do not put `easing` inside interpolate(). Expo's native Animated driver
-  // rejects that interpolation property; timing's easing above is supported.
+  const ease = Easing.inOut(Easing.ease);
   const translateY = progress.interpolate({
     inputRange: [0, 1],
     outputRange: [0, -60],
+    easing: ease,
   });
   const scale = progress.interpolate({
     inputRange: [0, 1],
     outputRange: [0.4, 1.2],
+    easing: ease,
   });
   const opacity = progress.interpolate({
     inputRange: [0, 0.3, 0.6, 1],
@@ -64,7 +67,6 @@ const Smoke = ({ delay }: SmokeProps) => {
   );
 };
 
-/** Menu Card themed cup, saucer and layered-steam loading animation. */
 export default function CoffeeLoader() {
   const progress = useRef(new Animated.Value(0)).current;
 
@@ -74,26 +76,27 @@ export default function CoffeeLoader() {
         toValue: 1,
         duration: DURATION,
         easing: Easing.linear,
-        // The cup width changes, which is not supported by the native driver.
         useNativeDriver: false,
       }),
     );
-
     animation.start();
     return () => animation.stop();
   }, [progress]);
 
+  const ease = Easing.inOut(Easing.ease);
   const width = progress.interpolate({
     inputRange: [0, 0.4, 0.8, 0.9, 1],
     outputRange: [CUP_MIN_W, LOADER_W, CUP_MIN_W, LOADER_W, CUP_MIN_W],
+    easing: ease,
   });
   const translateX = progress.interpolate({
     inputRange: [0, 0.4, 0.8, 0.9, 1],
     outputRange: [0, 0, 64, 0, 0],
+    easing: ease,
   });
 
   return (
-    <View style={styles.loader} accessibilityLabel="Loading menu">
+    <View style={styles.loader}>
       <Text style={styles.load} numberOfLines={1}>..........................</Text>
       <Animated.View style={[styles.mover, { width, transform: [{ translateX }] }]}>
         <View style={styles.cup}>
