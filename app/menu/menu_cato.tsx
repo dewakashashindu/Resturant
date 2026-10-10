@@ -977,7 +977,9 @@ const CartFlyAnimation = ({
   const translateY = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(1)).current;
-  const size = m.isTablet ? 62 : m.isSmall ? 38 : 50;
+  // Begin as a real menu-card image-sized copy, then shrink into the cart.
+  // This makes the flying item easier to recognise before it travels away.
+  const size = m.menuImageSize;
 
   useEffect(() => {
     if (!flight) return;

@@ -38,6 +38,8 @@ export default function SettingsScreen() {
   const isSyncing    = useItemStore((s) => s.isSyncing);
   const lastSyncTime = useItemStore((s) => s.lastSyncTime) ?? 'Never';
   const syncError    = useItemStore((s) => s.syncError);
+  const syncProgress = useItemStore((s) => s.syncProgress);
+  const syncStage    = useItemStore((s) => s.syncStage);
   const syncMenuData = useItemStore((s) => s.syncMenuData);
   const hydrateItems = useItemStore((s) => s.hydrateItems);
   const isHydrated   = useItemStore((s) => s.isHydrated);
@@ -400,10 +402,25 @@ export default function SettingsScreen() {
               </View>
               <View style={s.actionCardText}>
                 <Text style={s.actionCardLabel}>Sync Menu Data</Text>
-                <Text style={s.actionCardSub}>Refresh all menu items from server</Text>
+                <Text style={s.actionCardSub}>
+                  {isSyncing ? syncStage || 'Starting menu sync...' : 'Refresh all menu items from server'}
+                </Text>
               </View>
               {!isSyncing && <Text style={s.actionCardArrow}>›</Text>}
             </TouchableOpacity>
+
+            {isSyncing ? (
+              <View style={s.syncProgressCard}>
+                <View style={s.syncProgressHeader}>
+                  <Text style={s.syncProgressStage} numberOfLines={1}>{syncStage || 'Starting menu sync...'}</Text>
+                  <Text style={s.syncProgressPercent}>{syncProgress}%</Text>
+                </View>
+                <View style={s.syncProgressTrack}>
+                  <View style={[s.syncProgressFill, { width: `${Math.max(0, Math.min(100, syncProgress))}%` }]} />
+                </View>
+                <Text style={s.syncProgressHint}>Please keep this screen open until the sync finishes.</Text>
+              </View>
+            ) : null}
 
             <View style={s.syncInfoCard}>
               <Text style={s.syncInfoLabel}>Last Sync</Text>
@@ -829,6 +846,49 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     emptyText: {
       fontSize: scale(emptyFs),
       color: '#9CA3AF',
+    },
+
+    // ── Live Menu Sync Progress ──────────────────────────────────────────────
+    syncProgressCard: {
+      backgroundColor: '#FFFFFF',
+      borderRadius: scale(syncCardBR),
+      padding: scale(syncCardPad),
+      borderWidth: 1,
+      borderColor: 'rgba(0,39,72,0.10)',
+    },
+    syncProgressHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: scale(8),
+    },
+    syncProgressStage: {
+      flex: 1,
+      fontSize: scale(actionSubFs),
+      color: '#334155',
+      fontWeight: '600',
+    },
+    syncProgressPercent: {
+      fontSize: scale(actionSubFs),
+      color: '#002748',
+      fontWeight: '800',
+    },
+    syncProgressTrack: {
+      height: scale(isSmall ? 7 : 9),
+      borderRadius: scale(10),
+      overflow: 'hidden',
+      backgroundColor: '#E6EEF3',
+      marginTop: scale(isSmall ? 8 : 11),
+    },
+    syncProgressFill: {
+      height: '100%',
+      borderRadius: scale(10),
+      backgroundColor: '#002748',
+    },
+    syncProgressHint: {
+      marginTop: scale(isSmall ? 7 : 9),
+      fontSize: scale(isSmall ? 10 : 12),
+      color: '#94A3B8',
     },
 
     // ── Sync Info Card ───────────────────────────────────────────────────────
