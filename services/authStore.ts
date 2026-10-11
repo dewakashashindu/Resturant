@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
+import { clearBiometricLogin } from './biometricAuth';
 import { FRESH_LOGIN_FLAG_KEY, getMenuSyncLocalDate } from './itemStore';
 import { AUTH_SESSION_KEYS, storage } from './storage';
 
@@ -20,6 +21,9 @@ type AuthStore = {
   isAuthenticated: boolean;
   hydrateAuth: () => Promise<void>;
   setSession: (payload: { token: string; user: AuthUser }) => void;
+  /** Locks normal auth after a background timeout but retains the biometric session. */
+  lockSession: () => Promise<void>;
+  /** Explicit logout: clears normal auth and the biometric sign-in session. */
   clearSession: () => Promise<void>;
   forceLogout: () => Promise<void>;
   setUser: (user: AuthUser) => void;
@@ -28,6 +32,19 @@ type AuthStore = {
 };
 
 const normalize = (value: unknown) => String(value ?? '').trim();
+
+const clearNormalSessionStorage = () => {
+  storage.set(AUTH_SESSION_KEYS.token, '');
+  storage.set(AUTH_SESSION_KEYS.isLoggedIn, 'false');
+  storage.set(AUTH_SESSION_KEYS.username, '');
+  storage.set(AUTH_SESSION_KEYS.userId, '');
+  storage.set(AUTH_SESSION_KEYS.groupId, '');
+  storage.set('assignedFloors', '');
+  storage.set(AUTH_SESSION_KEYS.picture, '');
+  storage.set(AUTH_SESSION_KEYS.locCode, '');
+  storage.set(AUTH_SESSION_KEYS.userName, '');
+  storage.set(FRESH_LOGIN_FLAG_KEY, '0');
+};
 
 export const useAuthStore = create<AuthStore>((set) => ({
   token: null,
@@ -171,27 +188,26 @@ storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
     });
   },
 
+  lockSession: async () => {
+    try {
+      clearNormalSessionStorage();
+    } catch (error) {
+      console.log('[AuthStore] lockSession failed', error);
+    } finally {
+      set({ token: null, user: null, isAuthenticated: false, isHydrated: true });
+    }
+  },
+
   clearSession: async () => {
     try {
-      storage.set(AUTH_SESSION_KEYS.token, '');
-      storage.set(AUTH_SESSION_KEYS.isLoggedIn, 'false');
-      storage.set(AUTH_SESSION_KEYS.username, '');
-      storage.set(AUTH_SESSION_KEYS.userId, '');
-      storage.set(AUTH_SESSION_KEYS.groupId, '');
-      storage.set('assignedFloors', '');
-      storage.set(AUTH_SESSION_KEYS.picture, '');
-      storage.set(AUTH_SESSION_KEYS.locCode, '');
-      storage.set(AUTH_SESSION_KEYS.userName, '');
-      storage.set(FRESH_LOGIN_FLAG_KEY, '0');
+      clearNormalSessionStorage();
+      // Explicit Logout must remove the biometric session too. The background
+      // timeout uses lockSession() instead, allowing a biometric re-entry.
+      await clearBiometricLogin();
     } catch (error) {
       console.log('[AuthStore] clearSession failed', error);
     } finally {
-      set({
-        token: null,
-        user: null,
-        isAuthenticated: false,
-        isHydrated: true,
-      });
+      set({ token: null, user: null, isAuthenticated: false, isHydrated: true });
     }
   },
 
@@ -215,6 +231,7 @@ storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
 
       storage.set('assignedFloors', '');
       storage.set(FRESH_LOGIN_FLAG_KEY, '0');
+      await clearBiometricLogin();
     } catch (error) {
       console.log('[AuthStore] forceLogout failed', error);
     } finally {

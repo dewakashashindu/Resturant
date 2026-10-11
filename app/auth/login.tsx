@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,6 +16,13 @@ import {
 } from 'react-native';
 
 import { apiClient, setBackendIP } from '../../services/api';
+import {
+  enableBiometricLogin,
+  getBiometricAvailability,
+  isBiometricLoginEnabled,
+  isBiometricPromptEnabled,
+  unlockBiometricSession,
+} from '../../services/biometricAuth';
 import { useAuthStore } from '../../services/authStore';
 import { getUniqueDeviceId } from '../../services/deviceIdService';
 import useItemStore, { getMenuSyncLocalDate } from '../../services/itemStore';
@@ -30,6 +37,9 @@ export default function LoginScreen() {
   const [usernameChecking, setUsernameChecking] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDailyFirstSync, setIsDailyFirstSync] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricLabel, setBiometricLabel] = useState<'Use Fingerprint' | 'Use Face Unlock' | 'Use Biometrics'>('Use Biometrics');
+  const [isBiometricChecking, setIsBiometricChecking] = useState(false);
 
   const [devIP, setDevIP] = useState((global as any).backendIP || '192.168.8.100');
 
@@ -67,6 +77,75 @@ export default function LoginScreen() {
 
   const usernamePattern = /^[A-Za-z0-9]+$/;
   const passwordPattern = /^[A-Za-z0-9!@#]+$/;
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const availability = await getBiometricAvailability();
+      if (!mounted) return;
+      setBiometricLabel(availability.label);
+      setBiometricEnabled(availability.available && isBiometricLoginEnabled());
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const prepareMenuForAuthenticatedLogin = async (): Promise<boolean> => {
+    const todayDate = getMenuSyncLocalDate();
+    const lastSyncDate = String(storage.getString('menu_items_last_sync_date_v1') ?? '').slice(0, 10);
+    const hasMenuCache = Boolean(storage.getString('menu_items_cache_v1')?.trim());
+    const needsDailySync = lastSyncDate !== todayDate || !hasMenuCache;
+
+    setIsDailyFirstSync(needsDailySync);
+    setIsSyncing(true);
+    try {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+      if (needsDailySync) {
+        const synced = await syncMenuData();
+        if (!synced) {
+          setPasswordError('Menu sync failed. Check the server connection and try again.');
+          return false;
+        }
+      } else {
+        await hydrateItems();
+      }
+      return true;
+    } catch (syncError) {
+      console.log('[Login] menu sync failed', syncError);
+      setPasswordError('Unable to prepare the menu. Please try again.');
+      return false;
+    } finally {
+      setIsSyncing(false);
+      setIsDailyFirstSync(false);
+    }
+  };
+
+  const offerBiometricEnrollment = async (session: { token: string; user: any }) => {
+    const availability = await getBiometricAvailability();
+    if (!availability.available || isBiometricLoginEnabled() || !isBiometricPromptEnabled()) return;
+
+    const shouldEnable = await new Promise<boolean>((resolve) => {
+      Alert.alert(
+        'Enable biometric sign in?',
+        `${availability.label} can be used instead of typing your password on this approved device.`,
+        [
+          { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Enable', onPress: () => resolve(true) },
+        ],
+        { cancelable: true, onDismiss: () => resolve(false) },
+      );
+    });
+    if (!shouldEnable) return;
+
+    const result = await enableBiometricLogin(session);
+    if (result.ok) {
+      setBiometricEnabled(true);
+      Alert.alert('Biometric sign in enabled', 'You can use your fingerprint or face unlock on your next sign in.');
+    } else {
+      Alert.alert('Biometric setup', result.message);
+    }
+  };
 
   // ─── VALIDATION ──────────────────────────────────────────────────────────────
   const validateUsername = (value: string): boolean => {
@@ -275,43 +354,9 @@ export default function LoginScreen() {
         console.log('[Login Success Check] Extracted Group ID:', loggedInGroupId);
 
         // ── STEP 3: DAILY MENU CACHE CHECK (after password confirmation) ───────
-        // The first successful login after local midnight performs one full,
-        // visible sync. Same-day logins load the existing MMKV cache only.
-        const todayDate = getMenuSyncLocalDate();
-        const lastSyncDate = String(storage.getString('menu_items_last_sync_date_v1') ?? '').slice(0, 10);
-        const hasMenuCache = Boolean(storage.getString('menu_items_cache_v1')?.trim());
-        const needsDailySync = lastSyncDate !== todayDate || !hasMenuCache;
+        if (!(await prepareMenuForAuthenticatedLogin())) return;
 
-        setIsDailyFirstSync(needsDailySync);
-        setIsSyncing(true);
-        try {
-          // Commit the progress overlay before starting large menu/image work.
-          await new Promise<void>((resolve) => {
-            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-          });
-
-          if (needsDailySync) {
-            const synced = await syncMenuData();
-            if (!synced) {
-              setPasswordError('Menu sync failed. Check the server connection and try again.');
-              return;
-            }
-          } else {
-            // Same-day login: cache only — no full menu API request.
-            await hydrateItems();
-          }
-        } catch (syncError) {
-          console.log('[Login] menu sync failed', syncError);
-          setPasswordError('Unable to prepare the menu. Please try again.');
-          return;
-        } finally {
-          setIsSyncing(false);
-          setIsDailyFirstSync(false);
-        }
-
-        // Session/navigation happens only after the menu is prepared. This
-        // prevents AuthGate from opening the operational screens too early.
-        setSession({
+        const sessionPayload = {
           token: result.data.token,
           user: {
             userName:       result.data.user?.userName || loggedInUserName,
@@ -324,7 +369,15 @@ export default function LoginScreen() {
             picture:  result.data.user?.picture  || null,
             locCode:  result.data.user?.locCode  || null,
           },
-        });
+        };
+
+        // First normal password sign-in is the only time we offer enrollment.
+        // The password itself is never saved for biometric login.
+        await offerBiometricEnrollment(sessionPayload);
+
+        // Session/navigation happens only after the menu is prepared. This
+        // prevents AuthGate from opening the operational screens too early.
+        setSession(sessionPayload);
 
         router.replace('/(tabs)');
         return;
@@ -341,6 +394,50 @@ export default function LoginScreen() {
       );
     }
     // ─── END USER AUTHENTICATION ─────────────────────────────────────────────────
+  };
+
+  const handleBiometricLogin = async () => {
+    if (isBiometricChecking || isSyncing) return;
+    if (!(global as any).backendIP) setBackendIP(devIP.trim() || '192.168.8.100');
+
+    setPasswordError('');
+    setUsernameError('');
+    setIsBiometricChecking(true);
+    try {
+      const unlocked = await unlockBiometricSession();
+      if (!unlocked.session) {
+        setPasswordError(unlocked.message);
+        setBiometricEnabled(isBiometricLoginEnabled());
+        return;
+      }
+
+      const deviceId = await getUniqueDeviceId();
+      if (!deviceId) {
+        setPasswordError('Could not identify this device. Please sign in with your password.');
+        return;
+      }
+
+      const baseIP = (global as any).backendIP || devIP.trim() || '192.168.8.100';
+      const response = await fetch(`http://${baseIP}:3000/api/devices/check-in`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, locCode: unlocked.session.user.locCode ?? null }),
+      });
+      const deviceData = await response.json().catch(() => null);
+      if (!response.ok || deviceData?.allowed !== true || String(deviceData?.status ?? '').toLowerCase() !== 'approved') {
+        setPasswordError('This device is no longer approved. Please sign in with your password.');
+        return;
+      }
+
+      if (!(await prepareMenuForAuthenticatedLogin())) return;
+      setSession(unlocked.session);
+      router.replace('/(tabs)');
+    } catch (error) {
+      console.log('[Login] biometric sign in failed', error);
+      setPasswordError('Biometric sign in failed. Please use your password.');
+    } finally {
+      setIsBiometricChecking(false);
+    }
   };
 
   // ─── DEV IP CONFIRM ──────────────────────────────────────────────────────────
@@ -525,6 +622,28 @@ export default function LoginScreen() {
           {isSyncing ? 'Syncing menu...' : 'Login'}
         </Text>
       </TouchableOpacity>
+
+      {biometricEnabled ? (
+        <TouchableOpacity
+          style={[styles.biometricButton, { height: btnH, borderRadius: btnRadius, marginTop: isSmall ? 10 : 14 }]}
+          onPress={handleBiometricLogin}
+          disabled={isBiometricChecking || isSyncing}
+          activeOpacity={0.85}
+        >
+          {isBiometricChecking ? (
+            <ActivityIndicator size="small" color="#002748" />
+          ) : (
+            <>
+              <Ionicons
+                name={biometricLabel === 'Use Face Unlock' ? 'scan-outline' : 'finger-print-outline'}
+                size={isTablet ? 27 : 22}
+                color="#002748"
+              />
+              <Text style={[styles.biometricText, { fontSize: btnFs - 2 }]}>{biometricLabel}</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      ) : null}
 
       {/* SIGN UP */}
       <View style={[styles.signupContainer, { marginTop: signupMT }]}>
@@ -741,6 +860,18 @@ const styles = StyleSheet.create({
     color:      '#fff',
     fontWeight: '700',
   },
+
+  biometricButton: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#075EA7',
+    backgroundColor: '#EEF7FD',
+  },
+  biometricText: { color: '#002748', fontWeight: '700' },
 
   signupContainer: {
     flexDirection:  'row',

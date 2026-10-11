@@ -1,19 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from 'react-native';
 import { apiClient } from '../services/api';
+import { getBiometricAvailability, isBiometricLoginEnabled, unlockBiometricSession } from '../services/biometricAuth';
 import { useCartStore } from '../services/cartStore';
 import { useMenuSessionStore } from '../services/menuSessionStore';
 
@@ -24,24 +25,60 @@ type ProtectedMenuExitModalProps = {
 
 export function ProtectedMenuExitModal({ visible, onClose }: ProtectedMenuExitModalProps) {
   const router = useRouter();
-  const cartItems = useCartStore((state) => state.cartItems);
   const clearCart = useCartStore((state) => state.clearCart);
   const clearDiningSession = useMenuSessionStore((state) => state.clearDiningSession);
-  const saveCartItems = useMenuSessionStore((state) => state.saveCartItems);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricVerified, setBiometricVerified] = useState(false);
+  const [biometricLabel, setBiometricLabel] = useState<'Use Fingerprint' | 'Use Face Unlock' | 'Use Biometrics'>('Use Biometrics');
+
+  useEffect(() => {
+    if (!visible) return;
+    let mounted = true;
+    void (async () => {
+      const availability = await getBiometricAvailability();
+      if (!mounted) return;
+      setBiometricLabel(availability.label);
+      setBiometricEnabled(availability.available && isBiometricLoginEnabled());
+    })();
+    return () => { mounted = false; };
+  }, [visible]);
 
   const resetAndClose = () => {
     setPassword('');
     setError('');
+    setBiometricVerified(false);
     onClose();
   };
 
-  const handleExit = async (mode: 'clear' | 'keep') => {
+  const completeExit = (mode: 'clear' | 'confirm') => {
+    setPassword('');
+    setBiometricVerified(false);
+    onClose();
+
+    if (mode === 'clear') {
+      clearCart();
+      clearDiningSession();
+      router.replace('/(tabs)');
+      return;
+    }
+
+    // There is intentionally no Keep & Exit path. Confirm sends the customer
+    // to the real Menu Cart, where the order must be confirmed before leaving.
+    router.push('/menu/menu_cart');
+  };
+
+  const handleExit = async (mode: 'clear' | 'confirm') => {
+    if (biometricVerified) {
+      completeExit(mode);
+      return;
+    }
+
     const value = password.trim();
     if (!value) {
-      setError('Enter your current password to continue.');
+      setError('Enter your current password or use biometrics to continue.');
       return;
     }
 
@@ -53,19 +90,28 @@ export function ProtectedMenuExitModal({ visible, onClose }: ProtectedMenuExitMo
         setError(result.data?.message || 'Password verification failed.');
         return;
       }
-
-      if (mode === 'clear') {
-        clearCart();
-        clearDiningSession();
-      } else {
-        saveCartItems(cartItems);
-      }
-
-      setPassword('');
-      onClose();
-      router.replace('/(tabs)');
+      completeExit(mode);
     } catch {
       setError('Unable to verify password. Please try again.');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleBiometricVerification = async () => {
+    if (verifying) return;
+    setVerifying(true);
+    setError('');
+    try {
+      const result = await unlockBiometricSession();
+      if (!result.session) {
+        setError(result.message);
+        return;
+      }
+      setPassword('');
+      setBiometricVerified(true);
+    } catch {
+      setError('Biometric verification failed. Please use your password.');
     } finally {
       setVerifying(false);
     }
@@ -89,7 +135,7 @@ export function ProtectedMenuExitModal({ visible, onClose }: ProtectedMenuExitMo
                 </View>
                 <View style={styles.headerCopy}>
                   <Text style={styles.title}>Exit Menu Card?</Text>
-                  <Text style={styles.subtitle}>Confirm with your current password.</Text>
+                  <Text style={styles.subtitle}>Clear the customer cart or confirm the order.</Text>
                 </View>
                 <TouchableOpacity style={styles.closeButton} onPress={resetAndClose} disabled={verifying}>
                   <Ionicons name="close" size={20} color="#FFFFFF" />
@@ -98,35 +144,56 @@ export function ProtectedMenuExitModal({ visible, onClose }: ProtectedMenuExitMo
 
               <View style={styles.content}>
                 <Text style={styles.description}>
-                  Choose whether to save this table and cart for later, or clear everything before leaving.
+                  You cannot keep this customer cart for later. Clear it, or continue to order confirmation.
                 </Text>
-                <View style={[styles.passwordWrap, Boolean(error) && styles.passwordWrapError]}>
-                  <Ionicons name="key-outline" size={19} color="#8AA0AE" />
-                  <TextInput
-                    style={styles.passwordInput}
-                    value={password}
-                    onChangeText={(text) => { setPassword(text); if (error) setError(''); }}
-                    placeholder="Current password / PIN"
-                    placeholderTextColor="#92A1AA"
-                    secureTextEntry
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    editable={!verifying}
-                    returnKeyType="done"
-                  />
-                </View>
+
+                {biometricVerified ? (
+                  <View style={styles.biometricVerifiedRow}>
+                    <Ionicons name="checkmark-circle" size={20} color="#258354" />
+                    <Text style={styles.biometricVerifiedText}>Biometric verification complete</Text>
+                  </View>
+                ) : (
+                  <>
+                    <View style={[styles.passwordWrap, Boolean(error) && styles.passwordWrapError]}>
+                      <Ionicons name="key-outline" size={19} color="#8AA0AE" />
+                      <TextInput
+                        style={styles.passwordInput}
+                        value={password}
+                        onChangeText={(text) => { setPassword(text); if (error) setError(''); }}
+                        placeholder="Current password / PIN"
+                        placeholderTextColor="#92A1AA"
+                        secureTextEntry
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        editable={!verifying}
+                        returnKeyType="done"
+                      />
+                    </View>
+                    {biometricEnabled ? (
+                      <TouchableOpacity
+                        style={styles.biometricButton}
+                        onPress={() => void handleBiometricVerification()}
+                        disabled={verifying}
+                        activeOpacity={0.85}
+                      >
+                        {verifying ? <ActivityIndicator size="small" color="#1B1B1B" /> : <Ionicons name={biometricLabel === 'Use Face Unlock' ? 'scan-outline' : 'finger-print-outline'} size={20} color="#1B1B1B" />}
+                        <Text style={styles.biometricButtonText}>{biometricLabel}</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </>
+                )}
                 {error ? <Text style={styles.error}>{error}</Text> : null}
 
                 <TouchableOpacity
-                  style={[styles.actionButton, styles.keepButton]}
-                  onPress={() => void handleExit('keep')}
+                  style={[styles.actionButton, styles.confirmButton]}
+                  onPress={() => void handleExit('confirm')}
                   disabled={verifying}
                   activeOpacity={0.85}
                 >
-                  {verifying ? <ActivityIndicator color="#FFFFFF" /> : <Ionicons name="bookmark-outline" size={19} color="#FFFFFF" />}
+                  {verifying ? <ActivityIndicator color="#FFFFFF" /> : <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" />}
                   <View style={styles.actionCopy}>
-                    <Text style={styles.actionTitle}>Keep Cart & Exit</Text>
-                    <Text style={styles.actionDescription}>Save table and items for later.</Text>
+                    <Text style={styles.actionTitle}>Confirm Order</Text>
+                    <Text style={styles.actionDescription}>Continue to Menu Cart and confirm before leaving.</Text>
                   </View>
                 </TouchableOpacity>
 
@@ -139,7 +206,7 @@ export function ProtectedMenuExitModal({ visible, onClose }: ProtectedMenuExitMo
                   {verifying ? <ActivityIndicator color="#B54F48" /> : <Ionicons name="trash-outline" size={19} color="#B54F48" />}
                   <View style={styles.actionCopy}>
                     <Text style={[styles.actionTitle, styles.clearTitle]}>Clear & Exit</Text>
-                    <Text style={[styles.actionDescription, styles.clearDescription]}>Remove table data and all cart items.</Text>
+                    <Text style={[styles.actionDescription, styles.clearDescription]}>Remove this table data and all cart items.</Text>
                   </View>
                 </TouchableOpacity>
               </View>
@@ -215,8 +282,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
-  keepButton: { backgroundColor: '#3D8C5E' },
+  confirmButton: { backgroundColor: '#3D8C5E' },
   clearButton: { backgroundColor: '#FFF2F0', borderWidth: 1, borderColor: '#F0D5D2' },
+  biometricButton: {
+    minHeight: 43,
+    marginTop: 10,
+    borderRadius: 12,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#B9CDD8',
+    backgroundColor: '#F3F8FA',
+  },
+  biometricButtonText: { color: '#1B1B1B', fontSize: 13, fontWeight: '800' },
+  biometricVerifiedRow: {
+    minHeight: 52,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    gap: 9,
+    alignItems: 'center',
+    borderRadius: 13,
+    backgroundColor: '#EFFAF3',
+    borderWidth: 1,
+    borderColor: '#CBEBD6',
+  },
+  biometricVerifiedText: { color: '#258354', fontSize: 13, fontWeight: '800' },
   actionCopy: { flex: 1 },
   actionTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
   actionDescription: { color: 'rgba(255,255,255,0.72)', fontSize: 11, marginTop: 3 },

@@ -19,6 +19,13 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
 import { useAuthStore } from '../../services/authStore';
+import {
+  clearBiometricLogin,
+  enableBiometricLogin,
+  getBiometricAvailability,
+  isBiometricLoginEnabled,
+  setBiometricPromptEnabled,
+} from '../../services/biometricAuth';
 import useItemStore from '../../services/itemStore';
 import { useNotificationStore } from '../../services/notificationStore';
 
@@ -35,6 +42,9 @@ export default function SettingsScreen() {
   const [pictureUploading,   setPictureUploading]   = useState(false);
   const [photoActionVisible, setPhotoActionVisible] = useState(false);
   const [viewPhotoVisible,   setViewPhotoVisible]   = useState(false);
+  const [biometricEnabled,   setBiometricEnabled]   = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricBusy,      setBiometricBusy]      = useState(false);
 
   // ── Store ──────────────────────────────────────────────────────────────────
   const isSyncing    = useItemStore((s) => s.isSyncing);
@@ -46,6 +56,7 @@ export default function SettingsScreen() {
   const hydrateItems = useItemStore((s) => s.hydrateItems);
   const isHydrated   = useItemStore((s) => s.isHydrated);
   const user         = useAuthStore((s) => s.user);
+  const token        = useAuthStore((s) => s.token);
   const updatePicture= useAuthStore((s) => s.updatePicture);
   const notificationPreferences = useNotificationStore((s) => s.preferences);
   const updateNotificationPreferences = useNotificationStore((s) => s.updatePreferences);
@@ -74,6 +85,50 @@ export default function SettingsScreen() {
   useEffect(() => {
     if (!isHydrated) hydrateItems().catch(() => {});
   }, [hydrateItems, isHydrated]);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const availability = await getBiometricAvailability();
+      if (!mounted) return;
+      setBiometricAvailable(availability.available);
+      setBiometricEnabled(availability.available && isBiometricLoginEnabled());
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const handleBiometricToggle = async (nextEnabled: boolean) => {
+    if (biometricBusy) return;
+    if (!nextEnabled) {
+      setBiometricBusy(true);
+      try {
+        setBiometricPromptEnabled(false);
+        await clearBiometricLogin();
+        setBiometricEnabled(false);
+      } finally {
+        setBiometricBusy(false);
+      }
+      return;
+    }
+
+    if (!biometricAvailable || !token || !user) {
+      Alert.alert('Biometrics unavailable', 'Set up a fingerprint or face unlock in phone Settings, then sign in with your password.');
+      return;
+    }
+
+    setBiometricBusy(true);
+    try {
+      const result = await enableBiometricLogin({ token, user });
+      if (!result.ok) {
+        Alert.alert('Biometric setup', result.message);
+        return;
+      }
+      setBiometricEnabled(true);
+      Alert.alert('Biometrics enabled', 'Fingerprint or face unlock can now be used from the login screen.');
+    } finally {
+      setBiometricBusy(false);
+    }
+  };
 
   // ── Photo helpers ──────────────────────────────────────────────────────────
   const pickFromLibrary = async () => {
@@ -429,6 +484,30 @@ export default function SettingsScreen() {
             <View style={s.syncInfoCard}>
               <Text style={s.syncInfoLabel}>Last Sync</Text>
               <Text style={s.syncInfoValue}>{lastSyncTime}</Text>
+            </View>
+
+            <Text style={s.sectionLabel}>Security</Text>
+            <View style={s.notificationSettingsCard}>
+              <View style={s.notificationSettingRow}>
+                <View style={s.notificationSettingIcon}>
+                  <Ionicons name="finger-print-outline" size={22} color="#002748" />
+                </View>
+                <View style={s.notificationSettingText}>
+                  <Text style={s.notificationSettingLabel}>Biometric Sign In</Text>
+                  <Text style={s.notificationSettingSub}>
+                    {biometricAvailable
+                      ? 'Use fingerprint or face unlock from the login screen'
+                      : 'Set up fingerprint or face unlock in phone Settings'}
+                  </Text>
+                </View>
+                <Switch
+                  value={biometricEnabled}
+                  onValueChange={(enabled) => void handleBiometricToggle(enabled)}
+                  disabled={!biometricAvailable || biometricBusy}
+                  trackColor={{ false: '#CBD5E1', true: '#75A6CE' }}
+                  thumbColor={biometricEnabled ? '#075EA7' : '#F8FAFC'}
+                />
+              </View>
             </View>
 
             <Text style={s.sectionLabel}>Notification Alerts</Text>

@@ -37,6 +37,12 @@
       ],
       "expo-secure-store",
       [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Restaurant to use Face ID for secure sign in."
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/images/appiconw.png",

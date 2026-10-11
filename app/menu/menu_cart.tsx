@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   ImageSourcePropType,
   Modal,
@@ -19,10 +20,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProtectedMenuExitModal } from '../../components/ProtectedMenuExitModal';
 import { apiClient } from '../../services/api';
+import { useAuthStore } from '../../services/authStore';
 import { useCartStore } from '../../services/cartStore';
 import { ITEM_PIC_PREFIX, useItemStore } from '../../services/itemStore';
 import { useMenuSessionStore } from '../../services/menuSessionStore';
-import { useOrderStore } from '../../services/orderStore';
 import { storage } from '../../services/storage';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -435,9 +436,10 @@ interface SummaryFooterProps {
   onConfirm:   () => void;
   onHome:      () => void;
   insetBottom: number;
+  confirming: boolean;
 }
 
-const SummaryFooter = ({ onConfirm, onHome, insetBottom }: SummaryFooterProps) => (
+const SummaryFooter = ({ onConfirm, onHome, insetBottom, confirming }: SummaryFooterProps) => (
   <View style={[footerStyles.wrap, { paddingBottom: insetBottom + 20 }]}>
     <View style={footerStyles.divider} />
 
@@ -448,9 +450,14 @@ const SummaryFooter = ({ onConfirm, onHome, insetBottom }: SummaryFooterProps) =
       </TouchableOpacity>
 
       {/* Place Order */}
-      <TouchableOpacity style={footerStyles.confirmBtn} onPress={onConfirm} activeOpacity={0.88}>
-        <CheckIcon />
-        <Text style={footerStyles.confirmTxt}>Confirm Order</Text>
+      <TouchableOpacity
+        style={[footerStyles.confirmBtn, confirming && { opacity: 0.72 }]}
+        onPress={onConfirm}
+        disabled={confirming}
+        activeOpacity={0.88}
+      >
+        {confirming ? <ActivityIndicator color={C.white} /> : <CheckIcon />}
+        <Text style={footerStyles.confirmTxt}>{confirming ? 'Confirming...' : 'Confirm Order'}</Text>
       </TouchableOpacity>
     </View>
   </View>
@@ -529,14 +536,13 @@ const ReadyToEatScreen = () => {
   const clearCart = useCartStore((state) => state.clearCart);
   const menuItems = useItemStore((state) => state.items);
   const diningSession = useMenuSessionStore((state) => state.diningSession);
+  const setDiningSession = useMenuSessionStore((state) => state.setDiningSession);
   const clearSavedCartItems = useMenuSessionStore((state) => state.clearSavedCartItems);
   const saveCartItems = useMenuSessionStore((state) => state.saveCartItems);
+  const currentUser = useAuthStore((state) => state.user);
 
-  const [handoffVisible, setHandoffVisible] = useState(false);
   const [exitModalVisible, setExitModalVisible] = useState(false);
-  const [password, setPassword] = useState('');
-  const [passwordError, setPasswordError] = useState('');
-  const [verifying, setVerifying] = useState(false);
+  const [confirmingOrder, setConfirmingOrder] = useState(false);
   const [remarkItem, setRemarkItem] = useState<CustomerCartItem | null>(null);
   const [remarkDraft, setRemarkDraft] = useState('');
 
@@ -666,86 +672,114 @@ const ReadyToEatScreen = () => {
     clearSavedCartItems();
   }, [clearCart, clearSavedCartItems, diningSession?.existingBillItems, saveCartItems, setCartItems]);
 
-  const openHandoff = () => {
-    if (!cartItems.length) return;
-    setPassword('');
-    setPasswordError('');
-    setHandoffVisible(true);
-  };
-
-  const handoffToMainCart = async () => {
-    const value = password.trim();
-    if (!value) {
-      setPasswordError('Enter the logged-in user password to continue.');
-      return;
-    }
+  const confirmCustomerOrder = async () => {
+    if (confirmingOrder) return;
     if (!diningSession) {
-      setPasswordError('Table session is missing. Please select the table again.');
+      Alert.alert('Table session missing', 'Please select the table again before confirming this order.');
       return;
     }
 
-    setVerifying(true);
-    setPasswordError('');
+    const existingInvoiceNo = String(diningSession.existingInvoiceNo ?? '').trim();
+    const existingBillItems = diningSession.existingBillItems ?? [];
+    const baselineQtyByCode = new Map(existingBillItems.map((item) => [item.menuItemCode, item.quantity]));
+    const baselineRemarkByCode = new Map(existingBillItems.map((item) => [item.menuItemCode, (item.itemRemarks ?? '').trim()]));
+
+    // The real cart holds final quantities. For an occupied bill submit only
+    // the customer session's additions, exactly like Main Cart's add-more API
+    // payload, never the original billed quantities again.
+    const itemsToConfirm = realCartItems
+      .map((item) => {
+        const baselineQty = baselineQtyByCode.get(item.menuItemCode) ?? 0;
+        const quantity = item.quantity - baselineQty;
+        const baselineRemark = baselineRemarkByCode.get(item.menuItemCode) ?? '';
+        const menuRecord = menuItemByCode.get(item.menuItemCode);
+        return {
+          ...item,
+          quantity,
+          salesPrice: resolveDisplayPrice(item.salesPrice, menuRecord),
+          itemRemarks: (item.itemRemarks ?? '').trim() === baselineRemark ? '' : (item.itemRemarks ?? '').trim(),
+        };
+      })
+      .filter((item) => item.quantity > 0);
+
+    if (itemsToConfirm.length === 0) {
+      Alert.alert('No new items', 'Add at least one new item before confirming this order.');
+      return;
+    }
+
+    setConfirmingOrder(true);
     try {
-      const result = await apiClient.verifyCurrentPassword(value);
-      if (!result.ok || !result.data?.ok) {
-        setPasswordError(result.data?.message || 'Incorrect password.');
+      const userId = currentUser?.userName
+        ? String(currentUser.userName)
+        : currentUser?.userId
+          ? String(currentUser.userId)
+          : 'SYSTEM';
+      const payload = {
+        OrderType: 'DI',
+        orderType: 'DI',
+        TableNo: diningSession.tableNo,
+        tableNo: diningSession.tableNo,
+        tableId: diningSession.tableNo,
+        UserID: userId,
+        userId,
+        TabelGrpID: diningSession.groupId,
+        TableGrpID: diningSession.groupId,
+        tableGrpId: diningSession.groupId,
+        lPax: Number(diningSession.localPax) || 0,
+        fPax: Number(diningSession.foreignPax) || 0,
+        existingInvoiceNo: existingInvoiceNo || null,
+        forceNewInvoice: !existingInvoiceNo,
+        items: itemsToConfirm.map((item) => ({
+          ItemCode: item.menuItemCode,
+          itemCode: item.menuItemCode,
+          QTY: item.quantity,
+          quantity: item.quantity,
+          SalesPrice: item.salesPrice,
+          salesPrice: item.salesPrice,
+          ItemRemarks: item.itemRemarks,
+          itemRemarks: item.itemRemarks,
+        })),
+        customerDetails: null,
+      };
+
+      const result = await apiClient.confirmCart(payload as any);
+      if (!result.ok && !result.data?.ok) {
+        Alert.alert('Order not confirmed', result.data?.message || 'Unable to save this order. Please try again.');
         return;
       }
 
-      // Correct any cart rows persisted by an older Menu Card build that saved
-      // `Rs. 1,660` as 0.166. This keeps the Main Cart / submitted order total
-      // in sync with the corrected Menu Cart display.
-      const correctedCartItems = realCartItems.map((item) => ({
+      const invoiceNo = String(
+        result.data?.data?.invoiceNo ??
+        result.data?.data?.InvoiceNo ??
+        result.data?.invoiceNo ??
+        existingInvoiceNo,
+      ).trim();
+      if (!invoiceNo) {
+        Alert.alert('Order not confirmed', 'The server did not return an invoice number. Please try again.');
+        return;
+      }
+
+      // Turn this just-confirmed cart into the new immutable bill baseline.
+      // Returning to Welcome then Menu Cato lets the customer add more items
+      // to this same invoice without exposing the Billing screen.
+      const confirmedBillItems = realCartItems.map((item) => ({
         ...item,
         salesPrice: resolveDisplayPrice(item.salesPrice, menuItemByCode.get(item.menuItemCode)),
       }));
-      if (correctedCartItems.some((item, index) => item.salesPrice !== realCartItems[index]?.salesPrice)) {
-        setCartItems(correctedCartItems);
-      }
-
-      const existingInvoiceNo = String(diningSession.existingInvoiceNo ?? '').trim();
-      const existingBillItems = diningSession.existingBillItems ?? [];
-      if (existingInvoiceNo && existingBillItems.length > 0) {
-        // Main Cart's add-more path needs the original bill quantities as its
-        // baseline so an item already on the bill is increased, not replaced.
-        useOrderStore.getState().setLastConfirmedOrder({
-          orderType: 'DI',
-          tableNo: diningSession.tableNo,
-          userId: 'SYSTEM',
-          tableGrpId: diningSession.groupId,
-          lPax: Number(diningSession.localPax) || 0,
-          fPax: Number(diningSession.foreignPax) || 0,
-          invoiceNo: existingInvoiceNo,
-          createdAt: new Date().toISOString(),
-          items: existingBillItems,
-        });
-      }
-
-      setHandoffVisible(false);
-      setPassword('');
-      router.push({
-        pathname: '/Screens/cart',
-        params: {
-          tableName: diningSession.tableName,
-          tableNo: diningSession.tableNo,
-          tableId: diningSession.groupId,
-          localPax: diningSession.localPax,
-          foreignPax: diningSession.foreignPax,
-          floor: diningSession.floor,
-          orderType: diningSession.orderType,
-          // Existing-table customer orders must append to this invoice.
-          fromBilling: existingInvoiceNo ? '1' : undefined,
-          invoiceNo: existingInvoiceNo || undefined,
-          // Lets Main Cart remove the persisted Menu Card snapshot only after
-          // the real Dining order is successfully submitted.
-          menuCardOrder: '1',
-        },
+      setCartItems(confirmedBillItems);
+      saveCartItems(confirmedBillItems);
+      setDiningSession({
+        ...diningSession,
+        existingInvoiceNo: invoiceNo,
+        existingBillItems: confirmedBillItems,
       });
-    } catch {
-      setPasswordError('Unable to verify password. Please try again.');
+
+      router.replace('/menu/menu_welcome');
+    } catch (error) {
+      console.log('[MenuCart] customer confirmation failed', error);
+      Alert.alert('Order not confirmed', 'Unable to save this order. Please check the connection and try again.');
     } finally {
-      setVerifying(false);
+      setConfirmingOrder(false);
     }
   };
 
@@ -808,9 +842,10 @@ const ReadyToEatScreen = () => {
           </ScrollView>
 
           <SummaryFooter
-            onConfirm={openHandoff}
+            onConfirm={() => void confirmCustomerOrder()}
             onHome={handleHome}
             insetBottom={insets.bottom}
+            confirming={confirmingOrder}
           />
         </>
       )}
@@ -864,55 +899,6 @@ const ReadyToEatScreen = () => {
         </TouchableWithoutFeedback>
       </Modal>
 
-      <Modal
-        visible={handoffVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => !verifying && setHandoffVisible(false)}
-      >
-        <TouchableWithoutFeedback onPress={verifying ? undefined : () => setHandoffVisible(false)}>
-          <View style={styles.handoffOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.handoffCard}>
-                <View style={styles.handoffIcon}><Text style={styles.handoffIconText}>🔐</Text></View>
-                <Text style={styles.handoffTitle}>Staff confirmation</Text>
-                <Text style={styles.handoffDescription}>
-                  Please enter the logged-in user password to send this customer order to the main cart.
-                </Text>
-                <TextInput
-                  style={[styles.handoffInput, Boolean(passwordError) && styles.handoffInputError]}
-                  value={password}
-                  onChangeText={(value) => { setPassword(value); if (passwordError) setPasswordError(''); }}
-                  placeholder="User password / PIN"
-                  placeholderTextColor="rgba(255,255,255,0.35)"
-                  secureTextEntry
-                  autoCapitalize="none"
-                  editable={!verifying}
-                  returnKeyType="done"
-                  onSubmitEditing={() => void handoffToMainCart()}
-                />
-                {passwordError ? <Text style={styles.handoffError}>{passwordError}</Text> : null}
-                <View style={styles.handoffActions}>
-                  <TouchableOpacity
-                    style={styles.handoffCancel}
-                    onPress={() => setHandoffVisible(false)}
-                    disabled={verifying}
-                  >
-                    <Text style={styles.handoffCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.handoffConfirm}
-                    onPress={() => void handoffToMainCart()}
-                    disabled={verifying}
-                  >
-                    {verifying ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.handoffConfirmText}>Confirm</Text>}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
       <ProtectedMenuExitModal visible={exitModalVisible} onClose={() => setExitModalVisible(false)} />
     </SafeAreaView>
   );
@@ -1052,64 +1038,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.confirm,
   },
   remarkSaveText: { color: C.white, fontSize: 14, fontWeight: '800' },
-  handoffOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    backgroundColor: 'rgba(0,0,0,0.68)',
-  },
-  handoffCard: {
-    backgroundColor: C.surface,
-    borderRadius: 22,
-    padding: 22,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
-  handoffIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 15,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: C.goldSoft,
-    marginBottom: 14,
-  },
-  handoffIconText: { fontSize: 22 },
-  handoffTitle: { color: C.white, fontSize: 20, fontWeight: '800' },
-  handoffDescription: { color: C.whiteMid, fontSize: 13, lineHeight: 19, marginTop: 8, marginBottom: 17 },
-  handoffInput: {
-    height: 52,
-    borderRadius: 13,
-    paddingHorizontal: 14,
-    color: C.white,
-    fontSize: 14,
-    backgroundColor: C.card,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
-  handoffInputError: { borderColor: C.danger },
-  handoffError: { color: C.danger, fontSize: 12, marginTop: 7 },
-  handoffActions: { flexDirection: 'row', gap: 10, marginTop: 20 },
-  handoffCancel: {
-    flex: 1,
-    height: 48,
-    borderRadius: 13,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: C.card,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
-  handoffCancelText: { color: C.whiteMid, fontSize: 14, fontWeight: '700' },
-  handoffConfirm: {
-    flex: 1,
-    height: 48,
-    borderRadius: 13,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: C.confirm,
-  },
-  handoffConfirmText: { color: C.white, fontSize: 14, fontWeight: '800' },
+
 });
 
 export default ReadyToEatScreen;

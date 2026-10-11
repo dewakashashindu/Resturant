@@ -38,7 +38,7 @@ function AuthGate() {
   const token = useAuthStore((state) => state.token);
   const isHydrated = useAuthStore((state) => state.isHydrated);
   const hydrateAuth = useAuthStore((state) => state.hydrateAuth);
-  const clearSession = useAuthStore((state) => state.clearSession);
+  const lockSession = useAuthStore((state) => state.lockSession);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const isAuthenticated = Boolean(token);
@@ -62,7 +62,7 @@ function AuthGate() {
             console.log('[AuthGate] Time since background:', Math.round(elapsed / 1000), 's');
             if (elapsed >= AUTO_LOGOUT_DELAY_MS) {
               console.log('[AuthGate] Auto-logout triggered on app open');
-              await clearSession();
+              await lockSession();
             }
             storage.set(BG_TIMESTAMP_KEY, '');
           }
@@ -71,7 +71,7 @@ function AuthGate() {
         }
         void SplashScreen.hideAsync().catch(() => {});
       });
-  }, [hydrateAuth, clearSession]);
+  }, [hydrateAuth, lockSession]);
 
   // Redirect — isAuthenticated change වෙද්දී
   useEffect(() => {
@@ -124,7 +124,7 @@ function AuthGate() {
             if (elapsed >= AUTO_LOGOUT_DELAY_MS) {
               console.log('[AuthGate] Auto-logout triggered on resume');
               storage.set(BG_TIMESTAMP_KEY, '');
-              await clearSession();
+              await lockSession();
             } else {
               storage.set(BG_TIMESTAMP_KEY, '');
             }
@@ -138,7 +138,7 @@ function AuthGate() {
     return () => {
       subscription.remove();
     };
-  }, [clearSession]);
+  }, [lockSession]);
 
   if (!isHydrated) {
     return <LoadingScreen />;
