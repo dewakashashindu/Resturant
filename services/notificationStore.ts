@@ -16,6 +16,8 @@ export type AppNotificationKind = 'kitchen-item-ready' | 'kitchen-order-ready' |
 export type AppNotification = {
   id: string;
   kind: AppNotificationKind;
+  /** Database NotificationType: OP = Operational, IT = Item. */
+  notificationType: string;
   title: string;
   message: string;
   createdAt: string;
@@ -25,8 +27,8 @@ export type AppNotification = {
   read: boolean;
 };
 
-type IncomingNotification = Omit<AppNotification, 'id' | 'createdAt' | 'read'> &
-  Partial<Pick<AppNotification, 'id' | 'createdAt' | 'read'>>;
+type IncomingNotification = Omit<AppNotification, 'id' | 'createdAt' | 'read' | 'notificationType'> &
+  Partial<Pick<AppNotification, 'id' | 'createdAt' | 'read' | 'notificationType'>>;
 
 type NotificationState = {
   notifications: AppNotification[];
@@ -36,6 +38,7 @@ type NotificationState = {
   receiveNotification: (notification: IncomingNotification) => void;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
+  removeNotification: (id: string) => void;
   dismissToast: () => void;
   clearAll: () => void;
   updatePreferences: (preferences: Partial<NotificationPreferences>) => void;
@@ -51,6 +54,7 @@ const readSavedNotifications = (): AppNotification[] => {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((item): item is AppNotification => Boolean(item?.id && item?.title && item?.message))
+      .map((item) => ({ ...item, notificationType: String(item.notificationType ?? 'OP') }))
       .slice(0, MAX_STORED_NOTIFICATIONS);
   } catch {
     return [];
@@ -96,6 +100,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     const notification: AppNotification = {
       id: incoming.id ?? `notification-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       kind: incoming.kind ?? 'general',
+      notificationType: String(incoming.notificationType ?? 'OP').trim() || 'OP',
       title: incoming.title,
       message: incoming.message,
       createdAt: incoming.createdAt ?? new Date().toISOString(),
@@ -125,6 +130,15 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     const notifications = get().notifications.map((notification) => ({ ...notification, read: true }));
     persistNotifications(notifications);
     set({ notifications });
+  },
+
+  removeNotification: (id) => {
+    const notifications = get().notifications.filter((notification) => notification.id !== id);
+    persistNotifications(notifications);
+    set({
+      notifications,
+      activeToastId: get().activeToastId === id ? null : get().activeToastId,
+    });
   },
 
   dismissToast: () => set({ activeToastId: null }),

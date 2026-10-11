@@ -5,12 +5,12 @@ import { AppState, AppStateStatus, Platform, Vibration } from 'react-native';
 import { apiClient } from '../services/api';
 import { useAuthStore } from '../services/authStore';
 import { getUniqueDeviceId } from '../services/deviceIdService';
+import { playForegroundNotificationSound } from '../services/notificationSound';
 import {
   AppNotificationKind,
   getLastNotificationIdKey,
   useNotificationStore,
 } from '../services/notificationStore';
-import { playForegroundNotificationSound } from '../services/notificationSound';
 import { storage } from '../services/storage';
 
 const POLL_INTERVAL_MS = 3000;
@@ -119,6 +119,7 @@ export default function NotificationPolling() {
           receiveNotification({
             id,
             kind: mapKind(row.NotificationType),
+            notificationType: asText(row.NotificationType) || 'OP',
             title,
             message,
             tableNo: asText(row.TableNo) || undefined,
