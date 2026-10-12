@@ -13,6 +13,23 @@ export type NotificationPreferences = {
 
 export type AppNotificationKind = 'kitchen-item-ready' | 'kitchen-order-ready' | 'general';
 
+export type NotificationPayloadItem = {
+  itemId: string;
+  itemName: string;
+  quantity?: number;
+  remarks?: string;
+  type?: string;
+};
+
+export type NotificationPayload = {
+  kind?: string;
+  status?: string;
+  orderNo?: string;
+  tableNo?: string;
+  invoiceNo?: string;
+  items?: NotificationPayloadItem[];
+};
+
 export type AppNotification = {
   id: string;
   kind: AppNotificationKind;
@@ -24,6 +41,8 @@ export type AppNotification = {
   tableNo?: string;
   invoiceNo?: string;
   itemCode?: string;
+  /** Structured queue payload, used by IT unavailable-item broadcasts. */
+  payload?: NotificationPayload;
   read: boolean;
 };
 
@@ -107,13 +126,19 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       tableNo: incoming.tableNo,
       invoiceNo: incoming.invoiceNo,
       itemCode: incoming.itemCode,
+      payload: incoming.payload,
       read: incoming.read ?? false,
     };
 
     const existing = get().notifications.find((item) => item.id === notification.id);
     if (existing) return;
 
-    const notifications = [notification, ...get().notifications].slice(0, MAX_STORED_NOTIFICATIONS);
+    // Item availability is a live state, not a history feed. Keep exactly one
+    // latest IT message; its full current list is fetched separately from SQL.
+    const previous = notification.notificationType.toUpperCase() === 'IT'
+      ? get().notifications.filter((item) => item.notificationType.toUpperCase() !== 'IT')
+      : get().notifications;
+    const notifications = [notification, ...previous].slice(0, MAX_STORED_NOTIFICATIONS);
     persistNotifications(notifications);
     set({ notifications, activeToastId: notification.id });
   },
@@ -133,7 +158,11 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   },
 
   removeNotification: (id) => {
-    const notifications = get().notifications.filter((notification) => notification.id !== id);
+    const removed = get().notifications.find((notification) => notification.id === id);
+    const removedItemUpdate = removed?.notificationType.toUpperCase() === 'IT';
+    const notifications = get().notifications.filter((notification) =>
+      removedItemUpdate ? notification.notificationType.toUpperCase() !== 'IT' : notification.id !== id,
+    );
     persistNotifications(notifications);
     set({
       notifications,

@@ -1,6 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Animated,
   Modal,
   PanResponder,
@@ -15,24 +18,33 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-type ColumnId = 'todo' | 'processing' | 'done';
+import { apiClient } from '../../services/api';
 
-type KitchenItem = {
-  id: string;
-  name: string;
-  quantity: number;
-  status: ColumnId;
-  remark?: string;
-};
+type KdsStatus = 'S' | 'P' | 'D';
 
-type KitchenOrder = {
+type KdsItem = {
   id: string;
   orderNo: string;
+  orderMode: string;
+  type: string;
   tableNo: string;
   invoiceNo: string;
-  orderType: 'DINE IN' | 'TAKE AWAY';
-  placedAt: string;
-  items: KitchenItem[];
+  itemCode: string;
+  itemName: string;
+  quantity: number;
+  remarks: string;
+  status: KdsStatus;
+  placedTime: string | null;
+};
+
+type KdsOrderGroup = {
+  id: string;
+  orderNo: string;
+  orderMode: string;
+  tableNo: string;
+  invoiceNo: string;
+  placedTime: string | null;
+  items: KdsItem[];
 };
 
 const COLORS = {
@@ -46,139 +58,164 @@ const COLORS = {
   todo: '#E9963C',
   processing: '#287EC1',
   done: '#2B9662',
-  danger: '#D85A52',
   white: '#FFFFFF',
+  danger: '#D85A52',
 };
 
-const COLUMNS: { id: ColumnId; title: string; color: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { id: 'todo', title: 'TO DO', color: COLORS.todo, icon: 'time-outline' },
-  { id: 'processing', title: 'PROCESSING', color: COLORS.processing, icon: 'flame-outline' },
-  { id: 'done', title: 'DONE', color: COLORS.done, icon: 'checkmark-circle-outline' },
+const COLUMNS: { id: KdsStatus; title: string; color: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { id: 'S', title: 'TO DO', color: COLORS.todo, icon: 'time-outline' },
+  { id: 'P', title: 'PROCESSING', color: COLORS.processing, icon: 'flame-outline' },
+  { id: 'D', title: 'DONE', color: COLORS.done, icon: 'checkmark-circle-outline' },
 ];
 
-const INITIAL_ORDERS: KitchenOrder[] = [
-  {
-    id: 'order-105', orderNo: '#105', tableNo: '12', invoiceNo: 'INV-20261011-105', orderType: 'DINE IN', placedAt: '2 min',
-    items: [
-      { id: '105-rice', name: 'Chicken Fried Rice', quantity: 2, status: 'todo', remark: 'Less spicy' },
-      { id: '105-fries', name: 'French Fries', quantity: 2, status: 'todo' },
-      { id: '105-coke', name: 'Coke', quantity: 1, status: 'todo' },
-    ],
-  },
-  {
-    id: 'order-106', orderNo: '#106', tableNo: '07', invoiceNo: 'INV-20261011-106', orderType: 'DINE IN', placedAt: '4 min',
-    items: [
-      { id: '106-burger', name: 'Classic Chicken Burger', quantity: 1, status: 'processing', remark: 'No onions' },
-      { id: '106-water', name: 'Mineral Water', quantity: 2, status: 'todo' },
-    ],
-  },
-  {
-    id: 'order-107', orderNo: '#107', tableNo: 'TA', invoiceNo: 'INV-20261011-107', orderType: 'TAKE AWAY', placedAt: '8 min',
-    items: [
-      { id: '107-pizza', name: 'Margherita Pizza', quantity: 1, status: 'done' },
-      { id: '107-cola', name: 'Coca Cola 1L', quantity: 1, status: 'done' },
-    ],
-  },
-];
+const statusFromValue = (value: unknown): KdsStatus => {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  if (normalized === 'P' || normalized === 'D') return normalized;
+  return 'S';
+};
 
-const getColumnForScreenX = (x: number, screenWidth: number): ColumnId => {
-  const index = Math.max(0, Math.min(2, Math.floor(x / (screenWidth / 3))));
+const typeLabel = (value: string) => {
+  const type = String(value ?? '').trim().toUpperCase();
+  if (type === 'K' || type === 'KT' || type === 'KOT') return 'KOT';
+  if (type === 'B' || type === 'BT' || type === 'BOT') return 'BOT';
+  return type || 'KOT';
+};
+
+const relativeTime = (value: string | null) => {
+  if (!value) return 'New';
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return 'New';
+  const minutes = Math.max(0, Math.floor((Date.now() - time) / 60000));
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h ${minutes % 60}m` : `${Math.floor(hours / 24)}d`;
+};
+
+const asKdsItem = (row: any, rowIndex: number): KdsItem | null => {
+  const orderNo = String(row?.orderNo ?? row?.OrderNo ?? '').trim();
+  const itemCode = String(row?.itemCode ?? row?.ItemCode ?? '').trim();
+  const type = String(row?.type ?? row?.KOTBOTType ?? row?.Type ?? '').trim();
+  if (!orderNo || !itemCode || !type) return null;
+  const tableNo = String(row?.tableNo ?? row?.TableNo ?? '').trim();
+  const invoiceNo = String(row?.invoiceNo ?? row?.InvoiceNo ?? '').trim();
+  return {
+    // Vw_KOTBOTHder can contain repeated identical source rows when its menu
+    // assignment join has more than one match. Keep the rendered key unique
+    // even before the backend refresh removes exact duplicate projection rows.
+    id: `${orderNo}|${itemCode}|${type}|${tableNo}|${invoiceNo}|${rowIndex}`,
+    orderNo,
+    orderMode: String(row?.orderMode ?? row?.OrderMode ?? '').trim(),
+    type,
+    tableNo,
+    invoiceNo,
+    itemCode,
+    itemName: String(row?.itemName ?? row?.MenuItmDes ?? itemCode).trim(),
+    quantity: Number(row?.quantity ?? row?.ItmQty ?? 0) || 0,
+    remarks: String(row?.remarks ?? row?.ItmRmks ?? '').trim(),
+    status: statusFromValue(row?.status ?? row?.ProStatus),
+    placedTime: row?.placedTime ?? row?.PlacedTime ?? null,
+  };
+};
+
+const columnForScreenX = (screenX: number, screenWidth: number): KdsStatus => {
+  const index = Math.max(0, Math.min(2, Math.floor(screenX / (screenWidth / 3))));
   return COLUMNS[index].id;
 };
 
 type DraggableItemProps = {
-  item: KitchenItem;
+  item: KdsItem;
   screenWidth: number;
-  unavailable: boolean;
-  onTargetChange: (target: ColumnId | null) => void;
-  onDrop: (itemId: string, target: ColumnId) => void;
+  disabled: boolean;
+  onTargetChange: (target: KdsStatus | null) => void;
+  onDrop: (item: KdsItem, target: KdsStatus) => void;
 };
 
-function DraggableItem({ item, screenWidth, unavailable, onTargetChange, onDrop }: DraggableItemProps) {
+function DraggableItem({ item, screenWidth, disabled, onTargetChange, onDrop }: DraggableItemProps) {
   const pan = useRef(new Animated.ValueXY()).current;
-  const dragging = useRef(false);
 
-  const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_event, gesture) =>
-      Math.abs(gesture.dx) > 7 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
-    onPanResponderGrant: () => {
-      dragging.current = true;
-      onTargetChange(item.status);
-    },
+  const responder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_event, gesture) => !disabled
+      && Math.abs(gesture.dx) > 7
+      && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+    onPanResponderGrant: () => onTargetChange(item.status),
     onPanResponderMove: (_event, gesture) => {
-      pan.setValue({ x: gesture.dx, y: gesture.dy * 0.16 });
-      onTargetChange(getColumnForScreenX(gesture.moveX, screenWidth));
+      pan.setValue({ x: gesture.dx, y: gesture.dy * 0.15 });
+      onTargetChange(columnForScreenX(gesture.moveX, screenWidth));
     },
     onPanResponderRelease: (_event, gesture) => {
-      const target = getColumnForScreenX(gesture.moveX, screenWidth);
-      dragging.current = false;
+      const target = columnForScreenX(gesture.moveX, screenWidth);
       onTargetChange(null);
       Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 7 }).start();
-      onDrop(item.id, target);
+      onDrop(item, target);
     },
     onPanResponderTerminate: () => {
-      dragging.current = false;
       onTargetChange(null);
       Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 7 }).start();
     },
-  }), [item.id, item.status, onDrop, onTargetChange, pan, screenWidth]);
+  }), [disabled, item, onDrop, onTargetChange, pan, screenWidth]);
 
   return (
     <Animated.View
-      {...panResponder.panHandlers}
-      style={[
-        styles.itemRow,
-        unavailable && styles.unavailableItemRow,
-        { transform: pan.getTranslateTransform() },
-      ]}
+      {...responder.panHandlers}
+      style={[styles.itemRow, disabled && styles.itemRowUpdating, { transform: pan.getTranslateTransform() }]}
     >
-      <View style={styles.qtyPill}>
-        <Text style={styles.qtyText}>{item.quantity}×</Text>
-      </View>
+      <View style={styles.qtyPill}><Text style={styles.qtyText}>{item.quantity}×</Text></View>
       <View style={styles.itemCopy}>
-        <Text style={[styles.itemName, unavailable && styles.unavailableItemName]} numberOfLines={2}>{item.name}</Text>
-        {item.remark ? <Text style={styles.itemRemark} numberOfLines={1}>{item.remark}</Text> : null}
+        <Text style={styles.itemName} numberOfLines={2}>{item.itemName}</Text>
+        <View style={styles.itemSubRow}>
+          <Text style={styles.itemCode}>{item.itemCode}</Text>
+          <View style={styles.typeBadge}><Text style={styles.typeBadgeText}>{typeLabel(item.type)}</Text></View>
+        </View>
+        {item.remarks ? <Text style={styles.itemRemark} numberOfLines={2}>{item.remarks}</Text> : null}
       </View>
-      <Ionicons name="reorder-three-outline" size={20} color="#9AAABA" />
+      {disabled ? <ActivityIndicator size="small" color={COLORS.blue} /> : <Ionicons name="reorder-three-outline" size={20} color="#9AAABA" />}
     </Animated.View>
   );
 }
 
 type OrderGroupProps = {
-  order: KitchenOrder;
-  items: KitchenItem[];
+  order: KdsOrderGroup;
   screenWidth: number;
-  unavailableIds: string[];
-  onTargetChange: (target: ColumnId | null) => void;
-  onDrop: (itemId: string, target: ColumnId) => void;
+  updatingItemId: string | null;
+  onTargetChange: (target: KdsStatus | null) => void;
+  onDrop: (item: KdsItem, target: KdsStatus) => void;
+  onShowDetails: (order: KdsOrderGroup) => void;
 };
 
-function OrderGroup({ order, items, screenWidth, unavailableIds, onTargetChange, onDrop }: OrderGroupProps) {
+function OrderGroup({ order, screenWidth, updatingItemId, onTargetChange, onDrop, onShowDetails }: OrderGroupProps) {
+  const takeAway = order.orderMode.toUpperCase().includes('TAKE') || order.tableNo.toUpperCase().startsWith('TA');
   return (
     <View style={styles.orderCard}>
-      <View style={styles.orderHeader}>
-        <View>
+      <TouchableOpacity
+        style={styles.orderHeader}
+        onPress={() => onShowDetails(order)}
+        activeOpacity={0.78}
+        accessibilityRole="button"
+        accessibilityLabel={`Show details for order ${order.orderNo}`}
+      >
+        <View style={styles.orderCopy}>
           <Text style={styles.orderNo}>ORDER {order.orderNo}</Text>
-          <Text style={styles.invoiceNo} numberOfLines={1}>{order.invoiceNo}</Text>
+          {order.invoiceNo ? <Text style={styles.invoiceNo} numberOfLines={1}>INV {order.invoiceNo}</Text> : null}
+          <Text style={styles.tapDetails}>Tap for order details</Text>
         </View>
         <View style={styles.tableBadge}>
-          <Text style={styles.tableLabel}>{order.orderType === 'TAKE AWAY' ? 'TAKE AWAY' : 'TABLE'}</Text>
-          <Text style={styles.tableNumber}>{order.tableNo}</Text>
+          <Text style={styles.tableLabel}>{takeAway ? 'TAKE AWAY' : 'TABLE'}</Text>
+          <Text style={styles.tableNumber} numberOfLines={1}>{order.tableNo || '—'}</Text>
         </View>
-      </View>
+      </TouchableOpacity>
       <View style={styles.orderMeta}>
         <Ionicons name="time-outline" size={12} color={COLORS.textMuted} />
-        <Text style={styles.orderMetaText}>{order.placedAt} ago</Text>
-        <View style={styles.orderDot} />
-        <Text style={styles.orderMetaText}>{items.length} item{items.length === 1 ? '' : 's'} in this stage</Text>
+        <Text style={styles.orderMetaText}>{relativeTime(order.placedTime)} ago</Text>
+        {order.orderMode ? <><View style={styles.orderDot} /><Text style={styles.orderMetaText}>{order.orderMode}</Text></> : null}
       </View>
       <View style={styles.itemsList}>
-        {items.map((item) => (
+        {order.items.map((item) => (
           <DraggableItem
             key={item.id}
             item={item}
             screenWidth={screenWidth}
-            unavailable={unavailableIds.includes(item.name)}
+            disabled={updatingItemId === item.id}
             onTargetChange={onTargetChange}
             onDrop={onDrop}
           />
@@ -189,100 +226,172 @@ function OrderGroup({ order, items, screenWidth, unavailableIds, onTargetChange,
 }
 
 export default function KDSHomeScreen() {
-  const { width } = useWindowDimensions();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [orders, setOrders] = useState<KitchenOrder[]>(INITIAL_ORDERS);
-  const [dragTarget, setDragTarget] = useState<ColumnId | null>(null);
-  const [unavailableVisible, setUnavailableVisible] = useState(false);
-  const [unavailableIds, setUnavailableIds] = useState<string[]>([]);
+  const { width } = useWindowDimensions();
+  const [items, setItems] = useState<KdsItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [dragTarget, setDragTarget] = useState<KdsStatus | null>(null);
+  const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
+  const [selectedOrderKey, setSelectedOrderKey] = useState<string | null>(null);
 
-  const unavailableOptions = useMemo(
-    () => [...new Set(orders.flatMap((order) => order.items.map((item) => item.name)))].sort(),
-    [orders],
-  );
+  const loadOrders = useCallback(async (silent = false) => {
+    if (silent) setIsRefreshing(true);
+    else setIsLoading(true);
+    try {
+      const response = await apiClient.getKdsOrders();
+      if (!response.ok || !response.data?.ok) {
+        throw new Error(response.data?.message || 'Unable to load the kitchen queue.');
+      }
+      const nextItems = (Array.isArray(response.data.items) ? response.data.items : [])
+        .map(asKdsItem)
+        .filter((item: KdsItem | null): item is KdsItem => Boolean(item));
+      setItems(nextItems);
+    } catch (error) {
+      console.log('[KDS] load failed', error);
+      if (!silent) Alert.alert('Kitchen queue unavailable', error instanceof Error ? error.message : 'Please check the connection and try again.');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, []);
 
-  const moveItem = (itemId: string, target: ColumnId) => {
-    setOrders((current) => current.map((order) => ({
-      ...order,
-      items: order.items.map((item) => item.id === itemId ? { ...item, status: target } : item),
-    })));
+  useEffect(() => {
+    void loadOrders();
+    const timer = setInterval(() => void loadOrders(true), 5000);
+    return () => clearInterval(timer);
+  }, [loadOrders]);
+
+  const dropItem = async (item: KdsItem, target: KdsStatus) => {
+    if (target === item.status || updatingItemId) return;
+    const before = items;
+    setUpdatingItemId(item.id);
+    setItems((current) => current.map((value) => value.id === item.id ? { ...value, status: target } : value));
+    try {
+      const response = await apiClient.updateKdsOrderItemStatus({
+        orderNo: item.orderNo,
+        itemCode: item.itemCode,
+        type: item.type,
+        tableNo: item.tableNo,
+        invoiceNo: item.invoiceNo,
+        status: target,
+      });
+      if (!response.ok || !response.data?.ok) {
+        throw new Error(response.data?.message || 'The kitchen status was not saved.');
+      }
+    } catch (error) {
+      console.log('[KDS] status update failed', error);
+      setItems(before);
+      Alert.alert('Status not saved', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setUpdatingItemId(null);
+    }
   };
 
-  const toggleUnavailable = (itemName: string) => {
-    setUnavailableIds((current) => current.includes(itemName)
-      ? current.filter((value) => value !== itemName)
-      : [...current, itemName]);
+  const groupsFor = (status: KdsStatus): KdsOrderGroup[] => {
+    const groups = new Map<string, KdsOrderGroup>();
+    items.filter((item) => item.status === status).forEach((item) => {
+      const key = `${item.orderNo}|${item.tableNo}|${item.invoiceNo}`;
+      const group = groups.get(key);
+      if (group) {
+        group.items.push(item);
+      } else {
+        groups.set(key, {
+          id: key,
+          orderNo: item.orderNo,
+          orderMode: item.orderMode,
+          tableNo: item.tableNo,
+          invoiceNo: item.invoiceNo,
+          placedTime: item.placedTime,
+          items: [item],
+        });
+      }
+    });
+    return [...groups.values()];
   };
 
-  const groupedOrdersForColumn = (columnId: ColumnId) => orders
-    .map((order) => ({ ...order, items: order.items.filter((item) => item.status === columnId) }))
-    .filter((order) => order.items.length > 0);
+  const selectedOrder = useMemo(() => {
+    if (!selectedOrderKey) return null;
+    const selectedItems = items.filter((item) => `${item.orderNo}|${item.tableNo}|${item.invoiceNo}` === selectedOrderKey);
+    if (selectedItems.length === 0) return null;
+    const first = selectedItems[0];
+    return {
+      id: selectedOrderKey,
+      orderNo: first.orderNo,
+      orderMode: first.orderMode,
+      tableNo: first.tableNo,
+      invoiceNo: first.invoiceNo,
+      placedTime: first.placedTime,
+      items: selectedItems,
+    } as KdsOrderGroup;
+  }, [items, selectedOrderKey]);
 
   return (
     <SafeAreaView style={styles.screen}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.navy} />
-
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 10) }]}>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerEyebrow}>KITCHEN CONTROL</Text>
+          <Text style={styles.headerEyebrow}>LIVE KOT / BOT QUEUE</Text>
           <Text style={styles.headerTitle}>Kitchen Display</Text>
-          <Text style={styles.headerSub}>Touch, hold and drag each item to update its stage.</Text>
+          <Text style={styles.headerSub}>S = To Do · P = Processing · D = Done</Text>
         </View>
         <TouchableOpacity
-          style={styles.unavailableButton}
-          onPress={() => setUnavailableVisible(true)}
+          style={styles.refreshButton}
+          onPress={() => void loadOrders(true)}
+          disabled={isRefreshing || isLoading}
           accessibilityRole="button"
-          accessibilityLabel="Manage unavailable items"
+          accessibilityLabel="Refresh kitchen orders"
         >
-          <Ionicons name="basket-outline" size={24} color={COLORS.white} />
-          {unavailableIds.length > 0 ? <View style={styles.unavailableCount}><Text style={styles.unavailableCountText}>{unavailableIds.length}</Text></View> : null}
+          <Ionicons name="refresh" size={20} color={COLORS.white} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.unavailableButton}
+          onPress={() => router.push('/Screens/kds-unavailable')}
+          accessibilityRole="button"
+          accessibilityLabel="Open unavailable items"
+        >
+          <Ionicons name="close-circle-outline" size={18} color={COLORS.white} />
+          <Text style={styles.unavailableButtonText}>Unavailable</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.boardHint}>
         <Ionicons name="information-circle-outline" size={15} color={COLORS.blue} />
-        <Text style={styles.boardHintText}>Drag an individual item — the rest of the order stays where it is.</Text>
+        <Text style={styles.boardHintText}>Tap an order header for quantities and remarks. Drag an item to update its kitchen stage.</Text>
       </View>
 
       <View style={styles.board}>
         {COLUMNS.map((column) => {
-          const orderGroups = groupedOrdersForColumn(column.id);
-          const itemCount = orderGroups.reduce((count, order) => count + order.items.length, 0);
-          const isDropTarget = dragTarget === column.id;
+          const groups = groupsFor(column.id);
+          const itemCount = groups.reduce((total, group) => total + group.items.length, 0);
+          const isTarget = dragTarget === column.id;
           return (
-            <View key={column.id} style={[styles.column, isDropTarget && { borderColor: column.color, backgroundColor: `${column.color}12` }]}>
+            <View key={column.id} style={[styles.column, isTarget && { borderColor: column.color, backgroundColor: `${column.color}12` }]}>
               <View style={[styles.columnHeader, { borderBottomColor: `${column.color}45` }]}>
-                <View style={[styles.columnIcon, { backgroundColor: `${column.color}20` }]}>
-                  <Ionicons name={column.icon} size={16} color={column.color} />
-                </View>
+                <View style={[styles.columnIcon, { backgroundColor: `${column.color}20` }]}><Ionicons name={column.icon} size={16} color={column.color} /></View>
                 <Text style={[styles.columnTitle, { color: column.color }]}>{column.title}</Text>
-                <View style={[styles.columnCount, { backgroundColor: column.color }]}>
-                  <Text style={styles.columnCountText}>{itemCount}</Text>
-                </View>
+                <View style={[styles.columnCount, { backgroundColor: column.color }]}><Text style={styles.columnCountText}>{itemCount}</Text></View>
               </View>
-              <ScrollView
-                style={styles.columnScroll}
-                contentContainerStyle={styles.columnContent}
-                showsVerticalScrollIndicator={false}
-                nestedScrollEnabled
-              >
-                {orderGroups.length === 0 ? (
-                  <View style={styles.emptyColumn}>
-                    <Ionicons name="restaurant-outline" size={22} color="#B9C7D1" />
-                    <Text style={styles.emptyColumnText}>No items</Text>
-                  </View>
-                ) : orderGroups.map((order) => (
-                  <OrderGroup
-                    key={`${column.id}-${order.id}`}
-                    order={order}
-                    items={order.items}
-                    screenWidth={width}
-                    unavailableIds={unavailableIds}
-                    onTargetChange={setDragTarget}
-                    onDrop={moveItem}
-                  />
-                ))}
-              </ScrollView>
+              {isLoading && items.length === 0 ? (
+                <View style={styles.loadingColumn}><ActivityIndicator color={column.color} /><Text style={styles.emptyColumnText}>Loading…</Text></View>
+              ) : (
+                <ScrollView style={styles.columnScroll} contentContainerStyle={styles.columnContent} showsVerticalScrollIndicator={false} nestedScrollEnabled>
+                  {groups.length === 0 ? (
+                    <View style={styles.emptyColumn}><Ionicons name="restaurant-outline" size={22} color="#B9C7D1" /><Text style={styles.emptyColumnText}>No items</Text></View>
+                  ) : groups.map((order) => (
+                    <OrderGroup
+                      key={`${column.id}-${order.id}`}
+                      order={order}
+                      screenWidth={width}
+                      updatingItemId={updatingItemId}
+                      onTargetChange={setDragTarget}
+                      onDrop={(item, target) => void dropItem(item, target)}
+                      onShowDetails={(order) => setSelectedOrderKey(order.id)}
+                    />
+                  ))}
+                </ScrollView>
+              )}
             </View>
           );
         })}
@@ -290,38 +399,44 @@ export default function KDSHomeScreen() {
 
       <Modal
         transparent
-        animationType="fade"
-        visible={unavailableVisible}
-        onRequestClose={() => setUnavailableVisible(false)}
+        animationType="slide"
+        visible={Boolean(selectedOrder)}
+        onRequestClose={() => setSelectedOrderKey(null)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.unavailableModal}>
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>Today’s unavailable items</Text>
-                <Text style={styles.modalSubtitle}>Mark items the kitchen cannot prepare today.</Text>
+        <View style={styles.detailsOverlay}>
+          <View style={styles.detailsSheet}>
+            <View style={styles.detailsHeader}>
+              <View style={styles.detailsHeaderCopy}>
+                <Text style={styles.detailsEyebrow}>KITCHEN ORDER DETAILS</Text>
+                <Text style={styles.detailsTitle}>Order {selectedOrder?.orderNo}</Text>
+                <Text style={styles.detailsSubtitle}>
+                  {selectedOrder?.tableNo ? `Table ${selectedOrder.tableNo}` : 'Table not set'}
+                  {selectedOrder?.invoiceNo ? `  ·  INV ${selectedOrder.invoiceNo}` : ''}
+                </Text>
               </View>
-              <TouchableOpacity style={styles.closeModal} onPress={() => setUnavailableVisible(false)}>
-                <Ionicons name="close" size={20} color={COLORS.navy} />
+              <TouchableOpacity style={styles.closeDetails} onPress={() => setSelectedOrderKey(null)} accessibilityLabel="Close order details">
+                <Ionicons name="close" size={21} color={COLORS.navy} />
               </TouchableOpacity>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.unavailableList}>
-              {unavailableOptions.map((itemName) => {
-                const unavailable = unavailableIds.includes(itemName);
+            <Text style={styles.detailsHint}>Item quantity, KOT/BOT type, current status and remarks</Text>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailsList}>
+              {selectedOrder?.items.map((item) => {
+                const column = COLUMNS.find((value) => value.id === item.status);
                 return (
-                  <TouchableOpacity key={itemName} style={styles.unavailableRow} onPress={() => toggleUnavailable(itemName)} activeOpacity={0.8}>
-                    <View style={[styles.availabilityIcon, unavailable && styles.availabilityIconOff]}>
-                      <Ionicons name={unavailable ? 'close' : 'checkmark'} size={17} color={unavailable ? COLORS.white : COLORS.done} />
+                  <View key={item.id} style={styles.detailsItem}>
+                    <View style={styles.detailsQty}><Text style={styles.detailsQtyText}>{item.quantity}×</Text></View>
+                    <View style={styles.detailsItemCopy}>
+                      <Text style={styles.detailsItemName}>{item.itemName}</Text>
+                      <Text style={styles.detailsItemCode}>{item.itemCode}  ·  {typeLabel(item.type)}</Text>
+                      {item.remarks ? <Text style={styles.detailsItemRemark}>Remark: {item.remarks}</Text> : <Text style={styles.detailsNoRemark}>No remark</Text>}
                     </View>
-                    <Text style={styles.unavailableName}>{itemName}</Text>
-                    <Text style={[styles.availabilityText, unavailable && styles.availabilityTextOff]}>{unavailable ? 'Unavailable' : 'Available'}</Text>
-                  </TouchableOpacity>
+                    <View style={[styles.detailsStatus, { backgroundColor: `${column?.color ?? COLORS.todo}20` }]}>
+                      <Text style={[styles.detailsStatusText, { color: column?.color ?? COLORS.todo }]}>{column?.title ?? 'TO DO'}</Text>
+                    </View>
+                  </View>
                 );
               })}
             </ScrollView>
-            <TouchableOpacity style={styles.doneButton} onPress={() => setUnavailableVisible(false)}>
-              <Text style={styles.doneButtonText}>Done</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -331,59 +446,70 @@ export default function KDSHomeScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
-  header: { minHeight: 112, paddingHorizontal: 17, paddingBottom: 17, flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.navy },
-  headerCopy: { flex: 1, paddingRight: 12 },
-  headerEyebrow: { color: '#8FB8D7', fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
-  headerTitle: { color: COLORS.white, fontSize: 24, fontWeight: '800', marginTop: 3 },
-  headerSub: { color: 'rgba(255,255,255,0.68)', fontSize: 11, lineHeight: 16, marginTop: 3 },
-  unavailableButton: { width: 48, height: 48, borderRadius: 15, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.13)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)' },
-  unavailableCount: { position: 'absolute', top: -5, right: -5, minWidth: 19, height: 19, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 10, backgroundColor: COLORS.danger, borderWidth: 1.5, borderColor: COLORS.navy },
-  unavailableCountText: { color: COLORS.white, fontSize: 10, fontWeight: '900' },
-  boardHint: { marginHorizontal: 12, marginTop: 10, marginBottom: 8, paddingVertical: 8, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 10, backgroundColor: COLORS.blueSoft },
+  header: { minHeight: 112, paddingHorizontal: 14, paddingBottom: 17, flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.navy },
+  headerCopy: { flex: 1, minWidth: 0, paddingRight: 7 },
+  headerEyebrow: { color: '#8FB8D7', fontSize: 9, fontWeight: '900', letterSpacing: 0.9 },
+  headerTitle: { color: COLORS.white, fontSize: 22, fontWeight: '900', marginTop: 3 },
+  headerSub: { color: 'rgba(255,255,255,0.68)', fontSize: 10, lineHeight: 15, marginTop: 3 },
+  refreshButton: { width: 40, height: 40, marginRight: 7, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.13)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)' },
+  unavailableButton: { minHeight: 40, paddingHorizontal: 9, gap: 4, borderRadius: 13, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.13)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)' },
+  unavailableButtonText: { color: COLORS.white, fontSize: 9, fontWeight: '900' },
+  boardHint: { marginHorizontal: 10, marginTop: 9, marginBottom: 7, paddingVertical: 8, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 10, backgroundColor: COLORS.blueSoft },
   boardHintText: { flex: 1, color: '#35627F', fontSize: 10, lineHeight: 14 },
-  board: { flex: 1, flexDirection: 'row', gap: 7, paddingHorizontal: 8, paddingBottom: 8 },
-  column: { flex: 1, minWidth: 0, overflow: 'hidden', borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, backgroundColor: '#F8FAFB' },
+  board: { flex: 1, flexDirection: 'row', gap: 7, paddingHorizontal: 7, paddingBottom: 7 },
+  column: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, backgroundColor: '#F8FAFB' },
   columnHeader: { minHeight: 49, paddingHorizontal: 7, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1 },
   columnIcon: { width: 27, height: 27, justifyContent: 'center', alignItems: 'center', borderRadius: 9, marginRight: 5 },
-  columnTitle: { flex: 1, fontSize: 10, fontWeight: '900', letterSpacing: 0.2 },
+  columnTitle: { flex: 1, fontSize: 10, fontWeight: '900', letterSpacing: 0.15 },
   columnCount: { minWidth: 21, height: 21, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 11 },
   columnCountText: { color: COLORS.white, fontSize: 10, fontWeight: '900' },
   columnScroll: { flex: 1 },
   columnContent: { padding: 5, gap: 7, paddingBottom: 20 },
+  loadingColumn: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 7 },
   emptyColumn: { alignItems: 'center', paddingTop: 28, paddingHorizontal: 4 },
-  emptyColumnText: { color: '#9AAABA', fontSize: 10, fontWeight: '700', marginTop: 5 },
-  orderCard: { overflow: 'visible', borderRadius: 11, backgroundColor: COLORS.white, borderWidth: 1, borderColor: '#E0E8EE', shadowColor: '#002748', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 4, elevation: 2 },
+  emptyColumnText: { color: '#9AAABA', fontSize: 10, fontWeight: '700', marginTop: 5, textAlign: 'center' },
+  orderCard: { borderRadius: 11, backgroundColor: COLORS.white, borderWidth: 1, borderColor: '#E0E8EE', shadowColor: '#002748', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 4, elevation: 2 },
   orderHeader: { minHeight: 51, paddingVertical: 7, paddingLeft: 8, paddingRight: 5, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#EDF2F5' },
+  orderCopy: { flex: 1, minWidth: 0 },
   orderNo: { color: COLORS.navy, fontSize: 11, fontWeight: '900' },
-  invoiceNo: { maxWidth: 80, color: COLORS.textMuted, fontSize: 8, fontWeight: '600', marginTop: 2 },
-  tableBadge: { minWidth: 39, minHeight: 38, marginLeft: 'auto', paddingHorizontal: 3, justifyContent: 'center', alignItems: 'center', borderRadius: 9, backgroundColor: COLORS.blueSoft },
-  tableLabel: { color: COLORS.textMuted, fontSize: 6, fontWeight: '900', letterSpacing: 0.3 },
-  tableNumber: { color: COLORS.navy, fontSize: 17, fontWeight: '900', marginTop: 1 },
+  invoiceNo: { color: COLORS.textMuted, fontSize: 8, fontWeight: '600', marginTop: 2 },
+  tapDetails: { color: COLORS.blue, fontSize: 7, fontWeight: '800', marginTop: 2 },
+  tableBadge: { minWidth: 39, minHeight: 38, marginLeft: 5, paddingHorizontal: 3, justifyContent: 'center', alignItems: 'center', borderRadius: 9, backgroundColor: COLORS.blueSoft },
+  tableLabel: { color: COLORS.textMuted, fontSize: 6, fontWeight: '900', letterSpacing: 0.25 },
+  tableNumber: { maxWidth: 55, color: COLORS.navy, fontSize: 15, fontWeight: '900', marginTop: 1 },
   orderMeta: { paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
   orderMetaText: { color: COLORS.textMuted, fontSize: 8, fontWeight: '600' },
   orderDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#A9B8C4', marginHorizontal: 2 },
   itemsList: { borderTopWidth: 1, borderTopColor: '#EDF2F5' },
-  itemRow: { minHeight: 49, paddingHorizontal: 7, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#F0F4F6', zIndex: 5 },
-  unavailableItemRow: { backgroundColor: '#FFF5F4' },
+  itemRow: { minHeight: 55, paddingHorizontal: 7, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#F0F4F6' },
+  itemRowUpdating: { opacity: 0.58 },
   qtyPill: { minWidth: 27, height: 27, paddingHorizontal: 3, justifyContent: 'center', alignItems: 'center', borderRadius: 8, backgroundColor: '#EDF4F8' },
   qtyText: { color: COLORS.blue, fontSize: 11, fontWeight: '900' },
   itemCopy: { flex: 1, minWidth: 0 },
   itemName: { color: COLORS.text, fontSize: 10, lineHeight: 13, fontWeight: '800' },
-  unavailableItemName: { color: COLORS.danger, textDecorationLine: 'line-through' },
-  itemRemark: { color: '#A26B32', fontSize: 8, fontWeight: '600', marginTop: 1 },
-  modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.48)' },
-  unavailableModal: { maxHeight: '76%', padding: 18, borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: COLORS.white },
-  modalHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14 },
-  modalTitle: { color: COLORS.navy, fontSize: 19, fontWeight: '900' },
-  modalSubtitle: { color: COLORS.textMuted, fontSize: 12, lineHeight: 18, marginTop: 4 },
-  closeModal: { width: 34, height: 34, marginLeft: 10, justifyContent: 'center', alignItems: 'center', borderRadius: 12, backgroundColor: '#EEF3F6' },
-  unavailableList: { gap: 8, paddingBottom: 14 },
-  unavailableRow: { minHeight: 57, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#E1E9EE', borderRadius: 13 },
-  availabilityIcon: { width: 28, height: 28, marginRight: 10, justifyContent: 'center', alignItems: 'center', borderRadius: 9, backgroundColor: '#ECF8F0' },
-  availabilityIconOff: { backgroundColor: COLORS.danger },
-  unavailableName: { flex: 1, color: COLORS.text, fontSize: 14, fontWeight: '700' },
-  availabilityText: { color: COLORS.done, fontSize: 11, fontWeight: '800' },
-  availabilityTextOff: { color: COLORS.danger },
-  doneButton: { minHeight: 52, justifyContent: 'center', alignItems: 'center', borderRadius: 14, backgroundColor: COLORS.navy },
-  doneButtonText: { color: COLORS.white, fontSize: 15, fontWeight: '800' },
+  itemSubRow: { marginTop: 2, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  itemCode: { color: COLORS.textMuted, fontSize: 8, fontWeight: '700' },
+  typeBadge: { paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, backgroundColor: '#E8F2F7' },
+  typeBadgeText: { color: '#35627F', fontSize: 7, fontWeight: '900' },
+  itemRemark: { color: '#A26B32', fontSize: 8, lineHeight: 11, fontWeight: '600', marginTop: 2 },
+  detailsOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
+  detailsSheet: { maxHeight: '78%', padding: 18, borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: COLORS.white },
+  detailsHeader: { flexDirection: 'row', alignItems: 'flex-start' },
+  detailsHeaderCopy: { flex: 1, minWidth: 0 },
+  detailsEyebrow: { color: COLORS.blue, fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
+  detailsTitle: { color: COLORS.navy, fontSize: 22, fontWeight: '900', marginTop: 2 },
+  detailsSubtitle: { color: COLORS.textMuted, fontSize: 11, fontWeight: '700', marginTop: 3 },
+  closeDetails: { width: 36, height: 36, marginLeft: 10, justifyContent: 'center', alignItems: 'center', borderRadius: 12, backgroundColor: '#EEF3F6' },
+  detailsHint: { color: COLORS.textMuted, fontSize: 11, marginTop: 14, marginBottom: 8 },
+  detailsList: { gap: 8, paddingBottom: 16 },
+  detailsItem: { minHeight: 69, padding: 10, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#E0E9EE', borderRadius: 13, backgroundColor: '#FBFDFE' },
+  detailsQty: { width: 38, height: 38, marginRight: 10, justifyContent: 'center', alignItems: 'center', borderRadius: 11, backgroundColor: '#E6F2FA' },
+  detailsQtyText: { color: COLORS.blue, fontSize: 13, fontWeight: '900' },
+  detailsItemCopy: { flex: 1, minWidth: 0, paddingRight: 5 },
+  detailsItemName: { color: COLORS.text, fontSize: 13, fontWeight: '900' },
+  detailsItemCode: { color: COLORS.textMuted, fontSize: 10, fontWeight: '700', marginTop: 2 },
+  detailsItemRemark: { color: '#A26B32', fontSize: 10, lineHeight: 14, fontWeight: '700', marginTop: 4 },
+  detailsNoRemark: { color: '#94A3B8', fontSize: 10, marginTop: 4 },
+  detailsStatus: { maxWidth: 70, paddingHorizontal: 6, paddingVertical: 5, borderRadius: 7 },
+  detailsStatusText: { fontSize: 8, fontWeight: '900', textAlign: 'center' },
 });

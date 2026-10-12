@@ -5,12 +5,12 @@ import { AppState, AppStateStatus, Platform, Vibration } from 'react-native';
 import { apiClient } from '../services/api';
 import { useAuthStore } from '../services/authStore';
 import { getUniqueDeviceId } from '../services/deviceIdService';
-import { playForegroundNotificationSound } from '../services/notificationSound';
 import {
   AppNotificationKind,
   getLastNotificationIdKey,
   useNotificationStore,
 } from '../services/notificationStore';
+import { playForegroundNotificationSound } from '../services/notificationSound';
 import { storage } from '../services/storage';
 
 const POLL_INTERVAL_MS = 3000;
@@ -42,6 +42,28 @@ const mapKind = (value: unknown): AppNotificationKind => {
   if (type === 'kitchen-item-ready' || type === 'item-ready') return 'kitchen-item-ready';
   if (type === 'kitchen-order-ready' || type === 'order-ready') return 'kitchen-order-ready';
   return 'general';
+};
+
+const parseNotificationDetails = (row: any) => {
+  const items = Array.isArray(row?.Items)
+    ? row.Items
+      .map((item: any) => ({
+        itemId: asText(item?.ItemCode ?? item?.itemCode),
+        itemName: asText(item?.ItemName ?? item?.itemName),
+        quantity: Number(item?.Quantity ?? item?.quantity ?? 0) || undefined,
+        remarks: asText(item?.ItemRemarks ?? item?.remarks) || undefined,
+        type: asText(item?.ItemType ?? item?.type) || undefined,
+      }))
+      .filter((item: { itemId: string; itemName: string }) => item.itemId && item.itemName)
+    : undefined;
+  return {
+    kind: asText(row?.NotificationKind) || undefined,
+    status: asText(row?.StatusCode) || undefined,
+    orderNo: undefined,
+    tableNo: asText(row?.TableNo) || undefined,
+    invoiceNo: asText(row?.InvoiceNo) || undefined,
+    ...(items?.length ? { items } : {}),
+  };
 };
 
 const configureAndroidChannels = async () => {
@@ -125,6 +147,7 @@ export default function NotificationPolling() {
             tableNo: asText(row.TableNo) || undefined,
             invoiceNo: asText(row.InvoiceNo) || undefined,
             itemCode: asText(row.ItemCode) || undefined,
+            payload: parseNotificationDetails(row),
             createdAt: row.CreatedAt ? new Date(row.CreatedAt).toISOString() : new Date().toISOString(),
           });
 

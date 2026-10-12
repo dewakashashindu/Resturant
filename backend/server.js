@@ -57,16 +57,52 @@ app.get('/api/notifications', async (req, res) => {
       .input('AfterId', sql.BigInt, afterId)
       .query(`
         SELECT TOP (100)
-          NotificationId, TargetDeviceId, NotificationType, Title, Message,
-          TableNo, InvoiceNo, ItemCode, PayloadJson, CreatedAt, ExpiresAt
+          NotificationId, TargetDeviceId, NotificationType, NotificationKind,
+          StatusCode, Title, Message, TableNo, InvoiceNo, ItemCode,
+          CreatedAt, ExpiresAt
         FROM dbo.Tbl_AppNotifications WITH (NOLOCK)
-        WHERE TargetDeviceId = @DeviceId
+        WHERE (TargetDeviceId = @DeviceId OR TargetDeviceId = N'*')
           AND NotificationId > @AfterId
           AND (ExpiresAt IS NULL OR ExpiresAt > SYSDATETIME())
         ORDER BY NotificationId ASC
       `);
 
-    return res.json({ ok: true, notifications: result.recordset ?? [] });
+    const notifications = result.recordset ?? [];
+    const itemsByNotification = new Map();
+    if (notifications.length > 0) {
+      const itemRequest = pool.request();
+      const parameterNames = notifications.map((notification, index) => {
+        const name = `notificationId${index}`;
+        itemRequest.input(name, sql.BigInt, notification.NotificationId);
+        return `@${name}`;
+      });
+      const itemResult = await itemRequest.query(`
+        SELECT
+          NotificationId,
+          LTRIM(RTRIM(ItemCode)) AS ItemCode,
+          ItemName,
+          CAST(Quantity AS float) AS Quantity,
+          ItemRemarks,
+          LTRIM(RTRIM(ItemType)) AS ItemType
+        FROM dbo.Tbl_AppNotificationItems WITH (NOLOCK)
+        WHERE NotificationId IN (${parameterNames.join(', ')})
+        ORDER BY NotificationItemId ASC
+      `);
+      for (const item of itemResult.recordset ?? []) {
+        const key = String(item.NotificationId);
+        const current = itemsByNotification.get(key) ?? [];
+        current.push(item);
+        itemsByNotification.set(key, current);
+      }
+    }
+
+    return res.json({
+      ok: true,
+      notifications: notifications.map((notification) => ({
+        ...notification,
+        Items: itemsByNotification.get(String(notification.NotificationId)) ?? [],
+      })),
+    });
   } catch (error) {
     console.log('[Notifications] fetch error', error?.message ?? error);
     return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
@@ -94,12 +130,13 @@ app.post('/api/notifications', async (req, res) => {
       .input('TableNo', sql.NVarChar(50), String(req.body?.tableNo ?? '').trim() || null)
       .input('InvoiceNo', sql.NVarChar(50), String(req.body?.invoiceNo ?? '').trim() || null)
       .input('ItemCode', sql.NVarChar(50), String(req.body?.itemCode ?? '').trim() || null)
-      .input('PayloadJson', sql.NVarChar(sql.MAX), req.body?.payload ? JSON.stringify(req.body.payload) : null)
+      .input('NotificationKind', sql.NVarChar(50), String(req.body?.notificationKind ?? '').trim() || null)
+      .input('StatusCode', sql.NVarChar(10), String(req.body?.statusCode ?? '').trim() || null)
       .query(`
         INSERT INTO dbo.Tbl_AppNotifications
-          (TargetDeviceId, NotificationType, Title, Message, TableNo, InvoiceNo, ItemCode, PayloadJson)
+          (TargetDeviceId, NotificationType, NotificationKind, StatusCode, Title, Message, TableNo, InvoiceNo, ItemCode)
         OUTPUT INSERTED.NotificationId, INSERTED.CreatedAt
-        VALUES (@DeviceId, @Type, @Title, @Message, @TableNo, @InvoiceNo, @ItemCode, @PayloadJson)
+        VALUES (@DeviceId, @Type, @NotificationKind, @StatusCode, @Title, @Message, @TableNo, @InvoiceNo, @ItemCode)
       `);
 
     return res.status(201).json({ ok: true, notification: result.recordset?.[0] ?? null });
@@ -113,7 +150,7 @@ app.post('/api/notifications', async (req, res) => {
 const dbConfig = {
   user: sysConfig.DB_USER,
   password: sysConfig.DB_PASS,
-  server: process.env.DB_SERVER || 'localhost\\SQL2008',
+  server: sysConfig.DB_SERVER,
   database: sysConfig.DB_NAME,
   options: {
     encrypt: false,
@@ -185,20 +222,43 @@ const ensureAppNotificationQueue = async (pool) => {
         NotificationId BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
         TargetDeviceId NVARCHAR(128) NOT NULL,
         NotificationType NVARCHAR(40) NOT NULL CONSTRAINT DF_AppNotifications_Type DEFAULT N'general',
+        NotificationKind NVARCHAR(50) NULL,
+        StatusCode NVARCHAR(10) NULL,
         Title NVARCHAR(160) NOT NULL,
         Message NVARCHAR(500) NOT NULL,
         TableNo NVARCHAR(50) NULL,
         InvoiceNo NVARCHAR(50) NULL,
         ItemCode NVARCHAR(50) NULL,
-        PayloadJson NVARCHAR(MAX) NULL,
         CreatedAt DATETIME2 NOT NULL CONSTRAINT DF_AppNotifications_CreatedAt DEFAULT SYSDATETIME(),
         ExpiresAt DATETIME2 NULL
       );
       CREATE INDEX IX_AppNotifications_Device_Id
         ON dbo.Tbl_AppNotifications (TargetDeviceId, NotificationId);
+    END;
+
+    IF COL_LENGTH(N'dbo.Tbl_AppNotifications', N'NotificationKind') IS NULL
+      ALTER TABLE dbo.Tbl_AppNotifications ADD NotificationKind NVARCHAR(50) NULL;
+    IF COL_LENGTH(N'dbo.Tbl_AppNotifications', N'StatusCode') IS NULL
+      ALTER TABLE dbo.Tbl_AppNotifications ADD StatusCode NVARCHAR(10) NULL;
+
+    IF OBJECT_ID(N'dbo.Tbl_AppNotificationItems', N'U') IS NULL
+    BEGIN
+      CREATE TABLE dbo.Tbl_AppNotificationItems (
+        NotificationItemId BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+        NotificationId BIGINT NOT NULL,
+        ItemCode NVARCHAR(50) NOT NULL,
+        ItemName NVARCHAR(160) NOT NULL,
+        Quantity FLOAT NULL,
+        ItemRemarks NVARCHAR(1500) NULL,
+        ItemType NVARCHAR(10) NULL,
+        CONSTRAINT FK_AppNotificationItems_Notification
+          FOREIGN KEY (NotificationId) REFERENCES dbo.Tbl_AppNotifications(NotificationId)
+      );
+      CREATE INDEX IX_AppNotificationItems_NotificationId
+        ON dbo.Tbl_AppNotificationItems (NotificationId, NotificationItemId);
     END
   `);
-  console.log('[Notifications] Tbl_AppNotifications is ready');
+  console.log('[Notifications] notification header and item tables are ready');
 };
 
 void poolPromise
@@ -1346,6 +1406,443 @@ app.get('/api/menu/items', async (req, res) => {
   }
 });
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kitchen Display System: menu availability
+// Vw_MenuItems is the source for the KDS selector. The update deliberately
+// writes only to Tbl_MenuItems.ItemAvailable: 1 = available, 0 = unavailable.
+app.get('/api/kds/menu-items', async (req, res) => {
+  try {
+    const search = String(req.query.search ?? '').trim();
+    const requestedLimit = Number(req.query.limit ?? 250);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(500, Math.max(1, Math.floor(requestedLimit)))
+      : 250;
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('Search', sql.VarChar(100), search)
+      .input('Limit', sql.Int, limit)
+      .query(`
+        SELECT TOP (@Limit)
+          LTRIM(RTRIM(MenuItmId)) AS MenuItmId,
+          LTRIM(RTRIM(MenuItmDes)) AS MenuItmDes,
+          Category,
+          SalesPrice,
+          CAST(ISNULL(ItemAvailable, 1) AS bit) AS ItemAvailable
+        FROM dbo.Vw_MenuItems WITH (NOLOCK)
+        WHERE @Search = ''
+           OR LTRIM(RTRIM(MenuItmId)) LIKE '%' + @Search + '%'
+           OR MenuItmDes LIKE '%' + @Search + '%'
+        ORDER BY MenuItmDes ASC, MenuItmId ASC
+      `);
+
+    return res.json({ ok: true, items: result.recordset ?? [] });
+  } catch (error) {
+    console.log('[KDS] menu availability list error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+// Current availability state for the Item notification tab. This is separate
+// from the notification history: it always returns every item currently at 0.
+app.get('/api/kds/unavailable-items', async (_req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT
+        LTRIM(RTRIM(MenuItmId)) AS MenuItmId,
+        LTRIM(RTRIM(MenuItmDes)) AS MenuItmDes
+      FROM dbo.Vw_MenuItems WITH (NOLOCK)
+      WHERE ISNULL(ItemAvailable, 1) = 0
+      ORDER BY MenuItmDes ASC, MenuItmId ASC
+    `);
+    return res.json({ ok: true, items: result.recordset ?? [] });
+  } catch (error) {
+    console.log('[KDS] unavailable item list error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+
+app.patch('/api/kds/menu-items/:menuItemId/availability', async (req, res) => {
+  try {
+    const menuItemId = String(req.params.menuItemId ?? '').trim();
+    const rawAvailability = req.body?.itemAvailable;
+    const itemAvailable = rawAvailability === true || rawAvailability === 1 || rawAvailability === '1';
+    const suppliedValueIsValid = rawAvailability === true || rawAvailability === false
+      || rawAvailability === 1 || rawAvailability === 0 || rawAvailability === '1' || rawAvailability === '0';
+    const editedBy = String(req.body?.editedBy ?? 'KDS').trim().slice(0, 10) || 'KDS';
+
+    if (!menuItemId || !suppliedValueIsValid) {
+      return res.status(400).json({ ok: false, message: 'A menu item ID and itemAvailable (true or false) are required.' });
+    }
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('MenuItmId', sql.VarChar(10), menuItemId)
+      .input('ItemAvailable', sql.Bit, itemAvailable ? 1 : 0)
+      .input('EditedBy', sql.VarChar(10), editedBy)
+      .query(`
+        UPDATE dbo.Tbl_MenuItems
+        SET ItemAvailable = @ItemAvailable,
+            LastEditDate = GETDATE(),
+            EditedBy = @EditedBy
+        OUTPUT
+          LTRIM(RTRIM(INSERTED.MenuItmId)) AS MenuItmId,
+          LTRIM(RTRIM(INSERTED.MenuItmDes)) AS MenuItmDes,
+          INSERTED.ItemAvailable AS ItemAvailable
+        WHERE LTRIM(RTRIM(MenuItmId)) = @MenuItmId
+      `);
+
+    const item = result.recordset?.[0];
+    if (!item) {
+      return res.status(404).json({ ok: false, message: 'Menu item was not found.' });
+    }
+
+    return res.json({ ok: true, item });
+  } catch (error) {
+    console.log('[KDS] update menu availability error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+
+// Save a KDS availability batch in one transaction. Notification delivery is
+// deliberately delayed until this explicit Save action: one IT broadcast
+// contains every item that changed from available (1) to unavailable (0).
+app.post('/api/kds/menu-items/availability/batch', async (req, res) => {
+  const rawUpdates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+  const editedBy = String(req.body?.editedBy ?? 'KDS').trim().slice(0, 10) || 'KDS';
+  const changes = new Map();
+
+  for (const raw of rawUpdates) {
+    const menuItemId = String(raw?.menuItemId ?? raw?.MenuItmId ?? '').trim();
+    const rawAvailable = raw?.itemAvailable;
+    const isValid = rawAvailable === true || rawAvailable === false
+      || rawAvailable === 1 || rawAvailable === 0 || rawAvailable === '1' || rawAvailable === '0';
+    if (!menuItemId || !isValid) {
+      return res.status(400).json({ ok: false, message: 'Every availability change needs a menuItemId and itemAvailable value.' });
+    }
+    changes.set(menuItemId, rawAvailable === true || rawAvailable === 1 || rawAvailable === '1');
+  }
+
+  if (changes.size === 0) {
+    return res.status(400).json({ ok: false, message: 'Select at least one availability change before saving.' });
+  }
+  if (changes.size > 200) {
+    return res.status(400).json({ ok: false, message: 'A maximum of 200 items can be saved at once.' });
+  }
+
+  let transaction;
+  let transactionStarted = false;
+  try {
+    const pool = await poolPromise;
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    transactionStarted = true;
+
+    const savedItems = [];
+    for (const [menuItemId, itemAvailable] of changes.entries()) {
+      const result = await transaction.request()
+        .input('MenuItmId', sql.VarChar(10), menuItemId)
+        .input('ItemAvailable', sql.Bit, itemAvailable ? 1 : 0)
+        .input('EditedBy', sql.VarChar(10), editedBy)
+        .query(`
+          UPDATE dbo.Tbl_MenuItems
+          SET ItemAvailable = @ItemAvailable,
+              LastEditDate = GETDATE(),
+              EditedBy = @EditedBy
+          OUTPUT
+            LTRIM(RTRIM(INSERTED.MenuItmId)) AS MenuItmId,
+            LTRIM(RTRIM(INSERTED.MenuItmDes)) AS MenuItmDes,
+            INSERTED.ItemAvailable AS ItemAvailable,
+            DELETED.ItemAvailable AS PreviousItemAvailable
+          WHERE LTRIM(RTRIM(MenuItmId)) = @MenuItmId
+        `);
+      const item = result.recordset?.[0];
+      if (!item) throw new Error(`Menu item ${menuItemId} was not found.`);
+      savedItems.push(item);
+    }
+
+    const newlyUnavailable = savedItems
+      .filter((item) => {
+        const previous = item.PreviousItemAvailable === true || Number(item.PreviousItemAvailable) === 1;
+        const current = item.ItemAvailable === true || Number(item.ItemAvailable) === 1;
+        return previous && !current;
+      })
+      .map((item) => ({
+        itemId: String(item.MenuItmId ?? '').trim(),
+        itemName: String(item.MenuItmDes ?? '').trim(),
+      }));
+
+    let notification = null;
+    if (newlyUnavailable.length > 0) {
+      const title = newlyUnavailable.length === 1
+        ? 'UNAVAILABLE ITEM LIST UPDATED'
+        : 'UNAVAILABLE ITEMS LIST UPDATED';
+      const message = newlyUnavailable.length === 1
+        ? 'An item was marked unavailable. Please review the unavailable-item list.'
+        : `${newlyUnavailable.length} items were marked unavailable. Please review the unavailable-item list.`;
+      const notificationResult = await transaction.request()
+        .input('TargetDeviceId', sql.NVarChar(128), '*') // * is the all-device broadcast target.
+        .input('NotificationType', sql.NVarChar(40), 'IT')
+        .input('NotificationKind', sql.NVarChar(50), 'kds-item-unavailable')
+        .input('Title', sql.NVarChar(160), title)
+        .input('Message', sql.NVarChar(500), message)
+        .input('ItemCode', sql.NVarChar(50), newlyUnavailable.length === 1 ? newlyUnavailable[0].itemId : 'MULTIPLE')
+        .query(`
+          INSERT INTO dbo.Tbl_AppNotifications
+            (TargetDeviceId, NotificationType, NotificationKind, Title, Message, ItemCode, ExpiresAt)
+          OUTPUT INSERTED.NotificationId, INSERTED.CreatedAt
+          VALUES
+            (@TargetDeviceId, @NotificationType, @NotificationKind, @Title, @Message, @ItemCode, DATEADD(DAY, 1, SYSDATETIME()))
+        `);
+      notification = notificationResult.recordset?.[0] ?? null;
+      for (const item of newlyUnavailable) {
+        await transaction.request()
+          .input('NotificationId', sql.BigInt, notification.NotificationId)
+          .input('ItemCode', sql.NVarChar(50), item.itemId)
+          .input('ItemName', sql.NVarChar(160), item.itemName)
+          .query(`
+            INSERT INTO dbo.Tbl_AppNotificationItems (NotificationId, ItemCode, ItemName)
+            VALUES (@NotificationId, @ItemCode, @ItemName)
+          `);
+      }
+    }
+
+    await transaction.commit();
+    transactionStarted = false;
+    return res.json({
+      ok: true,
+      items: savedItems.map((item) => ({
+        menuItemId: String(item.MenuItmId ?? '').trim(),
+        itemName: String(item.MenuItmDes ?? '').trim(),
+        itemAvailable: item.ItemAvailable === true || Number(item.ItemAvailable) === 1,
+      })),
+      unavailableItems: newlyUnavailable,
+      notification,
+    });
+  } catch (error) {
+    if (transactionStarted && transaction) {
+      try { await transaction.rollback(); } catch (_) {}
+    }
+    console.log('[KDS] save availability batch error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kitchen Display System order queue
+// Tbl_KOTBOTHeder.ProStatus is the source of truth:
+//   S = waiting / TO DO, P = PROCESSING, D = DONE.
+// The KDS reads the existing Vw_KOTBOTHder view; its [Type] value (KOT/BOT)
+// is returned unchanged and shown on each kitchen item.
+const normalizeKdsProStatus = (value) => {
+  const status = String(value ?? '').trim().toUpperCase();
+  return status === 'P' || status === 'D' ? status : 'S';
+};
+
+app.get('/api/kds/orders', async (req, res) => {
+  try {
+    const requestedType = String(req.query.type ?? '').trim().toUpperCase().slice(0, 2);
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('Type', sql.VarChar(2), requestedType)
+      .query(`
+        SELECT DISTINCT
+          LTRIM(RTRIM(OrderNo)) AS OrderNo,
+          LTRIM(RTRIM(OrderMode)) AS OrderMode,
+          LTRIM(RTRIM([Type])) AS KOTBOTType,
+          LTRIM(RTRIM(TableNo)) AS TableNo,
+          LTRIM(RTRIM(Steward)) AS Steward,
+          LTRIM(RTRIM(Cashier)) AS Cashier,
+          KBDate,
+          LTRIM(RTRIM(ItemCode)) AS ItemCode,
+          CAST(ItmQty AS float) AS ItmQty,
+          LTRIM(RTRIM(ItmRmks)) AS ItmRmks,
+          LTRIM(RTRIM(Invoiceno)) AS InvoiceNo,
+          LTRIM(RTRIM(LocCode)) AS LocCode,
+          LTRIM(RTRIM(ISNULL(ProStatus, 'S'))) AS ProStatus,
+          PlacedTime,
+          ProStarted,
+          ProDone,
+          LTRIM(RTRIM(ISNULL(MenuItmDes, ItemCode))) AS MenuItmDes
+        FROM dbo.Vw_KOTBOTHder WITH (NOLOCK)
+        WHERE @Type = '' OR LTRIM(RTRIM([Type])) = @Type
+        ORDER BY PlacedTime ASC, OrderNo ASC, ItemCode ASC
+      `);
+
+    const items = (result.recordset ?? []).map((row) => ({
+      orderNo: String(row.OrderNo ?? '').trim(),
+      orderMode: String(row.OrderMode ?? '').trim(),
+      type: String(row.KOTBOTType ?? '').trim(),
+      tableNo: String(row.TableNo ?? '').trim(),
+      steward: String(row.Steward ?? '').trim(),
+      cashier: String(row.Cashier ?? '').trim(),
+      invoiceNo: String(row.InvoiceNo ?? '').trim(),
+      itemCode: String(row.ItemCode ?? '').trim(),
+      itemName: String(row.MenuItmDes ?? row.ItemCode ?? '').trim(),
+      quantity: Number(row.ItmQty ?? 0),
+      remarks: String(row.ItmRmks ?? '').trim(),
+      status: normalizeKdsProStatus(row.ProStatus),
+      placedTime: row.PlacedTime ?? row.KBDate ?? null,
+      proStarted: row.ProStarted ?? null,
+      proDone: row.ProDone ?? null,
+    })).filter((item) => item.orderNo && item.itemCode);
+
+    return res.json({ ok: true, items });
+  } catch (error) {
+    console.log('[KDS] load KOT/BOT queue error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+app.post('/api/kds/orders/item-status', async (req, res) => {
+  let transaction;
+  let transactionStarted = false;
+  try {
+    const orderNo = String(req.body?.orderNo ?? '').trim();
+    const itemCode = String(req.body?.itemCode ?? '').trim();
+    const type = String(req.body?.type ?? '').trim().toUpperCase().slice(0, 2);
+    const tableNo = String(req.body?.tableNo ?? '').trim();
+    const invoiceNo = String(req.body?.invoiceNo ?? '').trim();
+    const proStatus = String(req.body?.status ?? '').trim().toUpperCase();
+
+    if (!orderNo || !itemCode || !type || !['S', 'P', 'D'].includes(proStatus)) {
+      return res.status(400).json({ ok: false, message: 'orderNo, itemCode, type, and status (S, P, or D) are required.' });
+    }
+
+    const pool = await poolPromise;
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    transactionStarted = true;
+
+    const result = await transaction.request()
+      .input('OrderNo', sql.VarChar(10), orderNo)
+      .input('ItemCode', sql.VarChar(10), itemCode)
+      .input('Type', sql.VarChar(2), type)
+      .input('TableNo', sql.VarChar(15), tableNo)
+      .input('InvoiceNo', sql.VarChar(10), invoiceNo)
+      .input('ProStatus', sql.Char(1), proStatus)
+      .query(`
+        UPDATE dbo.Tbl_KOTBOTHeder
+        SET
+          ProStatus = @ProStatus,
+          ProStarted = CASE
+            WHEN @ProStatus = 'P' AND ISNULL(ProStatus, 'S') <> 'P' THEN GETDATE()
+            ELSE ProStarted
+          END,
+          ProDone = CASE
+            WHEN @ProStatus = 'D' AND ISNULL(ProStatus, 'S') <> 'D' THEN GETDATE()
+            ELSE ProDone
+          END,
+          PlacedToPickUpDuration = CASE
+            WHEN @ProStatus = 'P' AND ISNULL(ProStatus, 'S') <> 'P'
+              THEN DATEDIFF(SECOND, PlacedTime, GETDATE()) / 60.0
+            ELSE PlacedToPickUpDuration
+          END,
+          ProDuration = CASE
+            WHEN @ProStatus = 'D' AND ISNULL(ProStatus, 'S') <> 'D'
+              THEN DATEDIFF(SECOND, ProStarted, GETDATE()) / 60.0
+            ELSE ProDuration
+          END
+        OUTPUT
+          LTRIM(RTRIM(INSERTED.OrderNo)) AS OrderNo,
+          LTRIM(RTRIM(INSERTED.ItemCode)) AS ItemCode,
+          LTRIM(RTRIM(INSERTED.[Type])) AS KOTBOTType,
+          LTRIM(RTRIM(INSERTED.TableNo)) AS TableNo,
+          LTRIM(RTRIM(INSERTED.Invoiceno)) AS InvoiceNo,
+          LTRIM(RTRIM(INSERTED.OrderMode)) AS OrderMode,
+          CAST(INSERTED.ItmQty AS float) AS ItmQty,
+          LTRIM(RTRIM(INSERTED.ItmRmks)) AS ItmRmks,
+          LTRIM(RTRIM(INSERTED.ProStatus)) AS ProStatus,
+          LTRIM(RTRIM(DELETED.ProStatus)) AS PreviousStatus,
+          INSERTED.ProStarted AS ProStarted,
+          INSERTED.ProDone AS ProDone
+        WHERE LTRIM(RTRIM(OrderNo)) = @OrderNo
+          AND LTRIM(RTRIM(ItemCode)) = @ItemCode
+          AND LTRIM(RTRIM([Type])) = @Type
+          AND DocketPrinted = 'N'
+          AND (@TableNo = '' OR LTRIM(RTRIM(TableNo)) = @TableNo)
+          AND (@InvoiceNo = '' OR LTRIM(RTRIM(Invoiceno)) = @InvoiceNo)
+      `);
+
+    const changedRows = result.recordset ?? [];
+    if (changedRows.length === 0) {
+      await transaction.rollback();
+      transactionStarted = false;
+      return res.status(404).json({ ok: false, message: 'The active KOT/BOT item was not found.' });
+    }
+
+    const previousChanged = changedRows.some((row) => normalizeKdsProStatus(row.PreviousStatus) !== proStatus);
+    let notification = null;
+
+    // A KDS P/D drag is an operational event. It is broadcast once, after the
+    // status update succeeds, so all active POS devices see it in the OP tab.
+    if (previousChanged && (proStatus === 'P' || proStatus === 'D')) {
+      const menuResult = await transaction.request()
+        .input('MenuItmId', sql.VarChar(10), itemCode)
+        .query(`
+          SELECT TOP (1) LTRIM(RTRIM(MenuItmDes)) AS MenuItmDes
+          FROM dbo.Tbl_MenuItems WITH (NOLOCK)
+          WHERE LTRIM(RTRIM(MenuItmId)) = @MenuItmId
+        `);
+      const first = changedRows[0];
+      const itemName = String(menuResult.recordset?.[0]?.MenuItmDes ?? itemCode).trim() || itemCode;
+      const statusTitle = proStatus === 'P' ? 'ITEM IN PROCESSING' : 'ITEM READY';
+      const statusText = proStatus === 'P' ? 'is now processing' : 'is ready';
+      const message = `${itemName} ${statusText}. Order ${String(first.OrderNo ?? orderNo).trim()}.`;
+      const notificationResult = await transaction.request()
+        .input('TargetDeviceId', sql.NVarChar(128), '*')
+        .input('NotificationType', sql.NVarChar(40), 'OP')
+        .input('NotificationKind', sql.NVarChar(50), 'kds-status-update')
+        .input('StatusCode', sql.NVarChar(10), proStatus)
+        .input('Title', sql.NVarChar(160), statusTitle)
+        .input('Message', sql.NVarChar(500), message)
+        .input('TableNo', sql.NVarChar(50), String(first.TableNo ?? tableNo).trim() || null)
+        .input('InvoiceNo', sql.NVarChar(50), String(first.InvoiceNo ?? invoiceNo).trim() || null)
+        .input('ItemCode', sql.NVarChar(50), String(first.ItemCode ?? itemCode).trim())
+        .query(`
+          INSERT INTO dbo.Tbl_AppNotifications
+            (TargetDeviceId, NotificationType, NotificationKind, StatusCode, Title, Message, TableNo, InvoiceNo, ItemCode, ExpiresAt)
+          OUTPUT INSERTED.NotificationId, INSERTED.CreatedAt
+          VALUES
+            (@TargetDeviceId, @NotificationType, @NotificationKind, @StatusCode, @Title, @Message, @TableNo, @InvoiceNo, @ItemCode, DATEADD(DAY, 1, SYSDATETIME()))
+        `);
+      notification = notificationResult.recordset?.[0] ?? null;
+      await transaction.request()
+        .input('NotificationId', sql.BigInt, notification.NotificationId)
+        .input('ItemCode', sql.NVarChar(50), String(first.ItemCode ?? itemCode).trim())
+        .input('ItemName', sql.NVarChar(160), itemName)
+        .input('Quantity', sql.Float, Number(first.ItmQty ?? 0) || null)
+        .input('ItemRemarks', sql.NVarChar(1500), String(first.ItmRmks ?? '').trim() || null)
+        .input('ItemType', sql.NVarChar(10), String(first.KOTBOTType ?? type).trim() || null)
+        .query(`
+          INSERT INTO dbo.Tbl_AppNotificationItems
+            (NotificationId, ItemCode, ItemName, Quantity, ItemRemarks, ItemType)
+          VALUES
+            (@NotificationId, @ItemCode, @ItemName, @Quantity, @ItemRemarks, @ItemType)
+        `);
+    }
+
+    await transaction.commit();
+    transactionStarted = false;
+    return res.json({
+      ok: true,
+      status: normalizeKdsProStatus(changedRows[0].ProStatus),
+      affectedRows: changedRows.length,
+      notification,
+    });
+  } catch (error) {
+    if (transactionStarted && transaction) {
+      try { await transaction.rollback(); } catch (_) {}
+    }
+    console.log('[KDS] update KOT/BOT status error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
 
 process.on('SIGINT', async () => {
   try {

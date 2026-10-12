@@ -878,6 +878,102 @@ export const apiClient = {
     }
   },
 
+  getKdsOrders: async (type?: string) => {
+    try {
+      const query = new URLSearchParams();
+      if (String(type ?? '').trim()) query.set('type', String(type).trim());
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/kds/orders?${query.toString()}`);
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] getKdsOrders failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
+  updateKdsOrderItemStatus: async (payload: {
+    orderNo: string;
+    itemCode: string;
+    type: string;
+    tableNo?: string;
+    invoiceNo?: string;
+    status: 'S' | 'P' | 'D';
+  }) => {
+    try {
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/kds/orders/item-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] updateKdsOrderItemStatus failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
+  getKdsUnavailableItems: async () => {
+    try {
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/kds/unavailable-items`);
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] getKdsUnavailableItems failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
+  getKdsMenuItems: async (search = '') => {
+    try {
+      const query = new URLSearchParams();
+      query.set('search', String(search ?? '').trim());
+      query.set('limit', '500');
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/kds/menu-items?${query.toString()}`);
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] getKdsMenuItems failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
+  saveKdsMenuItemAvailabilityChanges: async (
+    updates: Array<{ menuItemId: string; itemAvailable: boolean }>,
+    editedBy?: string,
+  ) => {
+    try {
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/kds/menu-items/availability/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates, editedBy: String(editedBy ?? '').trim() }),
+      });
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] saveKdsMenuItemAvailabilityChanges failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
+  updateKdsMenuItemAvailability: async (menuItemId: string, itemAvailable: boolean, editedBy?: string) => {
+    try {
+      const response = await fetch(
+        `${getDynamicApiBaseUrl()}/api/kds/menu-items/${encodeURIComponent(String(menuItemId ?? '').trim())}/availability`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itemAvailable, editedBy: String(editedBy ?? '').trim() }),
+        },
+      );
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] updateKdsMenuItemAvailability failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
   getVoidPresets: async () => {
     try {
       const url = `${getDynamicApiBaseUrl()}/api/void-remarks`;

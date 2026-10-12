@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Image,
@@ -16,9 +17,15 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { apiClient } from '../../services/api';
 import { AppNotification, useNotificationStore } from '../../services/notificationStore';
 
 type NotificationTab = 'operational' | 'items';
+
+type CurrentUnavailableItem = {
+  itemId: string;
+  itemName: string;
+};
 
 const relativeTime = (isoDate: string) => {
   const difference = Math.max(0, Date.now() - new Date(isoDate).getTime());
@@ -42,6 +49,30 @@ const notificationIcon = (notification: AppNotification): keyof typeof Ionicons.
   if (tabForNotification(notification) === 'items') return 'restaurant';
   if (notification.kind === 'kitchen-order-ready') return 'checkmark-circle';
   return 'notifications';
+};
+
+const kdsStatusItemsFor = (notification: AppNotification) => {
+  if (notification.payload?.kind !== 'kds-status-update' || !Array.isArray(notification.payload.items)) return [];
+  return notification.payload.items
+    .map((item) => ({
+      itemId: String(item?.itemId ?? '').trim(),
+      itemName: String(item?.itemName ?? '').trim(),
+      quantity: Number(item?.quantity ?? 0) || 0,
+      remarks: String(item?.remarks ?? '').trim(),
+      type: String(item?.type ?? '').trim(),
+    }))
+    .filter((item) => item.itemId && item.itemName);
+};
+
+const formatCreatedAt = (isoDate: string) => {
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return relativeTime(isoDate);
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  return `${day}/${month}/${year} · ${hour}:${minute}`;
 };
 
 function SwipeableNotificationRow({
@@ -76,6 +107,9 @@ function SwipeableNotificationRow({
   }), [onClear, translateX]);
 
   const tableValue = String(notification.tableNo ?? '').replace(/^table\s*/i, '').trim();
+  const unavailableUpdate = notification.payload?.kind === 'kds-item-unavailable';
+  const statusItems = kdsStatusItemsFor(notification);
+  const processingUpdate = String(notification.payload?.status ?? '').trim().toUpperCase() === 'P';
 
   return (
     <View style={styles.swipeShell}>
@@ -100,10 +134,38 @@ function SwipeableNotificationRow({
               <Text style={styles.cardTitle} numberOfLines={1}>{notification.title}</Text>
               {!notification.read ? <View style={styles.unreadDot} /> : null}
             </View>
-            <Text style={styles.cardMessage} numberOfLines={2}>{notification.message}</Text>
+            {unavailableUpdate ? (
+              <View style={styles.unavailableNotice}>
+                <View style={styles.unavailableLabel}>
+                  <Ionicons name="alert-circle" size={13} color="#FFFFFF" />
+                  <Text style={styles.unavailableLabelText}>UNAVAILABLE LIST UPDATED</Text>
+                </View>
+                <Text style={styles.unavailableLead}>{notification.message}</Text>
+              </View>
+            ) : statusItems.length > 0 ? (
+              <View style={[styles.kdsStatusNotice, processingUpdate ? styles.processingNotice : styles.doneNotice]}>
+                <View style={[styles.kdsStatusLabel, processingUpdate ? styles.processingLabel : styles.doneLabel]}>
+                  <Ionicons name={processingUpdate ? 'flame' : 'checkmark-circle'} size={13} color="#FFFFFF" />
+                  <Text style={styles.kdsStatusLabelText}>{processingUpdate ? 'PROCESSING' : 'DONE'}</Text>
+                </View>
+                <Text style={styles.kdsStatusLead}>{processingUpdate ? 'Kitchen has started this item:' : 'Kitchen has completed this item:'}</Text>
+                {statusItems.map((item) => (
+                  <View key={`${notification.id}-${item.itemId}`} style={styles.kdsStatusItem}>
+                    <View style={styles.kdsQtyPill}><Text style={styles.kdsQtyText}>{item.quantity || 1}×</Text></View>
+                    <View style={styles.kdsStatusItemCopy}>
+                      <Text style={styles.kdsStatusItemName}>{item.itemName}</Text>
+                      <Text style={styles.kdsStatusItemCode}>{item.itemId}{item.type ? `  ·  ${item.type}` : ''}</Text>
+                      {item.remarks ? <Text style={styles.kdsStatusItemRemark}>{item.remarks}</Text> : null}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.cardMessage} numberOfLines={2}>{notification.message}</Text>
+            )}
             <View style={styles.metaRow}>
               {notification.invoiceNo ? <Text style={styles.invoicePill}>Invoice {notification.invoiceNo}</Text> : null}
-              <Text style={styles.time}>{relativeTime(notification.createdAt)}</Text>
+              <Text style={styles.time}>{unavailableUpdate || statusItems.length > 0 ? `Created ${formatCreatedAt(notification.createdAt)}` : relativeTime(notification.createdAt)}</Text>
             </View>
           </View>
           {tableValue ? (
@@ -125,6 +187,8 @@ export default function NotificationsScreen() {
   const isTablet = width >= 600;
   const isSmall = height < 680;
   const [activeTab, setActiveTab] = useState<NotificationTab>('operational');
+  const [currentUnavailableItems, setCurrentUnavailableItems] = useState<CurrentUnavailableItem[]>([]);
+  const [loadingUnavailableItems, setLoadingUnavailableItems] = useState(false);
 
   // Identical responsive positioning rules to Mode Selection.
   const backBtnTop = Platform.OS === 'android'
@@ -139,6 +203,30 @@ export default function NotificationsScreen() {
   const removeNotification = useNotificationStore((state) => state.removeNotification);
   const clearAll = useNotificationStore((state) => state.clearAll);
 
+  const loadCurrentUnavailableItems = useCallback(async () => {
+    setLoadingUnavailableItems(true);
+    try {
+      const response = await apiClient.getKdsUnavailableItems();
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.message || 'Unable to load unavailable items.');
+      const parsed = (Array.isArray(response.data.items) ? response.data.items : [])
+        .map((item: any) => ({
+          itemId: String(item?.MenuItmId ?? item?.menuItmId ?? '').trim(),
+          itemName: String(item?.MenuItmDes ?? item?.menuItmDes ?? '').trim(),
+        }))
+        .filter((item: CurrentUnavailableItem) => item.itemId && item.itemName);
+      setCurrentUnavailableItems(parsed);
+    } catch (error) {
+      console.log('[Notifications] unavailable item list failed', error);
+      setCurrentUnavailableItems([]);
+    } finally {
+      setLoadingUnavailableItems(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'items') void loadCurrentUnavailableItems();
+  }, [activeTab, loadCurrentUnavailableItems]);
+
   const unreadCount = useMemo(
     () => notifications.filter((notification) => !notification.read).length,
     [notifications],
@@ -151,7 +239,16 @@ export default function NotificationsScreen() {
     () => notifications.filter((notification) => tabForNotification(notification) === 'items'),
     [notifications],
   );
-  const visibleNotifications = activeTab === 'operational' ? operationalNotifications : itemNotifications;
+  // Item tab is a dashboard: only the newest update message remains at the
+  // top, while the live unavailable-item state is listed separately below.
+  const latestItemNotification = itemNotifications[0] ?? null;
+  const visibleNotifications = activeTab === 'operational'
+    ? operationalNotifications
+    : (latestItemNotification ? [latestItemNotification] : []);
+
+  useEffect(() => {
+    if (activeTab === 'items' && latestItemNotification?.id) void loadCurrentUnavailableItems();
+  }, [activeTab, latestItemNotification?.id, loadCurrentUnavailableItems]);
 
   const handleClearAll = () => {
     Alert.alert('Clear all notifications?', 'This removes notification history from this device.', [
@@ -202,22 +299,78 @@ export default function NotificationsScreen() {
           <Ionicons name="restaurant-outline" size={17} color={activeTab === 'items' ? '#FFFFFF' : '#64748B'} />
           <Text style={[styles.tabText, activeTab === 'items' && styles.activeTabText]}>Item</Text>
           <View style={[styles.tabCount, activeTab === 'items' && styles.activeTabCount]}>
-            <Text style={[styles.tabCountText, activeTab === 'items' && styles.activeTabCountText]}>{itemNotifications.length}</Text>
+            <Text style={[styles.tabCountText, activeTab === 'items' && styles.activeTabCountText]}>{latestItemNotification ? 1 : 0}</Text>
           </View>
         </TouchableOpacity>
       </View>
 
-      {visibleNotifications.length === 0 ? (
+      {activeTab === 'items' ? (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[styles.list, { paddingBottom: Math.max(insets.bottom, 18) + 24 }]}
+        >
+          <View style={styles.itemTabSectionHeader}>
+            <Text style={styles.itemTabSectionTitle}>Latest notification</Text>
+            <Text style={styles.itemTabSectionText}>The newest unavailable-item update appears here.</Text>
+          </View>
+          {latestItemNotification ? (
+            <SwipeableNotificationRow
+              key={latestItemNotification.id}
+              notification={latestItemNotification}
+              onOpen={() => markAsRead(latestItemNotification.id)}
+              onClear={() => removeNotification(latestItemNotification.id)}
+            />
+          ) : (
+            <View style={styles.noLatestMessage}>
+              <Ionicons name="notifications-outline" size={19} color="#94A3B8" />
+              <Text style={styles.noLatestMessageText}>No new unavailable-item message.</Text>
+            </View>
+          )}
+
+          <View style={styles.currentUnavailableHeader}>
+            <View style={styles.currentUnavailableHeaderIcon}><Ionicons name="alert-circle-outline" size={20} color="#D85A52" /></View>
+            <View style={styles.currentUnavailableHeaderCopy}>
+              <Text style={styles.currentUnavailableTitle}>Current unavailable items</Text>
+              <Text style={styles.currentUnavailableText}>This is the live list from the menu availability status.</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.refreshUnavailableButton}
+              onPress={() => void loadCurrentUnavailableItems()}
+              disabled={loadingUnavailableItems}
+              accessibilityLabel="Refresh unavailable item list"
+            >
+              {loadingUnavailableItems ? <ActivityIndicator size="small" color="#075EA7" /> : <Ionicons name="refresh" size={18} color="#075EA7" />}
+            </TouchableOpacity>
+          </View>
+          {loadingUnavailableItems && currentUnavailableItems.length === 0 ? (
+            <ActivityIndicator style={styles.unavailableLoader} color="#075EA7" />
+          ) : currentUnavailableItems.length === 0 ? (
+            <View style={styles.currentUnavailableEmpty}>
+              <Ionicons name="checkmark-circle-outline" size={24} color="#2B9662" />
+              <Text style={styles.currentUnavailableEmptyText}>All menu items are currently available.</Text>
+            </View>
+          ) : (
+            <View style={styles.currentUnavailableList}>
+              {currentUnavailableItems.map((item) => (
+                <View key={item.itemId} style={styles.currentUnavailableRow}>
+                  <View style={styles.currentUnavailableDot} />
+                  <View style={styles.currentUnavailableItemCopy}>
+                    <Text style={styles.currentUnavailableItemName}>{item.itemName}</Text>
+                    <Text style={styles.currentUnavailableItemCode}>{item.itemId}</Text>
+                  </View>
+                  <Text style={styles.currentUnavailableStatus}>UNAVAILABLE</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      ) : visibleNotifications.length === 0 ? (
         <View style={styles.emptyWrap}>
           <View style={styles.emptyIconWrap}>
-            <Ionicons name={activeTab === 'items' ? 'restaurant-outline' : 'notifications-outline'} size={38} color="#075EA7" />
+            <Ionicons name="notifications-outline" size={38} color="#075EA7" />
           </View>
-          <Text style={styles.emptyTitle}>No {activeTab === 'items' ? 'item' : 'operational'} notifications</Text>
-          <Text style={styles.emptyText}>
-            {activeTab === 'items'
-              ? 'Item-level kitchen updates will appear here.'
-              : 'Operational updates will appear here.'}
-          </Text>
+          <Text style={styles.emptyTitle}>No operational notifications</Text>
+          <Text style={styles.emptyText}>Kitchen processing and completion updates will appear here.</Text>
         </View>
       ) : (
         <>
@@ -283,12 +436,52 @@ const styles = StyleSheet.create({
   cardTitle: { flex: 1, color: '#002748', fontSize: 14, fontWeight: '800' },
   unreadDot: { width: 8, height: 8, marginLeft: 7, borderRadius: 4, backgroundColor: '#075EA7' },
   cardMessage: { color: '#526270', fontSize: 12, lineHeight: 18, marginTop: 3 },
+  unavailableNotice: { marginTop: 7, padding: 8, borderRadius: 10, backgroundColor: '#FFF3F1', borderWidth: 1, borderColor: '#F3CDC8' },
+  unavailableLabel: { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 6, backgroundColor: '#D85A52' },
+  unavailableLabelText: { color: '#FFFFFF', fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
+  unavailableLead: { color: '#8E443D', fontSize: 11, lineHeight: 16, fontWeight: '700', marginTop: 6 },
+  kdsStatusNotice: { marginTop: 7, padding: 8, borderRadius: 10, borderWidth: 1 },
+  processingNotice: { backgroundColor: '#EFF7FD', borderColor: '#C7E2F7' },
+  doneNotice: { backgroundColor: '#EDF9F1', borderColor: '#C7EAD3' },
+  kdsStatusLabel: { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 6 },
+  processingLabel: { backgroundColor: '#287EC1' },
+  doneLabel: { backgroundColor: '#2B9662' },
+  kdsStatusLabelText: { color: '#FFFFFF', fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
+  kdsStatusLead: { color: '#3D6078', fontSize: 11, lineHeight: 16, fontWeight: '700', marginTop: 6 },
+  kdsStatusItem: { marginTop: 7, paddingTop: 7, flexDirection: 'row', borderTopWidth: 1, borderTopColor: 'rgba(70,125,160,0.16)' },
+  kdsQtyPill: { minWidth: 28, height: 28, marginRight: 8, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 8, backgroundColor: '#DDEEF9' },
+  kdsQtyText: { color: '#0B639E', fontSize: 11, fontWeight: '900' },
+  kdsStatusItemCopy: { flex: 1 },
+  kdsStatusItemName: { color: '#18374D', fontSize: 12, fontWeight: '900' },
+  kdsStatusItemCode: { color: '#52718A', fontSize: 9, fontWeight: '700', marginTop: 1 },
+  kdsStatusItemRemark: { color: '#A26B32', fontSize: 10, fontWeight: '700', marginTop: 3 },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 8 },
   invoicePill: { color: '#64748B', fontSize: 11, fontWeight: '600' },
   time: { color: '#94A3B8', fontSize: 11 },
   tableBadge: { width: 58, minHeight: 63, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: '#E6F2FA' },
   tableBadgeLabel: { color: '#64748B', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
   tableBadgeValue: { color: '#002748', fontSize: 22, fontWeight: '900', marginTop: 2 },
+  itemTabSectionHeader: { marginTop: 2, marginBottom: 9 },
+  itemTabSectionTitle: { color: '#002748', fontSize: 14, fontWeight: '900' },
+  itemTabSectionText: { color: '#64748B', fontSize: 11, lineHeight: 16, marginTop: 2 },
+  noLatestMessage: { minHeight: 55, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#E1E9EE', borderRadius: 14, backgroundColor: '#FFFFFF' },
+  noLatestMessageText: { color: '#64748B', fontSize: 12, fontWeight: '700' },
+  currentUnavailableHeader: { marginTop: 19, padding: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#F1D2CE', borderRadius: 15, backgroundColor: '#FFF8F7' },
+  currentUnavailableHeaderIcon: { width: 36, height: 36, marginRight: 9, justifyContent: 'center', alignItems: 'center', borderRadius: 11, backgroundColor: '#FCE4E1' },
+  currentUnavailableHeaderCopy: { flex: 1, minWidth: 0 },
+  currentUnavailableTitle: { color: '#7F3E37', fontSize: 13, fontWeight: '900' },
+  currentUnavailableText: { color: '#9A5E57', fontSize: 10, lineHeight: 14, marginTop: 2 },
+  refreshUnavailableButton: { width: 35, height: 35, marginLeft: 8, justifyContent: 'center', alignItems: 'center', borderRadius: 10, backgroundColor: '#FFFFFF' },
+  unavailableLoader: { marginTop: 20 },
+  currentUnavailableEmpty: { marginTop: 9, minHeight: 64, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#CCEBD7', borderRadius: 14, backgroundColor: '#F1FBF5' },
+  currentUnavailableEmptyText: { flex: 1, color: '#27754E', fontSize: 12, fontWeight: '800' },
+  currentUnavailableList: { marginTop: 9, gap: 7 },
+  currentUnavailableRow: { minHeight: 60, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#F0D4D0', borderRadius: 13, backgroundColor: '#FFFFFF' },
+  currentUnavailableDot: { width: 8, height: 8, marginRight: 10, borderRadius: 4, backgroundColor: '#D85A52' },
+  currentUnavailableItemCopy: { flex: 1, minWidth: 0 },
+  currentUnavailableItemName: { color: '#422825', fontSize: 13, fontWeight: '900' },
+  currentUnavailableItemCode: { color: '#A05B54', fontSize: 10, fontWeight: '700', marginTop: 2 },
+  currentUnavailableStatus: { marginLeft: 8, color: '#C84A41', fontSize: 8, fontWeight: '900', letterSpacing: 0.25 },
   emptyWrap: { flex: 1, paddingHorizontal: 42, justifyContent: 'center', alignItems: 'center' },
   emptyIconWrap: { width: 84, height: 84, borderRadius: 28, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E6F2FA' },
   emptyTitle: { color: '#002748', fontSize: 18, fontWeight: '800', marginTop: 19, textAlign: 'center' },
