@@ -46,26 +46,35 @@ const mapKind = (value: unknown): AppNotificationKind => {
   return 'general';
 };
 
-// READY announcements intentionally contain only the table number and the
-// affected item name(s), as requested. They run only for KDS DONE status.
-const readyAnnouncementText = (row: any): string | null => {
+// READY speech is deliberately composed here rather than read from the SQL
+// Message field. It gives the receiving steward a consistent, useful phrase:
+// “Hello Dewaka, order for Table T36: 2 Fried Rice and 1 Coke are ready for pickup.”
+const readyAnnouncementText = (row: any, recipientName = ''): string | null => {
   const status = asText(row?.StatusCode).toUpperCase();
   const kind = asText(row?.NotificationKind).toLowerCase();
   if (status !== 'D' || !['kds-status-update', 'kds-order-status-update'].includes(kind)) return null;
 
   const tableNo = asText(row?.TableNo);
-  const itemNames = Array.isArray(row?.Items)
-    ? row.Items
-      .map((item: any) => asText(item?.ItemName ?? item?.itemName))
-      .filter(Boolean)
-    : [];
-  const uniqueItemNames = [...new Set(itemNames)];
-  if (!tableNo || uniqueItemNames.length === 0) return null;
+  if (!tableNo || !Array.isArray(row?.Items)) return null;
 
-  const itemPhrase = uniqueItemNames.length === 1
-    ? `${uniqueItemNames[0]} is ready.`
-    : `${uniqueItemNames.join('. ')} are ready.`;
-  return `Table ${tableNo}. ${itemPhrase}`;
+  const quantitiesByName = new Map<string, number>();
+  for (const item of row.Items) {
+    const itemName = asText(item?.ItemName ?? item?.itemName);
+    if (!itemName) continue;
+    const quantity = Number(item?.Quantity ?? item?.quantity ?? 0);
+    quantitiesByName.set(itemName, (quantitiesByName.get(itemName) ?? 0) + (Number.isFinite(quantity) && quantity > 0 ? quantity : 1));
+  }
+  const spokenItems = [...quantitiesByName.entries()].map(([itemName, quantity]) => `${quantity} ${itemName}`);
+  if (spokenItems.length === 0) return null;
+
+  const itemPhrase = spokenItems.length === 1
+    ? spokenItems[0]
+    : spokenItems.length === 2
+      ? `${spokenItems[0]} and ${spokenItems[1]}`
+      : `${spokenItems.slice(0, -1).join(', ')}, and ${spokenItems[spokenItems.length - 1]}`;
+  const greetingName = asText(recipientName);
+  const greeting = greetingName ? `Hello ${greetingName}, ` : 'Hello, ';
+  return `${greeting}order for Table ${tableNo}: ${itemPhrase} ${spokenItems.length === 1 ? 'is' : 'are'} ready for pickup.`;
 };
 
 const parseNotificationDetails = (row: any) => {
@@ -147,6 +156,7 @@ const configureAndroidChannels = async () => {
  */
 export default function NotificationPolling() {
   const token = useAuthStore((state) => state.token);
+  const recipientName = useAuthStore((state) => state.user?.userName ?? '');
   const receiveNotification = useNotificationStore((state) => state.receiveNotification);
   const preferences = useNotificationStore((state) => state.preferences);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
@@ -223,7 +233,7 @@ export default function NotificationPolling() {
 
           // READY/DONE: TTS only. It intentionally has no notification chime.
           // The Android implementation speaks through STREAM_NOTIFICATION.
-          const announcement = readyAnnouncementText(row);
+          const announcement = readyAnnouncementText(row, recipientName);
           if (announcement && preferences.soundEnabled) {
             await speakReadyAnnouncement(announcement);
           }
@@ -279,7 +289,7 @@ export default function NotificationPolling() {
       appStateSubscription.remove();
       clearInterval(timer);
     };
-  }, [preferences.soundEnabled, preferences.vibrationEnabled, receiveNotification, token]);
+  }, [preferences.soundEnabled, preferences.vibrationEnabled, receiveNotification, recipientName, token]);
 
   return null;
 }
