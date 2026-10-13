@@ -109,10 +109,14 @@ const isVisibleCachedItem = (item: Record<string, any>) => {
   const assignmentVisible = flags.length === 0 || flags.every(
     (value) => value === '1' || value.toLowerCase() === 'true',
   );
-  // ItemAvailable is the actual Tbl_MenuItems field in this project:
-  // 1/true = show; 0/false = never render the item from a local cache.
+  // Physical database flag: ItemNotAvailable = 0 means the item may be shown.
+  // The API also supplies the normalized ItemAvailable alias for cached legacy
+  // records, so accept either shape safely.
+  const unavailable = getText(item.ItemNotAvailable ?? item.itemNotAvailable);
   const available = getText(item.ItemAvailable ?? item.IsAvailable);
-  const itemAvailable = !available || available === '1' || available.toLowerCase() === 'true';
+  const itemAvailable = unavailable
+    ? unavailable === '0' || unavailable.toLowerCase() === 'false'
+    : (!available || available === '1' || available.toLowerCase() === 'true');
   return assignmentVisible && itemAvailable;
 };
 

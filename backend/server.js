@@ -1441,14 +1441,15 @@ app.get('/api/menu/items', async (req, res) => {
         a.MenuItemEnable,
         a.LISTINGORDER,
         m.DisplayItemDes,
-        m.ItemAvailable
+        CAST(CASE WHEN ISNULL(m.ItemNotAvailable, 0) = 1 THEN 0 ELSE 1 END AS bit) AS ItemAvailable,
+        m.ItemNotAvailable
       FROM Vw_MenuAssignment a WITH (NOLOCK)
       INNER JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
         ON m.MenuItmId = a.MenuItemCode
       WHERE a.DisplayInFront = '1'
         AND a.MenuAssiEnable = '1'
         AND a.MenuItemEnable = '1'
-        AND ISNULL(m.ItemAvailable, 1) = 1
+        AND ISNULL(m.ItemNotAvailable, 0) = 0
         AND a.MenuItemCode > @after
       ORDER BY a.MenuItemCode
     `);
@@ -1515,8 +1516,9 @@ app.get('/api/menu/items', async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Kitchen Display System: menu availability
-// Vw_MenuItems is the source for the KDS selector. The update deliberately
-// writes only to Tbl_MenuItems.ItemAvailable: 1 = available, 0 = unavailable.
+// Vw_MenuItems is the source for the KDS selector. The physical field is
+// Tbl_MenuItems.ItemNotAvailable: 0 = available/default, 1 = unavailable.
+// The API preserves the client-facing ItemAvailable value (1 = available).
 app.get('/api/kds/menu-items', async (req, res) => {
   try {
     const search = String(req.query.search ?? '').trim();
@@ -1535,16 +1537,18 @@ app.get('/api/kds/menu-items', async (req, res) => {
         -- one stable row per item rather than duplicate checkbox rows.
         WITH UniqueMenuItems AS (
           SELECT
-            LTRIM(RTRIM(MenuItmId)) AS MenuItmId,
-            MAX(LTRIM(RTRIM(MenuItmDes))) AS MenuItmDes,
-            MAX(Category) AS Category,
-            MAX(SalesPrice) AS SalesPrice,
-            CAST(MIN(CAST(ISNULL(ItemAvailable, 1) AS tinyint)) AS bit) AS ItemAvailable
-          FROM dbo.Vw_MenuItems WITH (NOLOCK)
+            LTRIM(RTRIM(v.MenuItmId)) AS MenuItmId,
+            MAX(LTRIM(RTRIM(v.MenuItmDes))) AS MenuItmDes,
+            MAX(v.Category) AS Category,
+            MAX(v.SalesPrice) AS SalesPrice,
+            CAST(MIN(CAST(CASE WHEN ISNULL(m.ItemNotAvailable, 0) = 1 THEN 0 ELSE 1 END AS tinyint)) AS bit) AS ItemAvailable
+          FROM dbo.Vw_MenuItems v WITH (NOLOCK)
+          INNER JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
+            ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(v.MenuItmId))
           WHERE @Search = ''
-             OR LTRIM(RTRIM(MenuItmId)) LIKE '%' + @Search + '%'
-             OR MenuItmDes LIKE '%' + @Search + '%'
-          GROUP BY LTRIM(RTRIM(MenuItmId))
+             OR LTRIM(RTRIM(v.MenuItmId)) LIKE '%' + @Search + '%'
+             OR v.MenuItmDes LIKE '%' + @Search + '%'
+          GROUP BY LTRIM(RTRIM(v.MenuItmId))
         )
         SELECT TOP (@Limit)
           MenuItmId, MenuItmDes, Category, SalesPrice, ItemAvailable
@@ -1566,14 +1570,17 @@ app.get('/api/kds/unavailable-items', async (_req, res) => {
     const pool = await poolPromise;
     const result = await pool.request().query(`
       -- Keep the permanent unavailable list one row per MenuItmId. The view
-      -- can include multiple menu-assignment rows for a single item.
+      -- can include multiple menu-assignment rows for a single item. The
+      -- physical availability flag belongs to Tbl_MenuItems, not the view.
       SELECT
-        LTRIM(RTRIM(MenuItmId)) AS MenuItmId,
-        MAX(LTRIM(RTRIM(MenuItmDes))) AS MenuItmDes
-      FROM dbo.Vw_MenuItems WITH (NOLOCK)
-      WHERE ISNULL(ItemAvailable, 1) = 0
-      GROUP BY LTRIM(RTRIM(MenuItmId))
-      ORDER BY MAX(LTRIM(RTRIM(MenuItmDes))) ASC, LTRIM(RTRIM(MenuItmId)) ASC
+        LTRIM(RTRIM(v.MenuItmId)) AS MenuItmId,
+        MAX(LTRIM(RTRIM(v.MenuItmDes))) AS MenuItmDes
+      FROM dbo.Vw_MenuItems v WITH (NOLOCK)
+      INNER JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
+        ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(v.MenuItmId))
+      WHERE ISNULL(m.ItemNotAvailable, 0) = 1
+      GROUP BY LTRIM(RTRIM(v.MenuItmId))
+      ORDER BY MAX(LTRIM(RTRIM(v.MenuItmDes))) ASC, LTRIM(RTRIM(v.MenuItmId)) ASC
     `);
     return res.json({ ok: true, items: result.recordset ?? [] });
   } catch (error) {
@@ -1599,17 +1606,17 @@ app.patch('/api/kds/menu-items/:menuItemId/availability', async (req, res) => {
     const pool = await poolPromise;
     const result = await pool.request()
       .input('MenuItmId', sql.VarChar(10), menuItemId)
-      .input('ItemAvailable', sql.Bit, itemAvailable ? 1 : 0)
+      .input('ItemNotAvailable', sql.Bit, itemAvailable ? 0 : 1)
       .input('EditedBy', sql.VarChar(10), editedBy)
       .query(`
         UPDATE dbo.Tbl_MenuItems
-        SET ItemAvailable = @ItemAvailable,
+        SET ItemNotAvailable = @ItemNotAvailable,
             LastEditDate = GETDATE(),
             EditedBy = @EditedBy
         OUTPUT
           LTRIM(RTRIM(INSERTED.MenuItmId)) AS MenuItmId,
           LTRIM(RTRIM(INSERTED.MenuItmDes)) AS MenuItmDes,
-          INSERTED.ItemAvailable AS ItemAvailable
+          CAST(CASE WHEN ISNULL(INSERTED.ItemNotAvailable, 0) = 1 THEN 0 ELSE 1 END AS bit) AS ItemAvailable
         WHERE LTRIM(RTRIM(MenuItmId)) = @MenuItmId
       `);
 
@@ -1628,7 +1635,7 @@ app.patch('/api/kds/menu-items/:menuItemId/availability', async (req, res) => {
 
 // Save a KDS availability batch in one transaction. Notification delivery is
 // deliberately delayed until this explicit Save action: one IT broadcast
-// contains every item that changed from available (1) to unavailable (0).
+// contains every item that changed from ItemNotAvailable = 0 to 1.
 app.post('/api/kds/menu-items/availability/batch', async (req, res) => {
   const rawUpdates = Array.isArray(req.body?.updates) ? req.body.updates : [];
   const editedBy = String(req.body?.editedBy ?? 'KDS').trim().slice(0, 10) || 'KDS';
@@ -1664,18 +1671,19 @@ app.post('/api/kds/menu-items/availability/batch', async (req, res) => {
     for (const [menuItemId, itemAvailable] of changes.entries()) {
       const result = await transaction.request()
         .input('MenuItmId', sql.VarChar(10), menuItemId)
-        .input('ItemAvailable', sql.Bit, itemAvailable ? 1 : 0)
+        .input('ItemNotAvailable', sql.Bit, itemAvailable ? 0 : 1)
         .input('EditedBy', sql.VarChar(10), editedBy)
         .query(`
           UPDATE dbo.Tbl_MenuItems
-          SET ItemAvailable = @ItemAvailable,
+          SET ItemNotAvailable = @ItemNotAvailable,
               LastEditDate = GETDATE(),
               EditedBy = @EditedBy
           OUTPUT
             LTRIM(RTRIM(INSERTED.MenuItmId)) AS MenuItmId,
             LTRIM(RTRIM(INSERTED.MenuItmDes)) AS MenuItmDes,
-            INSERTED.ItemAvailable AS ItemAvailable,
-            DELETED.ItemAvailable AS PreviousItemAvailable
+            CAST(CASE WHEN ISNULL(INSERTED.ItemNotAvailable, 0) = 1 THEN 0 ELSE 1 END AS bit) AS ItemAvailable,
+            INSERTED.ItemNotAvailable AS ItemNotAvailable,
+            DELETED.ItemNotAvailable AS PreviousItemNotAvailable
           WHERE LTRIM(RTRIM(MenuItmId)) = @MenuItmId
         `);
       const item = result.recordset?.[0];
@@ -1685,9 +1693,9 @@ app.post('/api/kds/menu-items/availability/batch', async (req, res) => {
 
     const newlyUnavailable = savedItems
       .filter((item) => {
-        const previous = item.PreviousItemAvailable === true || Number(item.PreviousItemAvailable) === 1;
-        const current = item.ItemAvailable === true || Number(item.ItemAvailable) === 1;
-        return previous && !current;
+        const previousUnavailable = item.PreviousItemNotAvailable === true || Number(item.PreviousItemNotAvailable) === 1;
+        const currentUnavailable = item.ItemNotAvailable === true || Number(item.ItemNotAvailable) === 1;
+        return !previousUnavailable && currentUnavailable;
       })
       .map((item) => ({
         itemId: String(item.MenuItmId ?? '').trim(),

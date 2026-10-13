@@ -1,12 +1,14 @@
 /*
   KDS — menu item availability
 
-  Meaning used by the KDS unavailable-items screen:
-    ItemAvailable = 1  -> available (default)
-    ItemAvailable = 0  -> unavailable
+  Physical column used by the restaurant database:
+    ItemNotAvailable = 0  -> available (default)
+    ItemNotAvailable = 1  -> unavailable
 
-  Run this only after dbo.Tbl_MenuItems has been created in the SAME database
-  used by the Node backend.
+  The app/API keeps its client response as ItemAvailable for compatibility,
+  but writes the inverted value to this physical column.
+
+  Run this in the SAME database used by backend/server.js.
 */
 
 SET NOCOUNT ON;
@@ -22,19 +24,16 @@ BEGIN
 END
 ELSE
 BEGIN
-    /* New/old databases that do not have the column yet. */
-    IF COL_LENGTH(N'dbo.Tbl_MenuItems', N'ItemAvailable') IS NULL
+    /* Add the exact field shown in the Table Designer if it is not present. */
+    IF COL_LENGTH(N'dbo.Tbl_MenuItems', N'ItemNotAvailable') IS NULL
     BEGIN
         ALTER TABLE dbo.Tbl_MenuItems
-        ADD ItemAvailable bit NOT NULL
-            CONSTRAINT DF_Tbl_MenuItems_ItemAvailable DEFAULT (1);
+        ADD ItemNotAvailable bit NOT NULL
+            CONSTRAINT DF_Tbl_MenuItems_ItemNotAvailable DEFAULT (0);
     END
     ELSE
     BEGIN
-        /*
-          Replace any existing default constraint. The original table script
-          creates DEFAULT (0), but the KDS rule is DEFAULT (1).
-        */
+        /* Ensure future inserts default to available: ItemNotAvailable = 0. */
         DECLARE @DefaultConstraint sysname;
         DECLARE @Sql nvarchar(max);
 
@@ -44,7 +43,7 @@ BEGIN
             ON c.object_id = dc.parent_object_id
            AND c.column_id = dc.parent_column_id
         WHERE dc.parent_object_id = OBJECT_ID(N'dbo.Tbl_MenuItems')
-          AND c.name = N'ItemAvailable';
+          AND c.name = N'ItemNotAvailable';
 
         IF @DefaultConstraint IS NOT NULL
         BEGIN
@@ -54,7 +53,8 @@ BEGIN
         END;
 
         ALTER TABLE dbo.Tbl_MenuItems
-        ADD CONSTRAINT DF_Tbl_MenuItems_ItemAvailable DEFAULT (1) FOR ItemAvailable;
+        ADD CONSTRAINT DF_Tbl_MenuItems_ItemNotAvailable
+            DEFAULT (0) FOR ItemNotAvailable;
     END;
 END;
 GO
@@ -62,9 +62,8 @@ GO
 /*
   OPTIONAL ONE-TIME INITIALISATION
 
-  Only run this if the table has never stored real unavailable choices and all
-  existing rows should start available:
+  Only run this if all existing menu items should be available initially:
 
   UPDATE dbo.Tbl_MenuItems
-  SET ItemAvailable = 1;
+  SET ItemNotAvailable = 0;
 */

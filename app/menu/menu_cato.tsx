@@ -312,8 +312,11 @@ const isVisibleDiningItem = (item: RawMenuRecord) => {
   const assignmentVisible = flags.length === 0 || flags.every(
     (value) => value === '1' || value.toLowerCase() === 'true',
   );
+  const unavailableValue = getText(item.ItemNotAvailable ?? item.itemNotAvailable);
   const availableValue = getText(item.ItemAvailable ?? item.IsAvailable);
-  const customerAvailable = !availableValue || availableValue === '1' || availableValue.toLowerCase() === 'true';
+  const customerAvailable = unavailableValue
+    ? unavailableValue === '0' || unavailableValue.toLowerCase() === 'false'
+    : (!availableValue || availableValue === '1' || availableValue.toLowerCase() === 'true');
   return assignmentVisible && customerAvailable;
 };
 

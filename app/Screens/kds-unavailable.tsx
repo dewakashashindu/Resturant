@@ -44,12 +44,17 @@ const asItem = (row: any): MenuAvailabilityItem | null => {
   const menuItemId = String(row?.MenuItmId ?? row?.menuItmId ?? row?.MenuItemCode ?? '').trim();
   const description = String(row?.MenuItmDes ?? row?.menuItmDes ?? row?.description ?? '').trim();
   if (!menuItemId || !description) return null;
+  const rawUnavailable = row?.ItemNotAvailable ?? row?.itemNotAvailable;
   const rawAvailable = row?.ItemAvailable ?? row?.itemAvailable ?? 1;
+  const hasUnavailableFlag = rawUnavailable === true || rawUnavailable === false
+    || rawUnavailable === 1 || rawUnavailable === 0 || rawUnavailable === '1' || rawUnavailable === '0';
   return {
     menuItemId,
     description,
     category: String(row?.Category ?? row?.category ?? '').trim(),
-    itemAvailable: rawAvailable === true || rawAvailable === 1 || rawAvailable === '1',
+    itemAvailable: hasUnavailableFlag
+      ? !(rawUnavailable === true || rawUnavailable === 1 || rawUnavailable === '1')
+      : rawAvailable === true || rawAvailable === 1 || rawAvailable === '1',
   };
 };
 
