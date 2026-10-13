@@ -30,7 +30,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProtectedMenuExitModal } from '../../components/ProtectedMenuExitModal';
 import { useCartStore } from '../../services/cartStore';
-import { useItemStore } from '../../services/itemStore';
+import { ITEM_PIC_PREFIX, useItemStore } from '../../services/itemStore';
 import { useMenuSessionStore } from '../../services/menuSessionStore';
 import { useOrderStore } from '../../services/orderStore';
 import { storage } from '../../services/storage';
@@ -49,8 +49,9 @@ export interface SubCatItem {
   id:       string;
   name:     string;
   price:    string;
-  image:    ImageSourcePropType;
-  imageUrl?: string; // URL string වලින් image දෙන්න (items only)
+  image:       ImageSourcePropType;
+  imageUrl?:   string; // URL string වලින් image දෙන්න (items only)
+  description: string; // Tbl_MenuItems.DisplayItemDes
 }
 
 export interface SubCategory {
@@ -299,20 +300,28 @@ const getMenuItemName = (item: RawMenuRecord) =>
 const getMenuItemPrice = (item: RawMenuRecord) =>
   Number(item.SalesPrice ?? item.salesPrice ?? item.Price ?? item.price ?? 0) || 0;
 
+const getMenuItemDescription = (item: RawMenuRecord) =>
+  getText(item.DisplayItemDes);
+
 const formatPrice = (price: number) => `Rs. ${price.toLocaleString('en-LK', { maximumFractionDigits: 2 })}`;
 
 const isVisibleDiningItem = (item: RawMenuRecord) => {
   const flags = [item.DisplayInFront, item.MenuAssiEnable, item.MenuItemEnable]
     .map(getText)
     .filter(Boolean);
-  return flags.length === 0 || flags.every((value) => value === '1' || value.toLowerCase() === 'true');
+  const assignmentVisible = flags.length === 0 || flags.every(
+    (value) => value === '1' || value.toLowerCase() === 'true',
+  );
+  const availableValue = getText(item.ItemAvailable ?? item.IsAvailable);
+  const customerAvailable = !availableValue || availableValue === '1' || availableValue.toLowerCase() === 'true';
+  return assignmentVisible && customerAvailable;
 };
 
 const getMenuItemImage = (item: RawMenuRecord): ImageSourcePropType => {
   const itemCode = getMenuItemCode(item);
   if (itemCode) {
     try {
-      const cached = storage.getString(`item_pic:${itemCode}`)?.trim();
+      const cached = storage.getString(`${ITEM_PIC_PREFIX}${itemCode}`)?.trim();
       if (cached) {
         return {
           uri: cached.startsWith('data:') ? cached : `data:image/jpeg;base64,${cached}`,
@@ -343,6 +352,7 @@ const toMenuItem = (item: RawMenuRecord): SubCatItem | null => {
     name: getMenuItemName(item) || id,
     price: formatPrice(getMenuItemPrice(item)),
     image: getMenuItemImage(item),
+    description: getMenuItemDescription(item),
   };
 };
 
@@ -607,14 +617,6 @@ const parsePrice = (priceStr: string): number => {
   return Number.isFinite(num) ? num : 0;
 };
 
-const ITEM_DESCRIPTIONS: Record<string, string> = {};
-
-const DEFAULT_ITEM_DESCRIPTION =
-  'A carefully prepared dish crafted with the finest ingredients. ' +
-  'Served fresh and made to order — every bite is a perfect balance ' +
-  'of flavour and quality. Our chefs source locally where possible to ' +
-  'ensure you enjoy the very best with every serving.';
-
 const ItemDetailModal = ({
   item, visible, onClose, cart, onIncrement, onDecrement, m,
 }: ItemDetailModalProps) => {
@@ -649,7 +651,7 @@ const ItemDetailModal = ({
   const qty        = cart[item.id] ?? 0;
   const unitPrice  = parsePrice(item.price);
   const totalPrice = unitPrice * qty;
-  const description = ITEM_DESCRIPTIONS[item.id] ?? DEFAULT_ITEM_DESCRIPTION;
+  const description = item.description.trim();
   const imageHeight = m.height * (m.isTablet ? 0.42 : m.isSmall ? 0.36 : 0.40);
 
   const translateY = slideAnim.interpolate({
@@ -697,9 +699,13 @@ const ItemDetailModal = ({
               <Text style={s.price}>{item.price}</Text>
             </View>
           </View>
-          <View style={s.divider} />
-          <Text style={s.descLabel}>Description</Text>
-          <Text style={s.description}>{description}</Text>
+          {description ? (
+            <>
+              <View style={s.divider} />
+              <Text style={s.descLabel}>Description</Text>
+              <Text style={s.description}>{description}</Text>
+            </>
+          ) : null}
           <View style={s.addRow}>
             <View style={s.totalWrap}>
               <Text style={s.totalLabel}>

@@ -2,10 +2,12 @@ import { create } from 'zustand';
 import { apiClient } from './api';
 import { storage } from './storage';
 
-const ITEM_CACHE_KEY = 'menu_items_cache_v1';
-const ITEM_LAST_SYNC_KEY = 'menu_items_last_sync_v1';
-// Separate key to track the DATE portion only — used for daily stale check
-const ITEM_LAST_SYNC_DATE_KEY = 'menu_items_last_sync_date_v1';
+// Export these keys so login/biometric re-entry makes the same daily-cache
+// decision as the item store. Keep all menu-cache version changes centralised.
+export const MENU_ITEM_CACHE_KEY = 'menu_items_cache_v2';
+export const MENU_ITEM_LAST_SYNC_KEY = 'menu_items_last_sync_v2';
+// Separate key to track the DATE portion only — used for daily stale check.
+export const MENU_ITEM_LAST_SYNC_DATE_KEY = 'menu_items_last_sync_date_v2';
 const CACHED_CATEGORIES_KEY = 'cached_categories';
 const CACHED_ITEMS_KEY = 'cached_items';
 // Set to '1' on login → forces a fresh full sync on next hydrateItems call
@@ -18,27 +20,31 @@ export const ITEM_PIC_PREFIX = 'item_pic:';
 let hydrateItemsInFlight: Promise<void> | null = null;
 
 /**
- * Strips ItemPic out of each item, saves pictures to individual MMKV keys,
- * and returns the cleaned items array (no base64 blobs in the main cache).
+ * Strips ItemPicMob out of each item, saves mobile pictures to individual MMKV
+ * keys, and returns the cleaned items array (no base64 blobs in the main cache).
  */
 const stripAndCachePictures = (items: RawItem[]): RawItem[] => {
   let savedCount = 0;
   let nullCount = 0;
   const result = items.map((item) => {
     const code = String(item.MenuItemCode ?? item.ItemCode ?? '').trim();
-    const pic = item.ItemPic;
+    const pic = item.ItemPicMob;
     if (code && pic && typeof pic === 'string' && pic.trim().length > 0) {
       try {
         storage.set(`${ITEM_PIC_PREFIX}${code}`, pic.trim());
         savedCount++;
-        if (savedCount <= 5) console.log('[ItemStore] Cached pic for', code, 'length=', pic.trim().length);
+        if (savedCount <= 5) console.log('[ItemStore] Cached mobile pic for', code, 'length=', pic.trim().length);
       } catch (e) {
-        console.log('[ItemStore] Failed to cache picture for', code, e);
+        console.log('[ItemStore] Failed to cache mobile picture for', code, e);
       }
     } else if (code) {
       nullCount++;
+      // A previous app version may have cached Tbl_MenuItems.ItemPic under the
+      // same key. Do not keep showing that desktop picture when ItemPicMob is
+      // blank for this item.
+      storage.remove(`${ITEM_PIC_PREFIX}${code}`);
     }
-    const { ItemPic, ...rest } = item as any;
+    const { ItemPicMob, ...rest } = item as any;
     return rest as RawItem;
   });
   console.log('[ItemStore] stripAndCachePictures done: saved=', savedCount, 'noPic=', nullCount);
@@ -62,20 +68,22 @@ const stripAndCachePicturesWithProgress = async (
   for (let index = 0; index < total; index += 1) {
     const item = items[index];
     const code = String(item.MenuItemCode ?? item.ItemCode ?? '').trim();
-    const pic = item.ItemPic;
+    const pic = item.ItemPicMob;
 
     if (code && pic && typeof pic === 'string' && pic.trim().length > 0) {
       try {
         storage.set(`${ITEM_PIC_PREFIX}${code}`, pic.trim());
         savedCount += 1;
       } catch (error) {
-        console.log('[ItemStore] Failed to cache picture for', code, error);
+        console.log('[ItemStore] Failed to cache mobile picture for', code, error);
       }
     } else if (code) {
       nullCount += 1;
+      // Remove a legacy ItemPic value when no mobile image is supplied.
+      storage.remove(`${ITEM_PIC_PREFIX}${code}`);
     }
 
-    const { ItemPic, ...rest } = item as any;
+    const { ItemPicMob, ...rest } = item as any;
     result.push(rest as RawItem);
 
     const completed = index + 1;
@@ -130,7 +138,7 @@ const readSnapshot = (raw?: string | null): MenuSnapshot => {
   if (Array.isArray(parsed)) {
     return {
       items: parsed,
-      lastSyncTime: storage.getString(ITEM_LAST_SYNC_KEY) ?? null,
+      lastSyncTime: storage.getString(MENU_ITEM_LAST_SYNC_KEY) ?? null,
     };
   }
 
@@ -144,14 +152,14 @@ const readSnapshot = (raw?: string | null): MenuSnapshot => {
     const lastSyncTime =
       typeof payload.lastSyncTime === 'string' && payload.lastSyncTime
         ? payload.lastSyncTime
-        : storage.getString(ITEM_LAST_SYNC_KEY) ?? null;
+        : storage.getString(MENU_ITEM_LAST_SYNC_KEY) ?? null;
 
     return { items, lastSyncTime };
   }
 
   return {
     items: [],
-    lastSyncTime: storage.getString(ITEM_LAST_SYNC_KEY) ?? null,
+    lastSyncTime: storage.getString(MENU_ITEM_LAST_SYNC_KEY) ?? null,
   };
 };
 
@@ -185,7 +193,7 @@ const getDisplayTimestamp = (): string => {
  * Reads only the date portion (YYYY-MM-DD) stored for the stale-date check.
  */
 const readStoredSyncDate = (): string | null => {
-  const raw = storage.getString(ITEM_LAST_SYNC_DATE_KEY);
+  const raw = storage.getString(MENU_ITEM_LAST_SYNC_DATE_KEY);
   return raw ? String(raw).trim().slice(0, 10) : null;
 };
 
@@ -233,16 +241,16 @@ const persistSnapshot = (items: RawItem[], displayTimestamp: string | null) => {
     items: items ?? [],
     lastSyncTime: displayTimestamp,
   };
-  storage.set(ITEM_CACHE_KEY, JSON.stringify(snapshot));
+  storage.set(MENU_ITEM_CACHE_KEY, JSON.stringify(snapshot));
 
   if (displayTimestamp) {
     // Full timestamp for display
-    storage.set(ITEM_LAST_SYNC_KEY, displayTimestamp);
+    storage.set(MENU_ITEM_LAST_SYNC_KEY, displayTimestamp);
     // Date-only for daily stale check
-    storage.set(ITEM_LAST_SYNC_DATE_KEY, displayTimestamp.slice(0, 10));
+    storage.set(MENU_ITEM_LAST_SYNC_DATE_KEY, displayTimestamp.slice(0, 10));
   } else {
-    storage.set(ITEM_LAST_SYNC_KEY, '');
-    storage.set(ITEM_LAST_SYNC_DATE_KEY, '');
+    storage.set(MENU_ITEM_LAST_SYNC_KEY, '');
+    storage.set(MENU_ITEM_LAST_SYNC_DATE_KEY, '');
   }
 };
 
@@ -274,7 +282,7 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
       // awaits it before navigating to tabs. We therefore fetch here only
       // when the cache is missing or belongs to a previous calendar day.
       try {
-        const snapshot = readSnapshot(storage.getString(ITEM_CACHE_KEY));
+        const snapshot = readSnapshot(storage.getString(MENU_ITEM_CACHE_KEY));
         const storedSyncDate = readStoredSyncDate();
         const todayDate = getMenuSyncLocalDate();
 
@@ -467,8 +475,8 @@ export const useItemStore = create<ItemStoreState>((set, get) => ({
   clearItems: () => {
     try {
       persistSnapshot([], null);
-      storage.set(ITEM_LAST_SYNC_KEY, '');
-      storage.set(ITEM_LAST_SYNC_DATE_KEY, '');
+      storage.set(MENU_ITEM_LAST_SYNC_KEY, '');
+      storage.set(MENU_ITEM_LAST_SYNC_DATE_KEY, '');
     } catch (err) {
       console.log('⚠️ [ItemStore] clearItems failed', err);
     }

@@ -76,10 +76,16 @@ export default function KdsUnavailableScreen() {
       if (!response.ok || !response.data?.ok) {
         throw new Error(response.data?.message || 'Unable to load menu items.');
       }
-      const nextItems = (Array.isArray(response.data.items) ? response.data.items : [])
+      const itemsById = new Map<string, MenuAvailabilityItem>();
+      (Array.isArray(response.data.items) ? response.data.items : [])
         .map(asItem)
-        .filter((item: MenuAvailabilityItem | null): item is MenuAvailabilityItem => Boolean(item));
-      setItems(nextItems);
+        .filter((item: MenuAvailabilityItem | null): item is MenuAvailabilityItem => Boolean(item))
+        .forEach((item: MenuAvailabilityItem) => {
+          // One availability control per real menu item, even if the source
+          // view returns several assignment rows for that MenuItmId.
+          if (!itemsById.has(item.menuItemId)) itemsById.set(item.menuItemId, item);
+        });
+      setItems([...itemsById.values()]);
     } catch (error) {
       if (sequence !== requestSequence.current) return;
       console.log('[KDS Unavailable] load failed', error);

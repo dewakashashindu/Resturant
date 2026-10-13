@@ -25,7 +25,11 @@ import {
 } from '../../services/biometricAuth';
 import { useAuthStore } from '../../services/authStore';
 import { getUniqueDeviceId } from '../../services/deviceIdService';
-import useItemStore, { getMenuSyncLocalDate } from '../../services/itemStore';
+import useItemStore, {
+  getMenuSyncLocalDate,
+  MENU_ITEM_CACHE_KEY,
+  MENU_ITEM_LAST_SYNC_DATE_KEY,
+} from '../../services/itemStore';
 import { AUTH_SESSION_KEYS, storage } from '../../services/storage';
 
 export default function LoginScreen() {
@@ -91,8 +95,8 @@ export default function LoginScreen() {
 
   const prepareMenuForAuthenticatedLogin = async (): Promise<boolean> => {
     const todayDate = getMenuSyncLocalDate();
-    const lastSyncDate = String(storage.getString('menu_items_last_sync_date_v1') ?? '').slice(0, 10);
-    const hasMenuCache = Boolean(storage.getString('menu_items_cache_v1')?.trim());
+    const lastSyncDate = String(storage.getString(MENU_ITEM_LAST_SYNC_DATE_KEY) ?? '').slice(0, 10);
+    const hasMenuCache = Boolean(storage.getString(MENU_ITEM_CACHE_KEY)?.trim());
     const needsDailySync = lastSyncDate !== todayDate || !hasMenuCache;
 
     setIsDailyFirstSync(needsDailySync);

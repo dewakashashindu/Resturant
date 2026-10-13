@@ -156,7 +156,7 @@ const dbConfig = {
     encrypt: false,
     trustServerCertificate: true,
     enableArithAbort: true,
-    requestTimeout: 90000,  // 90 s — /api/menu/items fetches ItemPic blobs
+    requestTimeout: 90000,  // 90 s — /api/menu/items fetches ItemPicMob blobs
   },
   pool: {
     max: 10,
@@ -1314,9 +1314,9 @@ const itemPicToDataUri = (raw) => {
 
 app.get('/api/menu/items', async (req, res) => {
   try {
-    // ItemPic values are BLOBs. Query the small menu page first and fetch only
-    // that page's pictures separately; joining pictures to the large view can
-    // exhaust SQL Server's internal memory pool even with OFFSET pagination.
+    // ItemPicMob values are BLOBs. Query the small menu page first and fetch
+    // only that page's mobile pictures separately; joining a BLOB to the large
+    // view can exhaust SQL Server's internal memory pool even with pagination.
     const requestedLimit = Number(req.query.limit ?? 50);
     const limit = Number.isFinite(requestedLimit) ? Math.min(100, Math.max(1, Math.floor(requestedLimit))) : 50;
     const after = typeof req.query.after === 'string' ? req.query.after.trim() : '';
@@ -1338,11 +1338,16 @@ app.get('/api/menu/items', async (req, res) => {
         a.DisplayInFront,
         a.MenuAssiEnable,
         a.MenuItemEnable,
-        a.LISTINGORDER
+        a.LISTINGORDER,
+        m.DisplayItemDes,
+        m.ItemAvailable
       FROM Vw_MenuAssignment a WITH (NOLOCK)
+      INNER JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
+        ON m.MenuItmId = a.MenuItemCode
       WHERE a.DisplayInFront = '1'
         AND a.MenuAssiEnable = '1'
         AND a.MenuItemEnable = '1'
+        AND ISNULL(m.ItemAvailable, 1) = 1
         AND a.MenuItemCode > @after
       ORDER BY a.MenuItemCode
     `);
@@ -1360,28 +1365,28 @@ app.get('/api/menu/items', async (req, res) => {
         return `@${name}`;
       });
       const pictureResult = await pictureRequest.query(`
-        SELECT MenuItmId, ItemPic
-        FROM Tbl_MenuItems WITH (NOLOCK)
+        SELECT MenuItmId, ItemPicMob
+        FROM dbo.Tbl_MenuItems WITH (NOLOCK)
         WHERE MenuItmId IN (${parameters.join(', ')})
       `);
       for (const picture of pictureResult?.recordset ?? []) {
-        pictureByCode.set(String(picture.MenuItmId ?? '').trim(), picture.ItemPic);
+        pictureByCode.set(String(picture.MenuItmId ?? '').trim(), picture.ItemPicMob);
       }
     }
 
     const seen = new Map();
     const processedRows = rows.map((row) => {
       const rawPicture = pictureByCode.get(String(row.MenuItemCode ?? '').trim());
-      if (!rawPicture) return { ...row, ItemPic: null };
+      if (!rawPicture) return { ...row, ItemPicMob: null };
       try {
         const buf = rawPicture;
         const mid = Math.floor(buf.length / 2);
         const key = `${buf.length}_${buf.toString('hex', 0, 8)}_${buf.toString('hex', mid, mid + 8)}_${buf.toString('hex', Math.max(0, buf.length - 8))}`;
         if (!seen.has(key)) seen.set(key, itemPicToDataUri(buf));
-        return { ...row, ItemPic: seen.get(key) };
+        return { ...row, ItemPicMob: seen.get(key) };
       } catch (error) {
         console.log('[ItemPic] EXCEPTION', row.MenuItemCode, error.message);
-        return { ...row, ItemPic: null };
+        return { ...row, ItemPicMob: null };
       }
     });
 
@@ -1424,16 +1429,25 @@ app.get('/api/kds/menu-items', async (req, res) => {
       .input('Search', sql.VarChar(100), search)
       .input('Limit', sql.Int, limit)
       .query(`
+        -- Vw_MenuItems can contain more than one assignment row for the same
+        -- menu item. KDS availability is maintained by MenuItmId, so return
+        -- one stable row per item rather than duplicate checkbox rows.
+        WITH UniqueMenuItems AS (
+          SELECT
+            LTRIM(RTRIM(MenuItmId)) AS MenuItmId,
+            MAX(LTRIM(RTRIM(MenuItmDes))) AS MenuItmDes,
+            MAX(Category) AS Category,
+            MAX(SalesPrice) AS SalesPrice,
+            CAST(MIN(CAST(ISNULL(ItemAvailable, 1) AS tinyint)) AS bit) AS ItemAvailable
+          FROM dbo.Vw_MenuItems WITH (NOLOCK)
+          WHERE @Search = ''
+             OR LTRIM(RTRIM(MenuItmId)) LIKE '%' + @Search + '%'
+             OR MenuItmDes LIKE '%' + @Search + '%'
+          GROUP BY LTRIM(RTRIM(MenuItmId))
+        )
         SELECT TOP (@Limit)
-          LTRIM(RTRIM(MenuItmId)) AS MenuItmId,
-          LTRIM(RTRIM(MenuItmDes)) AS MenuItmDes,
-          Category,
-          SalesPrice,
-          CAST(ISNULL(ItemAvailable, 1) AS bit) AS ItemAvailable
-        FROM dbo.Vw_MenuItems WITH (NOLOCK)
-        WHERE @Search = ''
-           OR LTRIM(RTRIM(MenuItmId)) LIKE '%' + @Search + '%'
-           OR MenuItmDes LIKE '%' + @Search + '%'
+          MenuItmId, MenuItmDes, Category, SalesPrice, ItemAvailable
+        FROM UniqueMenuItems
         ORDER BY MenuItmDes ASC, MenuItmId ASC
       `);
 
@@ -1450,12 +1464,15 @@ app.get('/api/kds/unavailable-items', async (_req, res) => {
   try {
     const pool = await poolPromise;
     const result = await pool.request().query(`
+      -- Keep the permanent unavailable list one row per MenuItmId. The view
+      -- can include multiple menu-assignment rows for a single item.
       SELECT
         LTRIM(RTRIM(MenuItmId)) AS MenuItmId,
-        LTRIM(RTRIM(MenuItmDes)) AS MenuItmDes
+        MAX(LTRIM(RTRIM(MenuItmDes))) AS MenuItmDes
       FROM dbo.Vw_MenuItems WITH (NOLOCK)
       WHERE ISNULL(ItemAvailable, 1) = 0
-      ORDER BY MenuItmDes ASC, MenuItmId ASC
+      GROUP BY LTRIM(RTRIM(MenuItmId))
+      ORDER BY MAX(LTRIM(RTRIM(MenuItmDes))) ASC, LTRIM(RTRIM(MenuItmId)) ASC
     `);
     return res.json({ ok: true, items: result.recordset ?? [] });
   } catch (error) {
@@ -2622,12 +2639,18 @@ const getActiveBillItemsHandler = async (req, res) => {
       whereClause = 'WHERE h.TabelNo = @TabelNo AND (h.IsPaid = 0 OR h.IsPaid IS NULL)';
     }
 
-    // ─── FIX: GROUP BY ItemCode to prevent duplicate rows when the same item
-    // appears multiple times in Tbl_HoldUpsCloud (e.g. different TxnDateTime).
-    // BillNetTotal is fetched via a correlated subquery (TOP 1) instead of a
-    // LEFT JOIN — this avoids row-multiplication when Tbl_HoldUps has multiple
-    // rows for the same InvoiceNo + TableNo combination.
+    // Tbl_HoldUpsCloud is the quantity source. Vw_MenuAssignment may have
+    // several hierarchy/assignment rows for one MenuItemCode, so joining it
+    // directly would multiply h.QTY before SUM() (for example 1 becomes 4).
+    // First collapse the view to one display name per item code.
     const result = await request.query(`
+      WITH AssignedMenuNames AS (
+        SELECT
+          LTRIM(RTRIM(MenuItemCode)) AS MenuItemCode,
+          MAX(NULLIF(LTRIM(RTRIM(MenuItmDes)), '')) AS MenuItmDes
+        FROM dbo.Vw_MenuAssignment WITH (NOLOCK)
+        GROUP BY LTRIM(RTRIM(MenuItemCode))
+      )
       SELECT
         h.TabelNo, h.ItemCode,
         MAX(COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), h.ItemCode)) AS MenuItmDes,
@@ -2649,7 +2672,8 @@ const getActiveBillItemsHandler = async (req, res) => {
           ORDER BY hu.BillNetTotal DESC
         ) AS BillNetTotal
       FROM dbo.Tbl_HoldUpsCloud h
-      LEFT JOIN Vw_MenuAssignment m ON m.MenuItemCode = h.ItemCode
+      LEFT JOIN AssignedMenuNames m
+        ON m.MenuItemCode = LTRIM(RTRIM(h.ItemCode))
       ${whereClause}
       GROUP BY h.TabelNo, h.ItemCode
       ORDER BY MAX(h.TxnDateTime), h.ItemCode
@@ -2773,10 +2797,17 @@ const getBillItemsHandler = async (req, res) => {
       whereClause = 'WHERE h.TabelNo = @TabelNo AND h.IsPaid = 0';
     }
 
-    // GROUP BY ItemCode so duplicate rows (same item, different TxnDateTime) are
-    // collapsed into one. BillNetTotal via correlated subquery (TOP 1) to avoid
-    // row-multiplication when Tbl_HoldUps has multiple rows per InvoiceNo.
+    // Tbl_HoldUpsCloud holds the real quantity. Collapse the menu-assignment
+    // view to a single label per code before joining it, otherwise multiple
+    // assignments make SUM(h.QTY) return a multiplied quantity.
     const result = await request.query(`
+      WITH AssignedMenuNames AS (
+        SELECT
+          LTRIM(RTRIM(MenuItemCode)) AS MenuItemCode,
+          MAX(NULLIF(LTRIM(RTRIM(MenuItmDes)), '')) AS MenuItmDes
+        FROM dbo.Vw_MenuAssignment WITH (NOLOCK)
+        GROUP BY LTRIM(RTRIM(MenuItemCode))
+      )
       SELECT
         MAX(h.InvoiceNo) AS InvoiceNo, h.TabelNo, h.ItemCode,
         MAX(COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), h.ItemCode)) AS MenuItmDes,
@@ -2797,7 +2828,8 @@ const getBillItemsHandler = async (req, res) => {
           ORDER BY hu.BillNetTotal DESC
         ) AS BillNetTotal
       FROM dbo.Tbl_HoldUpsCloud h
-      LEFT JOIN Vw_MenuAssignment m ON m.MenuItemCode = h.ItemCode
+      LEFT JOIN AssignedMenuNames m
+        ON m.MenuItemCode = LTRIM(RTRIM(h.ItemCode))
       ${whereClause}
       GROUP BY h.TabelNo, h.ItemCode
       ORDER BY MAX(h.TxnDateTime), h.ItemCode

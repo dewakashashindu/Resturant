@@ -1,21 +1,21 @@
 import { useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  ImageSourcePropType,
-  Modal,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    ImageSourcePropType,
+    Modal,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProtectedMenuExitModal } from '../../components/ProtectedMenuExitModal';
@@ -52,8 +52,8 @@ const PLACEHOLDER = require('../../assets/images/image-removebg-preview.png');
 
 /**
  * Menu images are stored independently in MMKV by itemStore so the normal item
- * cache stays small. Resolve the same cached ItemPic / URL used by Menu Card,
- * keyed by the real Dining item code in cartStore.
+ * cache stays small. Resolve the same cached ItemPicMob / URL used by Menu
+ * Card, keyed by the real Dining item code in cartStore.
  */
 const getCustomerCartProductImage = (
   itemCode: string,
@@ -76,7 +76,7 @@ const getCustomerCartProductImage = (
     // Continue to the URL / placeholder fallback if local image cache fails.
   }
 
-  const itemPicture = String(menuRecord?.ItemPic ?? '').trim();
+  const itemPicture = String(menuRecord?.ItemPicMob ?? '').trim();
   if (itemPicture) {
     return {
       uri: itemPicture.startsWith('data:')
@@ -543,6 +543,9 @@ const ReadyToEatScreen = () => {
 
   const [exitModalVisible, setExitModalVisible] = useState(false);
   const [confirmingOrder, setConfirmingOrder] = useState(false);
+  // State does not update until the next render. This ref blocks repeated taps
+  // immediately, before a second confirm request can create another invoice.
+  const confirmInFlightRef = useRef(false);
   const [remarkItem, setRemarkItem] = useState<CustomerCartItem | null>(null);
   const [remarkDraft, setRemarkDraft] = useState('');
 
@@ -673,7 +676,7 @@ const ReadyToEatScreen = () => {
   }, [clearCart, clearSavedCartItems, diningSession?.existingBillItems, saveCartItems, setCartItems]);
 
   const confirmCustomerOrder = async () => {
-    if (confirmingOrder) return;
+    if (confirmInFlightRef.current || confirmingOrder) return;
     if (!diningSession) {
       Alert.alert('Table session missing', 'Please select the table again before confirming this order.');
       return;
@@ -707,6 +710,9 @@ const ReadyToEatScreen = () => {
       return;
     }
 
+    // Set the ref synchronously: setConfirmingOrder alone cannot prevent two
+    // very fast taps from reaching the API before React has rendered again.
+    confirmInFlightRef.current = true;
     setConfirmingOrder(true);
     try {
       const userId = currentUser?.userName
@@ -779,6 +785,7 @@ const ReadyToEatScreen = () => {
       console.log('[MenuCart] customer confirmation failed', error);
       Alert.alert('Order not confirmed', 'Unable to save this order. Please check the connection and try again.');
     } finally {
+      confirmInFlightRef.current = false;
       setConfirmingOrder(false);
     }
   };

@@ -18,7 +18,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
-import { useAuthStore } from '../../services/authStore';
 import {
   clearBiometricLogin,
   enableBiometricLogin,
@@ -26,6 +25,7 @@ import {
   isBiometricLoginEnabled,
   setBiometricPromptEnabled,
 } from '../../services/biometricAuth';
+import { useAuthStore } from '../../services/authStore';
 import useItemStore from '../../services/itemStore';
 import { useNotificationStore } from '../../services/notificationStore';
 

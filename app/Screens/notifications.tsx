@@ -208,13 +208,20 @@ export default function NotificationsScreen() {
     try {
       const response = await apiClient.getKdsUnavailableItems();
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.message || 'Unable to load unavailable items.');
-      const parsed = (Array.isArray(response.data.items) ? response.data.items : [])
+      const itemsById = new Map<string, CurrentUnavailableItem>();
+      (Array.isArray(response.data.items) ? response.data.items : [])
         .map((item: any) => ({
           itemId: String(item?.MenuItmId ?? item?.menuItmId ?? '').trim(),
           itemName: String(item?.MenuItmDes ?? item?.menuItmDes ?? '').trim(),
         }))
-        .filter((item: CurrentUnavailableItem) => item.itemId && item.itemName);
-      setCurrentUnavailableItems(parsed);
+        .filter((item: CurrentUnavailableItem) => item.itemId && item.itemName)
+        .forEach((item: CurrentUnavailableItem) => {
+          // A MenuItmId is the item's stable identity. Avoid duplicate rows
+          // and duplicate React keys if an older backend/view returns the same
+          // assignment item more than once.
+          if (!itemsById.has(item.itemId)) itemsById.set(item.itemId, item);
+        });
+      setCurrentUnavailableItems([...itemsById.values()]);
     } catch (error) {
       console.log('[Notifications] unavailable item list failed', error);
       setCurrentUnavailableItems([]);

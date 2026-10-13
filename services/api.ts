@@ -263,6 +263,7 @@ type ConfirmCartPayloadInput = ConfirmCartPayload | {
   FPax?: number;
   existingInvoiceNo?: string | null;
   invoiceNo?: string | null;
+  forceNewInvoice?: boolean;
   items: Array<{
     menuItemCode?: string;
     ItemCode?: string;
@@ -471,6 +472,7 @@ const normalizeConfirmCartPayload = (payload: ConfirmCartPayloadInput): any => {
     // Pass through so the server can match the existing open bill instead of
     // generating a new TA serial / INV number on every Add-More confirm.
     existingInvoiceNo,
+    forceNewInvoice: Boolean((payload as any).forceNewInvoice),
   };
 };
 

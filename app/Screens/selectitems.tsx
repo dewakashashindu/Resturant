@@ -20,7 +20,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient, getCachedOrderDescriptions } from '../../services/api';
 import { useCartStore } from '../../services/cartStore';
-import useItemStore from '../../services/itemStore';
+import useItemStore, { MENU_ITEM_CACHE_KEY } from '../../services/itemStore';
 import { useOrderStore } from '../../services/orderStore';
 import { storage } from '../../services/storage';
 
@@ -81,7 +81,6 @@ const LEVEL_KEYS = [
   'Level1', 'Level2', 'Level3', 'Level4', 'Level5', 'Level6', 'Level7',
 ] as const;
 
-const MENU_SNAPSHOT_KEY    = 'menu_items_cache_v1';
 const CACHED_CATEGORIES_KEY = 'cached_categories';
 const CACHED_ITEMS_KEY     = 'cached_items';
 const COLUMNS              = 2;
@@ -107,8 +106,14 @@ const isVisibleCachedItem = (item: Record<string, any>) => {
   const menuAssiEnable = getText(item.MenuAssiEnable);
   const menuItemEnable = getText(item.MenuItemEnable);
   const flags = [displayInFront, menuAssiEnable, menuItemEnable].filter(Boolean);
-  if (flags.length === 0) return true;
-  return flags.every((value) => value === '1' || value.toLowerCase() === 'true');
+  const assignmentVisible = flags.length === 0 || flags.every(
+    (value) => value === '1' || value.toLowerCase() === 'true',
+  );
+  // ItemAvailable is the actual Tbl_MenuItems field in this project:
+  // 1/true = show; 0/false = never render the item from a local cache.
+  const available = getText(item.ItemAvailable ?? item.IsAvailable);
+  const itemAvailable = !available || available === '1' || available.toLowerCase() === 'true';
+  return assignmentVisible && itemAvailable;
 };
 
 const getLevelValue = (item: Record<string, any>, level: number) =>
@@ -176,7 +181,7 @@ const normalizeRemarkTags = (values: string[]) =>
 
 const readCachedMenuItems = () => {
   try {
-    const rawSnapshot = storage.getString(MENU_SNAPSHOT_KEY);
+    const rawSnapshot = storage.getString(MENU_ITEM_CACHE_KEY);
     if (rawSnapshot) {
       const snapshot = JSON.parse(rawSnapshot);
       if (Array.isArray(snapshot?.items)) return snapshot.items;
