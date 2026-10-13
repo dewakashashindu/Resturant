@@ -1781,26 +1781,33 @@ app.get('/api/kds/orders', async (req, res) => {
       .input('Type', sql.VarChar(2), requestedType)
       .query(`
         SELECT DISTINCT
-          LTRIM(RTRIM(OrderNo)) AS OrderNo,
-          LTRIM(RTRIM(OrderMode)) AS OrderMode,
-          LTRIM(RTRIM([Type])) AS KOTBOTType,
-          LTRIM(RTRIM(TableNo)) AS TableNo,
-          LTRIM(RTRIM(Steward)) AS Steward,
-          LTRIM(RTRIM(Cashier)) AS Cashier,
-          KBDate,
-          LTRIM(RTRIM(ItemCode)) AS ItemCode,
-          CAST(ItmQty AS float) AS ItmQty,
-          LTRIM(RTRIM(ItmRmks)) AS ItmRmks,
-          LTRIM(RTRIM(Invoiceno)) AS InvoiceNo,
-          LTRIM(RTRIM(LocCode)) AS LocCode,
-          LTRIM(RTRIM(ISNULL(ProStatus, 'S'))) AS ProStatus,
-          PlacedTime,
-          ProStarted,
-          ProDone,
-          LTRIM(RTRIM(ISNULL(MenuItmDes, ItemCode))) AS MenuItmDes
-        FROM dbo.Vw_KOTBOTHder WITH (NOLOCK)
-        WHERE @Type = '' OR LTRIM(RTRIM([Type])) = @Type
-        ORDER BY PlacedTime ASC, OrderNo ASC, ItemCode ASC
+          LTRIM(RTRIM(k.OrderNo)) AS OrderNo,
+          LTRIM(RTRIM(k.OrderMode)) AS OrderMode,
+          LTRIM(RTRIM(k.[Type])) AS KOTBOTType,
+          LTRIM(RTRIM(k.TableNo)) AS TableNo,
+          LTRIM(RTRIM(k.Steward)) AS Steward,
+          COALESCE(
+            NULLIF(LTRIM(RTRIM(u.UserName)), ''),
+            NULLIF(LTRIM(RTRIM(u.LoginName)), ''),
+            LTRIM(RTRIM(k.Steward))
+          ) AS StewardName,
+          LTRIM(RTRIM(k.Cashier)) AS Cashier,
+          k.KBDate,
+          LTRIM(RTRIM(k.ItemCode)) AS ItemCode,
+          CAST(k.ItmQty AS float) AS ItmQty,
+          LTRIM(RTRIM(k.ItmRmks)) AS ItmRmks,
+          LTRIM(RTRIM(k.Invoiceno)) AS InvoiceNo,
+          LTRIM(RTRIM(k.LocCode)) AS LocCode,
+          LTRIM(RTRIM(ISNULL(k.ProStatus, 'S'))) AS ProStatus,
+          k.PlacedTime,
+          k.ProStarted,
+          k.ProDone,
+          LTRIM(RTRIM(ISNULL(k.MenuItmDes, k.ItemCode))) AS MenuItmDes
+        FROM dbo.Vw_KOTBOTHder k WITH (NOLOCK)
+        LEFT JOIN dbo.Tbl_UserDetails u WITH (NOLOCK)
+          ON LTRIM(RTRIM(u.UserId)) = LTRIM(RTRIM(k.Steward))
+        WHERE @Type = '' OR LTRIM(RTRIM(k.[Type])) = @Type
+        ORDER BY k.PlacedTime ASC, k.OrderNo ASC, k.ItemCode ASC
       `);
 
     const items = (result.recordset ?? []).map((row) => ({
@@ -1809,6 +1816,7 @@ app.get('/api/kds/orders', async (req, res) => {
       type: String(row.KOTBOTType ?? '').trim(),
       tableNo: String(row.TableNo ?? '').trim(),
       steward: String(row.Steward ?? '').trim(),
+      stewardName: String(row.StewardName ?? row.Steward ?? '').trim(),
       cashier: String(row.Cashier ?? '').trim(),
       invoiceNo: String(row.InvoiceNo ?? '').trim(),
       itemCode: String(row.ItemCode ?? '').trim(),
@@ -1909,8 +1917,8 @@ app.post('/api/kds/orders/item-status', async (req, res) => {
     const previousChanged = changedRows.some((row) => normalizeKdsProStatus(row.PreviousStatus) !== proStatus);
     let notification = null;
 
-    // A KDS P/D drag is an operational event. It is broadcast once, after the
-    // status update succeeds, so all active POS devices see it in the OP tab.
+    // A KDS P/D drag is an operational event. After the status update succeeds,
+    // it is routed once to this order's assigned steward device only.
     if (previousChanged && (proStatus === 'P' || proStatus === 'D')) {
       const menuResult = await transaction.request()
         .input('MenuItmId', sql.VarChar(10), itemCode)
@@ -1993,6 +2001,186 @@ app.post('/api/kds/orders/item-status', async (req, res) => {
       try { await transaction.rollback(); } catch (_) {}
     }
     console.log('[KDS] update KOT/BOT status error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+// Bulk KDS controls change every active line belonging to one order.  Keeping
+// this as a transaction means an order cannot be left half Preparing/Ready.
+app.post('/api/kds/orders/bulk-status', async (req, res) => {
+  let transaction;
+  let transactionStarted = false;
+  try {
+    const orderNo = String(req.body?.orderNo ?? '').trim();
+    const tableNo = String(req.body?.tableNo ?? '').trim();
+    const invoiceNo = String(req.body?.invoiceNo ?? '').trim();
+    const proStatus = String(req.body?.status ?? '').trim().toUpperCase();
+
+    if (!orderNo || !['P', 'D'].includes(proStatus)) {
+      return res.status(400).json({ ok: false, message: 'orderNo and status (P or D) are required.' });
+    }
+
+    const pool = await poolPromise;
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    transactionStarted = true;
+
+    const result = await transaction.request()
+      .input('OrderNo', sql.VarChar(10), orderNo)
+      .input('TableNo', sql.VarChar(15), tableNo)
+      .input('InvoiceNo', sql.VarChar(10), invoiceNo)
+      .input('ProStatus', sql.Char(1), proStatus)
+      .query(`
+        UPDATE dbo.Tbl_KOTBOTHeder
+        SET
+          ProStatus = @ProStatus,
+          ProStarted = CASE
+            WHEN @ProStatus = 'P' AND ISNULL(ProStatus, 'S') <> 'P' THEN GETDATE()
+            ELSE ProStarted
+          END,
+          ProDone = CASE
+            WHEN @ProStatus = 'D' AND ISNULL(ProStatus, 'S') <> 'D' THEN GETDATE()
+            ELSE ProDone
+          END,
+          PlacedToPickUpDuration = CASE
+            WHEN @ProStatus = 'P' AND ISNULL(ProStatus, 'S') <> 'P'
+              THEN DATEDIFF(SECOND, PlacedTime, GETDATE()) / 60.0
+            ELSE PlacedToPickUpDuration
+          END,
+          ProDuration = CASE
+            WHEN @ProStatus = 'D' AND ISNULL(ProStatus, 'S') <> 'D'
+              THEN DATEDIFF(SECOND, ProStarted, GETDATE()) / 60.0
+            ELSE ProDuration
+          END
+        OUTPUT
+          LTRIM(RTRIM(INSERTED.OrderNo)) AS OrderNo,
+          LTRIM(RTRIM(INSERTED.ItemCode)) AS ItemCode,
+          LTRIM(RTRIM(INSERTED.[Type])) AS KOTBOTType,
+          LTRIM(RTRIM(INSERTED.TableNo)) AS TableNo,
+          LTRIM(RTRIM(INSERTED.Invoiceno)) AS InvoiceNo,
+          LTRIM(RTRIM(INSERTED.OrderMode)) AS OrderMode,
+          LTRIM(RTRIM(INSERTED.Steward)) AS Steward,
+          CAST(INSERTED.ItmQty AS float) AS ItmQty,
+          LTRIM(RTRIM(INSERTED.ItmRmks)) AS ItmRmks,
+          LTRIM(RTRIM(INSERTED.ProStatus)) AS ProStatus,
+          LTRIM(RTRIM(DELETED.ProStatus)) AS PreviousStatus,
+          INSERTED.ProStarted AS ProStarted,
+          INSERTED.ProDone AS ProDone
+        WHERE LTRIM(RTRIM(OrderNo)) = @OrderNo
+          AND DocketPrinted = 'N'
+          AND (@TableNo = '' OR LTRIM(RTRIM(TableNo)) = @TableNo)
+          AND (@InvoiceNo = '' OR LTRIM(RTRIM(Invoiceno)) = @InvoiceNo)
+      `);
+
+    const affectedRows = result.recordset ?? [];
+    if (affectedRows.length === 0) {
+      await transaction.rollback();
+      transactionStarted = false;
+      return res.status(404).json({ ok: false, message: 'The active KOT/BOT order was not found.' });
+    }
+
+    const changedRows = affectedRows.filter((row) => normalizeKdsProStatus(row.PreviousStatus) !== proStatus);
+    const notifications = [];
+
+    // Only a real state transition deserves a steward alert.  Rows are grouped
+    // by Steward as an order can theoretically contain separate KOT/BOT owners.
+    if (changedRows.length > 0) {
+      const menuNames = new Map();
+      const itemCodes = [...new Set(changedRows.map((row) => String(row.ItemCode ?? '').trim()).filter(Boolean))];
+      if (itemCodes.length > 0) {
+        const menuRequest = transaction.request();
+        itemCodes.forEach((code, index) => menuRequest.input(`ItemCode${index}`, sql.VarChar(10), code));
+        const menuResult = await menuRequest.query(`
+          SELECT LTRIM(RTRIM(MenuItmId)) AS ItemCode, LTRIM(RTRIM(MenuItmDes)) AS ItemName
+          FROM dbo.Tbl_MenuItems WITH (NOLOCK)
+          WHERE LTRIM(RTRIM(MenuItmId)) IN (${itemCodes.map((_, index) => `@ItemCode${index}`).join(', ')})
+        `);
+        (menuResult.recordset ?? []).forEach((row) => {
+          menuNames.set(String(row.ItemCode ?? '').trim(), String(row.ItemName ?? '').trim());
+        });
+      }
+
+      const rowsBySteward = new Map();
+      changedRows.forEach((row) => {
+        const stewardId = String(row.Steward ?? '').trim();
+        if (!stewardId) return;
+        const bucket = rowsBySteward.get(stewardId) ?? [];
+        bucket.push(row);
+        rowsBySteward.set(stewardId, bucket);
+      });
+
+      for (const [stewardId, stewardRows] of rowsBySteward) {
+        const workstationResult = await transaction.request()
+          .input('Steward', sql.VarChar(10), stewardId)
+          .query(`
+            SELECT TOP (1) LTRIM(RTRIM(Warkstation)) AS TargetDeviceId
+            FROM dbo.Tbl_Warkstation WITH (UPDLOCK, HOLDLOCK)
+            WHERE LTRIM(RTRIM(ISNULL(UserID, ''))) = @Steward
+              AND ISNULL(IsApproved, 0) = 1
+            ORDER BY Warkstation ASC
+          `);
+        const targetDeviceId = String(workstationResult.recordset?.[0]?.TargetDeviceId ?? '').trim();
+        if (!targetDeviceId) continue;
+
+        const first = stewardRows[0];
+        const itemCount = stewardRows.length;
+        const statusTitle = proStatus === 'P' ? 'ORDER IN PROCESSING' : 'ORDER READY';
+        const statusText = proStatus === 'P' ? 'is now processing' : 'is ready';
+        const message = `${itemCount} item${itemCount === 1 ? '' : 's'} ${statusText}. Order ${String(first.OrderNo ?? orderNo).trim()}.`;
+        const notificationResult = await transaction.request()
+          .input('TargetDeviceId', sql.NVarChar(128), targetDeviceId)
+          .input('NotificationType', sql.NVarChar(40), 'OP')
+          .input('NotificationKind', sql.NVarChar(50), 'kds-order-status-update')
+          .input('StatusCode', sql.NVarChar(10), proStatus)
+          .input('Title', sql.NVarChar(160), statusTitle)
+          .input('Message', sql.NVarChar(500), message)
+          .input('TableNo', sql.NVarChar(50), String(first.TableNo ?? tableNo).trim() || null)
+          .input('InvoiceNo', sql.NVarChar(50), String(first.InvoiceNo ?? invoiceNo).trim() || null)
+          .input('ItemCode', sql.NVarChar(50), itemCount === 1 ? String(first.ItemCode ?? '').trim() : 'MULTIPLE')
+          .query(`
+            INSERT INTO dbo.Tbl_AppNotifications
+              (TargetDeviceId, NotificationType, NotificationKind, StatusCode, Title, Message, TableNo, InvoiceNo, ItemCode, ExpiresAt)
+            OUTPUT INSERTED.NotificationId, INSERTED.CreatedAt
+            VALUES
+              (@TargetDeviceId, @NotificationType, @NotificationKind, @StatusCode, @Title, @Message, @TableNo, @InvoiceNo, @ItemCode, DATEADD(DAY, 1, SYSDATETIME()))
+          `);
+        const notification = notificationResult.recordset?.[0];
+        if (!notification?.NotificationId) continue;
+
+        for (const row of stewardRows) {
+          const code = String(row.ItemCode ?? '').trim();
+          const itemName = menuNames.get(code) || code;
+          await transaction.request()
+            .input('NotificationId', sql.BigInt, notification.NotificationId)
+            .input('ItemCode', sql.NVarChar(50), code)
+            .input('ItemName', sql.NVarChar(160), itemName)
+            .input('Quantity', sql.Float, Number(row.ItmQty ?? 0) || null)
+            .input('ItemRemarks', sql.NVarChar(1500), String(row.ItmRmks ?? '').trim() || null)
+            .input('ItemType', sql.NVarChar(10), String(row.KOTBOTType ?? '').trim() || null)
+            .query(`
+              INSERT INTO dbo.Tbl_AppNotificationItems
+                (NotificationId, ItemCode, ItemName, Quantity, ItemRemarks, ItemType)
+              VALUES (@NotificationId, @ItemCode, @ItemName, @Quantity, @ItemRemarks, @ItemType)
+            `);
+        }
+        notifications.push(notification);
+      }
+    }
+
+    await transaction.commit();
+    transactionStarted = false;
+    return res.json({
+      ok: true,
+      status: proStatus,
+      affectedRows: affectedRows.length,
+      changedRows: changedRows.length,
+      notifications,
+    });
+  } catch (error) {
+    if (transactionStarted && transaction) {
+      try { await transaction.rollback(); } catch (_) {}
+    }
+    console.log('[KDS] bulk update KOT/BOT status error', error?.message ?? error);
     return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
   }
 });

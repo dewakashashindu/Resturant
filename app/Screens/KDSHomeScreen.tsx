@@ -29,6 +29,7 @@ type KdsItem = {
   type: string;
   tableNo: string;
   invoiceNo: string;
+  stewardName: string;
   itemCode: string;
   itemName: string;
   quantity: number;
@@ -43,6 +44,7 @@ type KdsOrderGroup = {
   orderMode: string;
   tableNo: string;
   invoiceNo: string;
+  stewardName: string;
   placedTime: string | null;
   items: KdsItem[];
 };
@@ -99,6 +101,7 @@ const asKdsItem = (row: any, rowIndex: number): KdsItem | null => {
   if (!orderNo || !itemCode || !type) return null;
   const tableNo = String(row?.tableNo ?? row?.TableNo ?? '').trim();
   const invoiceNo = String(row?.invoiceNo ?? row?.InvoiceNo ?? '').trim();
+  const stewardName = String(row?.stewardName ?? row?.StewardName ?? row?.steward ?? row?.Steward ?? '').trim();
   return {
     // Vw_KOTBOTHder can contain repeated identical source rows when its menu
     // assignment join has more than one match. Keep the rendered key unique
@@ -109,6 +112,7 @@ const asKdsItem = (row: any, rowIndex: number): KdsItem | null => {
     type,
     tableNo,
     invoiceNo,
+    stewardName,
     itemCode,
     itemName: String(row?.itemName ?? row?.MenuItmDes ?? itemCode).trim(),
     quantity: Number(row?.quantity ?? row?.ItmQty ?? 0) || 0,
@@ -178,12 +182,14 @@ type OrderGroupProps = {
   order: KdsOrderGroup;
   screenWidth: number;
   updatingItemId: string | null;
+  updatingOrderId: string | null;
+  onBulkStatus: (order: KdsOrderGroup, target: 'P' | 'D') => void;
   onTargetChange: (target: KdsStatus | null) => void;
   onDrop: (item: KdsItem, target: KdsStatus) => void;
   onShowDetails: (order: KdsOrderGroup) => void;
 };
 
-function OrderGroup({ order, screenWidth, updatingItemId, onTargetChange, onDrop, onShowDetails }: OrderGroupProps) {
+function OrderGroup({ order, screenWidth, updatingItemId, updatingOrderId, onBulkStatus, onTargetChange, onDrop, onShowDetails }: OrderGroupProps) {
   const takeAway = order.orderMode.toUpperCase().includes('TAKE') || order.tableNo.toUpperCase().startsWith('TA');
   return (
     <View style={styles.orderCard}>
@@ -196,7 +202,7 @@ function OrderGroup({ order, screenWidth, updatingItemId, onTargetChange, onDrop
       >
         <View style={styles.orderCopy}>
           <Text style={styles.orderNo}>ORDER {order.orderNo}</Text>
-          {order.invoiceNo ? <Text style={styles.invoiceNo} numberOfLines={1}>INV {order.invoiceNo}</Text> : null}
+          <Text style={styles.stewardName} numberOfLines={1}>STEWARD: {order.stewardName || '—'}</Text>
           <Text style={styles.tapDetails}>Tap for order details</Text>
         </View>
         <View style={styles.tableBadge}>
@@ -209,13 +215,33 @@ function OrderGroup({ order, screenWidth, updatingItemId, onTargetChange, onDrop
         <Text style={styles.orderMetaText}>{relativeTime(order.placedTime)} ago</Text>
         {order.orderMode ? <><View style={styles.orderDot} /><Text style={styles.orderMetaText}>{order.orderMode}</Text></> : null}
       </View>
+      <View style={styles.bulkActions}>
+        <TouchableOpacity
+          style={[styles.bulkButton, styles.bulkPreparingButton, updatingOrderId === order.id && styles.bulkButtonDisabled]}
+          onPress={() => onBulkStatus(order, 'P')}
+          disabled={Boolean(updatingItemId) || Boolean(updatingOrderId)}
+          accessibilityRole="button"
+          accessibilityLabel={`Set all items in order ${order.orderNo} to Preparing`}
+        >
+          {updatingOrderId === order.id ? <ActivityIndicator size="small" color={COLORS.white} /> : <><Ionicons name="flame-outline" size={13} color={COLORS.white} /><Text style={styles.bulkButtonText}>All Preparing</Text></>}
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.bulkButton, styles.bulkReadyButton, updatingOrderId === order.id && styles.bulkButtonDisabled]}
+          onPress={() => onBulkStatus(order, 'D')}
+          disabled={Boolean(updatingItemId) || Boolean(updatingOrderId)}
+          accessibilityRole="button"
+          accessibilityLabel={`Set all items in order ${order.orderNo} to Ready`}
+        >
+          {updatingOrderId === order.id ? <ActivityIndicator size="small" color={COLORS.white} /> : <><Ionicons name="checkmark-circle-outline" size={13} color={COLORS.white} /><Text style={styles.bulkButtonText}>All Ready</Text></>}
+        </TouchableOpacity>
+      </View>
       <View style={styles.itemsList}>
         {order.items.map((item) => (
           <DraggableItem
             key={item.id}
             item={item}
             screenWidth={screenWidth}
-            disabled={updatingItemId === item.id}
+            disabled={Boolean(updatingItemId) || Boolean(updatingOrderId)}
             onTargetChange={onTargetChange}
             onDrop={onDrop}
           />
@@ -234,6 +260,7 @@ export default function KDSHomeScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [dragTarget, setDragTarget] = useState<KdsStatus | null>(null);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [selectedOrderKey, setSelectedOrderKey] = useState<string | null>(null);
 
   const loadOrders = useCallback(async (silent = false) => {
@@ -264,7 +291,7 @@ export default function KDSHomeScreen() {
   }, [loadOrders]);
 
   const dropItem = async (item: KdsItem, target: KdsStatus) => {
-    if (target === item.status || updatingItemId) return;
+    if (target === item.status || updatingItemId || updatingOrderId) return;
     const before = items;
     setUpdatingItemId(item.id);
     setItems((current) => current.map((value) => value.id === item.id ? { ...value, status: target } : value));
@@ -289,6 +316,39 @@ export default function KDSHomeScreen() {
     }
   };
 
+  const updateWholeOrderStatus = async (order: KdsOrderGroup, target: 'P' | 'D') => {
+    if (updatingItemId || updatingOrderId) return;
+    const orderKey = order.id;
+    const matchingItems = items.filter((item) => `${item.orderNo}|${item.tableNo}|${item.invoiceNo}` === orderKey);
+    if (matchingItems.length === 0 || matchingItems.every((item) => item.status === target)) return;
+
+    const before = items;
+    setUpdatingOrderId(orderKey);
+    setItems((current) => current.map((item) => (
+      `${item.orderNo}|${item.tableNo}|${item.invoiceNo}` === orderKey ? { ...item, status: target } : item
+    )));
+    try {
+      const response = await apiClient.updateKdsOrderBulkStatus({
+        orderNo: order.orderNo,
+        tableNo: order.tableNo,
+        invoiceNo: order.invoiceNo,
+        status: target,
+      });
+      if (!response.ok || !response.data?.ok) {
+        throw new Error(response.data?.message || 'The order status was not saved.');
+      }
+      // Re-read the queue so that all KOT/BOT lines (including ones previously
+      // shown in another column) reflect the committed database state.
+      await loadOrders(true);
+    } catch (error) {
+      console.log('[KDS] bulk status update failed', error);
+      setItems(before);
+      Alert.alert('Order status not saved', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
   const groupsFor = (status: KdsStatus): KdsOrderGroup[] => {
     const groups = new Map<string, KdsOrderGroup>();
     items.filter((item) => item.status === status).forEach((item) => {
@@ -303,6 +363,7 @@ export default function KDSHomeScreen() {
           orderMode: item.orderMode,
           tableNo: item.tableNo,
           invoiceNo: item.invoiceNo,
+          stewardName: item.stewardName,
           placedTime: item.placedTime,
           items: [item],
         });
@@ -322,6 +383,7 @@ export default function KDSHomeScreen() {
       orderMode: first.orderMode,
       tableNo: first.tableNo,
       invoiceNo: first.invoiceNo,
+      stewardName: first.stewardName,
       placedTime: first.placedTime,
       items: selectedItems,
     } as KdsOrderGroup;
@@ -358,7 +420,7 @@ export default function KDSHomeScreen() {
 
       <View style={styles.boardHint}>
         <Ionicons name="information-circle-outline" size={15} color={COLORS.blue} />
-        <Text style={styles.boardHintText}>Tap an order header for quantities and remarks. Drag an item to update its kitchen stage.</Text>
+        <Text style={styles.boardHintText}>Drag one item to change its stage, or use All Preparing / All Ready for the complete order.</Text>
       </View>
 
       <View style={styles.board}>
@@ -385,6 +447,8 @@ export default function KDSHomeScreen() {
                       order={order}
                       screenWidth={width}
                       updatingItemId={updatingItemId}
+                      updatingOrderId={updatingOrderId}
+                      onBulkStatus={(order, target) => void updateWholeOrderStatus(order, target)}
                       onTargetChange={setDragTarget}
                       onDrop={(item, target) => void dropItem(item, target)}
                       onShowDetails={(order) => setSelectedOrderKey(order.id)}
@@ -411,7 +475,7 @@ export default function KDSHomeScreen() {
                 <Text style={styles.detailsTitle}>Order {selectedOrder?.orderNo}</Text>
                 <Text style={styles.detailsSubtitle}>
                   {selectedOrder?.tableNo ? `Table ${selectedOrder.tableNo}` : 'Table not set'}
-                  {selectedOrder?.invoiceNo ? `  ·  INV ${selectedOrder.invoiceNo}` : ''}
+                  {selectedOrder?.stewardName ? `  ·  Steward: ${selectedOrder.stewardName}` : ''}
                 </Text>
               </View>
               <TouchableOpacity style={styles.closeDetails} onPress={() => setSelectedOrderKey(null)} accessibilityLabel="Close order details">
@@ -472,7 +536,7 @@ const styles = StyleSheet.create({
   orderHeader: { minHeight: 51, paddingVertical: 7, paddingLeft: 8, paddingRight: 5, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#EDF2F5' },
   orderCopy: { flex: 1, minWidth: 0 },
   orderNo: { color: COLORS.navy, fontSize: 11, fontWeight: '900' },
-  invoiceNo: { color: COLORS.textMuted, fontSize: 8, fontWeight: '600', marginTop: 2 },
+  stewardName: { color: COLORS.textMuted, fontSize: 8, fontWeight: '800', marginTop: 2 },
   tapDetails: { color: COLORS.blue, fontSize: 7, fontWeight: '800', marginTop: 2 },
   tableBadge: { minWidth: 39, minHeight: 38, marginLeft: 5, paddingHorizontal: 3, justifyContent: 'center', alignItems: 'center', borderRadius: 9, backgroundColor: COLORS.blueSoft },
   tableLabel: { color: COLORS.textMuted, fontSize: 6, fontWeight: '900', letterSpacing: 0.25 },
@@ -480,6 +544,12 @@ const styles = StyleSheet.create({
   orderMeta: { paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
   orderMetaText: { color: COLORS.textMuted, fontSize: 8, fontWeight: '600' },
   orderDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#A9B8C4', marginHorizontal: 2 },
+  bulkActions: { paddingHorizontal: 7, paddingBottom: 7, flexDirection: 'row', gap: 5 },
+  bulkButton: { minHeight: 28, flex: 1, paddingHorizontal: 4, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 3, borderRadius: 7 },
+  bulkPreparingButton: { backgroundColor: COLORS.processing },
+  bulkReadyButton: { backgroundColor: COLORS.done },
+  bulkButtonDisabled: { opacity: 0.62 },
+  bulkButtonText: { color: COLORS.white, fontSize: 8, fontWeight: '900' },
   itemsList: { borderTopWidth: 1, borderTopColor: '#EDF2F5' },
   itemRow: { minHeight: 55, paddingHorizontal: 7, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#F0F4F6' },
   itemRowUpdating: { opacity: 0.58 },

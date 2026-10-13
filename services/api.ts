@@ -932,6 +932,26 @@ export const apiClient = {
     }
   },
 
+  updateKdsOrderBulkStatus: async (payload: {
+    orderNo: string;
+    tableNo?: string;
+    invoiceNo?: string;
+    status: 'P' | 'D';
+  }) => {
+    try {
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/kds/orders/bulk-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] updateKdsOrderBulkStatus failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
   getKdsUnavailableItems: async () => {
     try {
       const response = await fetch(`${getDynamicApiBaseUrl()}/api/kds/unavailable-items`);

@@ -1,6 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Speech from 'expo-speech';
+import Tts from 'react-native-tts';
 import { useEffect, useRef } from 'react';
 import { AppState, AppStateStatus, Platform, Vibration } from 'react-native';
 import { apiClient } from '../services/api';
@@ -11,7 +12,6 @@ import {
   getLastNotificationIdKey,
   useNotificationStore,
 } from '../services/notificationStore';
-import { playForegroundNotificationSound } from '../services/notificationSound';
 import { storage } from '../services/storage';
 
 const POLL_INTERVAL_MS = 3000;
@@ -20,6 +20,7 @@ const NOTIFICATION_SOUND = 'notification-chime.wav';
 // an app rebuild; Android does not allow an existing channel's sound to change.
 const ANDROID_SOUND_CHANNEL = 'restaurant-alert-sound-v2';
 const ANDROID_SILENT_CHANNEL = 'restaurant-alert-silent-v2';
+let androidNotificationTtsReady = false;
 
 // Local notifications supply the normal phone sound while the app is open.
 // The visual in-app experience remains the app's own right-side toast bubble.
@@ -50,7 +51,7 @@ const mapKind = (value: unknown): AppNotificationKind => {
 const readyAnnouncementText = (row: any): string | null => {
   const status = asText(row?.StatusCode).toUpperCase();
   const kind = asText(row?.NotificationKind).toLowerCase();
-  if (status !== 'D' || kind !== 'kds-status-update') return null;
+  if (status !== 'D' || !['kds-status-update', 'kds-order-status-update'].includes(kind)) return null;
 
   const tableNo = asText(row?.TableNo);
   const itemNames = Array.isArray(row?.Items)
@@ -87,6 +88,39 @@ const parseNotificationDetails = (row: any) => {
     invoiceNo: asText(row?.InvoiceNo) || undefined,
     ...(items?.length ? { items } : {}),
   };
+};
+
+/**
+ * READY uses Android's native TextToSpeech notification stream, not media.
+ * This makes the device Notification-volume control apply to the spoken table
+ * and item message. Expo Speech remains a safe iOS/fallback implementation.
+ */
+const speakReadyAnnouncement = async (announcement: string) => {
+  if (Platform.OS !== 'android') {
+    Speech.speak(announcement, { language: 'en-US', rate: 0.88, pitch: 1 });
+    return;
+  }
+
+  try {
+    if (!androidNotificationTtsReady) {
+      await Tts.getInitStatus();
+      await Tts.setDefaultLanguage('en-US');
+      await Tts.setDefaultRate(0.45);
+      await Tts.setDefaultPitch(1);
+      androidNotificationTtsReady = true;
+    }
+    Tts.speak(announcement, {
+      androidParams: {
+        KEY_PARAM_STREAM: 'STREAM_NOTIFICATION',
+        KEY_PARAM_VOLUME: 1,
+        KEY_PARAM_PAN: 0,
+      },
+    } as any);
+  } catch (error) {
+    // Do not fall back to Expo Speech on Android: it can use the Media stream,
+    // which would bypass the requested Notification-volume control.
+    console.log('[Notifications] Android notification-stream TTS failed', error);
+  }
 };
 
 const configureAndroidChannels = async () => {
@@ -141,6 +175,16 @@ export default function NotificationPolling() {
     return () => { mounted = false; };
   }, [token]);
 
+  // Mute must be immediate as well as preventing future announcements. Stop a
+  // currently queued/playing TTS utterance when Settings Voice/Sound is turned off.
+  useEffect(() => {
+    if (preferences.soundEnabled) return;
+    if (Platform.OS === 'android') {
+      void Tts.stop().catch(() => {});
+    }
+    Speech.stop();
+  }, [preferences.soundEnabled]);
+
   useEffect(() => {
     if (!token) return;
 
@@ -174,19 +218,14 @@ export default function NotificationPolling() {
             createdAt: row.CreatedAt ? new Date(row.CreatedAt).toISOString() : new Date().toISOString(),
           });
 
-          // Free on-device Text-to-Speech. Example: "Table T26. Fried Rice is ready."
-          // No cloud voice service, API key, or item description is used.
+          const notificationStatus = asText(row?.StatusCode).toUpperCase();
+          const notificationKind = asText(row?.NotificationKind).toLowerCase();
+
+          // READY/DONE: TTS only. It intentionally has no notification chime.
+          // The Android implementation speaks through STREAM_NOTIFICATION.
           const announcement = readyAnnouncementText(row);
           if (announcement && preferences.soundEnabled) {
-            try {
-              Speech.speak(announcement, {
-                language: 'en-US',
-                rate: 0.88,
-                pitch: 1,
-              });
-            } catch (error) {
-              console.log('[Notifications] ready announcement failed', error);
-            }
+            await speakReadyAnnouncement(announcement);
           }
 
           if (preferences.vibrationEnabled) {
@@ -196,26 +235,26 @@ export default function NotificationPolling() {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
           }
 
-          if (preferences.soundEnabled) {
-            // Direct app audio is reliable in the foreground. If a handset
-            // blocks that audio route, retain the local-notification channel
-            // as a fallback.
-            const playedDirectly = await playForegroundNotificationSound();
-            if (!playedDirectly) {
-              try {
-                await Notifications.scheduleNotificationAsync({
-                  content: {
-                    title,
-                    body: message,
-                    sound: NOTIFICATION_SOUND,
-                    data: { notificationId: id, tableNo: asText(row.TableNo), invoiceNo: asText(row.InvoiceNo) },
-                    ...(Platform.OS === 'android' ? { channelId: ANDROID_SOUND_CHANNEL } : {}),
-                  },
-                  trigger: null,
-                });
-              } catch (error) {
-                console.log('[Notifications] sound playback fallback failed', error);
-              }
+          // PROCESSING/P: keep the normal notification beep. A real Android
+          // notification channel uses the phone's Notification volume, instead
+          // of expo-av's media stream. READY/D has no beep by design.
+          const shouldPlayPreparingBeep = preferences.soundEnabled
+            && ['kds-status-update', 'kds-order-status-update'].includes(notificationKind)
+            && notificationStatus === 'P';
+          if (shouldPlayPreparingBeep) {
+            try {
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title,
+                  body: message,
+                  sound: NOTIFICATION_SOUND,
+                  data: { notificationId: id, tableNo: asText(row.TableNo), invoiceNo: asText(row.InvoiceNo) },
+                  ...(Platform.OS === 'android' ? { channelId: ANDROID_SOUND_CHANNEL } : {}),
+                },
+                trigger: null,
+              });
+            } catch (error) {
+              console.log('[Notifications] preparing beep failed', error);
             }
           }
 
