@@ -109,6 +109,87 @@ app.get('/api/notifications', async (req, res) => {
   }
 });
 
+// Permanently clear delivered notifications from SQL when a user opens or
+// dismisses them. Child rows must be removed first because notification items
+// have a foreign-key reference to their notification header.
+const deleteNotificationsForDevice = async ({ deviceId, notificationId = null }) => {
+  const pool = await poolPromise;
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    const headerRequest = new sql.Request(transaction);
+    headerRequest.input('DeviceId', sql.NVarChar(128), deviceId);
+    let matchingWhere = "(TargetDeviceId = @DeviceId OR TargetDeviceId = N'*')";
+    if (notificationId !== null) {
+      headerRequest.input('NotificationId', sql.BigInt, notificationId);
+      matchingWhere += ' AND NotificationId = @NotificationId';
+    }
+    const matched = await headerRequest.query(`
+      SELECT NotificationId
+      FROM dbo.Tbl_AppNotifications WITH (UPDLOCK, HOLDLOCK)
+      WHERE ${matchingWhere}
+    `);
+    const ids = (matched.recordset ?? []).map((row) => Number(row.NotificationId)).filter(Number.isFinite);
+    if (ids.length > 0) {
+      const itemRequest = new sql.Request(transaction);
+      const itemParameters = ids.map((id, index) => {
+        const name = `notificationId${index}`;
+        itemRequest.input(name, sql.BigInt, id);
+        return `@${name}`;
+      });
+      await itemRequest.query(`
+        DELETE FROM dbo.Tbl_AppNotificationItems
+        WHERE NotificationId IN (${itemParameters.join(', ')})
+      `);
+
+      const notificationRequest = new sql.Request(transaction);
+      const notificationParameters = ids.map((id, index) => {
+        const name = `notificationId${index}`;
+        notificationRequest.input(name, sql.BigInt, id);
+        return `@${name}`;
+      });
+      await notificationRequest.query(`
+        DELETE FROM dbo.Tbl_AppNotifications
+        WHERE NotificationId IN (${notificationParameters.join(', ')})
+      `);
+    }
+    await transaction.commit();
+    return ids.length;
+  } catch (error) {
+    try { await transaction.rollback(); } catch (_) {}
+    throw error;
+  }
+};
+
+app.delete('/api/notifications/clear', async (req, res) => {
+  try {
+    const deviceId = String(req.body?.deviceId ?? req.query?.deviceId ?? '').trim();
+    if (!deviceId) return res.status(400).json({ ok: false, message: 'deviceId is required.' });
+    const deletedCount = await deleteNotificationsForDevice({ deviceId });
+    return res.json({ ok: true, deletedCount });
+  } catch (error) {
+    console.log('[Notifications] clear-all error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+app.delete('/api/notifications/:notificationId', async (req, res) => {
+  try {
+    const deviceId = String(req.body?.deviceId ?? req.query?.deviceId ?? '').trim();
+    const notificationId = Number(req.params?.notificationId);
+    if (!deviceId) return res.status(400).json({ ok: false, message: 'deviceId is required.' });
+    if (!Number.isSafeInteger(notificationId) || notificationId <= 0) {
+      return res.status(400).json({ ok: false, message: 'A valid notificationId is required.' });
+    }
+    const deletedCount = await deleteNotificationsForDevice({ deviceId, notificationId });
+    if (deletedCount === 0) return res.status(404).json({ ok: false, message: 'Notification was not found for this device.' });
+    return res.json({ ok: true, deletedCount });
+  } catch (error) {
+    console.log('[Notifications] clear-one error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
 // Optional LAN-only helper for Kitchen/administration integrations. The kitchen
 // may also INSERT directly into Tbl_AppNotifications instead.
 app.post('/api/notifications', async (req, res) => {
@@ -122,24 +203,44 @@ app.post('/api/notifications', async (req, res) => {
     }
 
     const pool = await poolPromise;
-    const result = await pool.request()
-      .input('DeviceId', sql.NVarChar(128), deviceId)
-      .input('Type', sql.NVarChar(40), notificationType)
-      .input('Title', sql.NVarChar(160), title.slice(0, 160))
-      .input('Message', sql.NVarChar(500), message.slice(0, 500))
-      .input('TableNo', sql.NVarChar(50), String(req.body?.tableNo ?? '').trim() || null)
-      .input('InvoiceNo', sql.NVarChar(50), String(req.body?.invoiceNo ?? '').trim() || null)
-      .input('ItemCode', sql.NVarChar(50), String(req.body?.itemCode ?? '').trim() || null)
-      .input('NotificationKind', sql.NVarChar(50), String(req.body?.notificationKind ?? '').trim() || null)
-      .input('StatusCode', sql.NVarChar(10), String(req.body?.statusCode ?? '').trim() || null)
-      .query(`
-        INSERT INTO dbo.Tbl_AppNotifications
-          (TargetDeviceId, NotificationType, NotificationKind, StatusCode, Title, Message, TableNo, InvoiceNo, ItemCode)
-        OUTPUT INSERTED.NotificationId, INSERTED.CreatedAt
-        VALUES (@DeviceId, @Type, @NotificationKind, @StatusCode, @Title, @Message, @TableNo, @InvoiceNo, @ItemCode)
-      `);
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    try {
+      // IT is a latest-state notification. A new availability message replaces
+      // old IT messages in SQL as well as in the mobile inbox.
+      if (notificationType.toUpperCase() === 'IT') {
+        await new sql.Request(transaction).query(`
+          DELETE ni
+          FROM dbo.Tbl_AppNotificationItems ni
+          INNER JOIN dbo.Tbl_AppNotifications n ON n.NotificationId = ni.NotificationId
+          WHERE UPPER(LTRIM(RTRIM(n.NotificationType))) = 'IT';
+          DELETE FROM dbo.Tbl_AppNotifications
+          WHERE UPPER(LTRIM(RTRIM(NotificationType))) = 'IT';
+        `);
+      }
 
-    return res.status(201).json({ ok: true, notification: result.recordset?.[0] ?? null });
+      const result = await new sql.Request(transaction)
+        .input('DeviceId', sql.NVarChar(128), deviceId)
+        .input('Type', sql.NVarChar(40), notificationType)
+        .input('Title', sql.NVarChar(160), title.slice(0, 160))
+        .input('Message', sql.NVarChar(500), message.slice(0, 500))
+        .input('TableNo', sql.NVarChar(50), String(req.body?.tableNo ?? '').trim() || null)
+        .input('InvoiceNo', sql.NVarChar(50), String(req.body?.invoiceNo ?? '').trim() || null)
+        .input('ItemCode', sql.NVarChar(50), String(req.body?.itemCode ?? '').trim() || null)
+        .input('NotificationKind', sql.NVarChar(50), String(req.body?.notificationKind ?? '').trim() || null)
+        .input('StatusCode', sql.NVarChar(10), String(req.body?.statusCode ?? '').trim() || null)
+        .query(`
+          INSERT INTO dbo.Tbl_AppNotifications
+            (TargetDeviceId, NotificationType, NotificationKind, StatusCode, Title, Message, TableNo, InvoiceNo, ItemCode)
+          OUTPUT INSERTED.NotificationId, INSERTED.CreatedAt
+          VALUES (@DeviceId, @Type, @NotificationKind, @StatusCode, @Title, @Message, @TableNo, @InvoiceNo, @ItemCode)
+        `);
+      await transaction.commit();
+      return res.status(201).json({ ok: true, notification: result.recordset?.[0] ?? null });
+    } catch (error) {
+      try { await transaction.rollback(); } catch (_) {}
+      throw error;
+    }
   } catch (error) {
     console.log('[Notifications] insert error', error?.message ?? error);
     return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
@@ -1601,6 +1702,17 @@ app.post('/api/kds/menu-items/availability/batch', async (req, res) => {
       const message = newlyUnavailable.length === 1
         ? 'An item was marked unavailable. Please review the unavailable-item list.'
         : `${newlyUnavailable.length} items were marked unavailable. Please review the unavailable-item list.`;
+      // Keep only the latest item-availability notification in the database.
+      // Delete child rows first because they reference their header row.
+      await transaction.request().query(`
+        DELETE ni
+        FROM dbo.Tbl_AppNotificationItems ni
+        INNER JOIN dbo.Tbl_AppNotifications n ON n.NotificationId = ni.NotificationId
+        WHERE UPPER(LTRIM(RTRIM(n.NotificationType))) = 'IT';
+        DELETE FROM dbo.Tbl_AppNotifications
+        WHERE UPPER(LTRIM(RTRIM(NotificationType))) = 'IT';
+      `);
+
       const notificationResult = await transaction.request()
         .input('TargetDeviceId', sql.NVarChar(128), '*') // * is the all-device broadcast target.
         .input('NotificationType', sql.NVarChar(40), 'IT')
@@ -1772,6 +1884,7 @@ app.post('/api/kds/orders/item-status', async (req, res) => {
           LTRIM(RTRIM(INSERTED.TableNo)) AS TableNo,
           LTRIM(RTRIM(INSERTED.Invoiceno)) AS InvoiceNo,
           LTRIM(RTRIM(INSERTED.OrderMode)) AS OrderMode,
+          LTRIM(RTRIM(INSERTED.Steward)) AS Steward,
           CAST(INSERTED.ItmQty AS float) AS ItmQty,
           LTRIM(RTRIM(INSERTED.ItmRmks)) AS ItmRmks,
           LTRIM(RTRIM(INSERTED.ProStatus)) AS ProStatus,
@@ -1811,37 +1924,60 @@ app.post('/api/kds/orders/item-status', async (req, res) => {
       const statusTitle = proStatus === 'P' ? 'ITEM IN PROCESSING' : 'ITEM READY';
       const statusText = proStatus === 'P' ? 'is now processing' : 'is ready';
       const message = `${itemName} ${statusText}. Order ${String(first.OrderNo ?? orderNo).trim()}.`;
-      const notificationResult = await transaction.request()
-        .input('TargetDeviceId', sql.NVarChar(128), '*')
-        .input('NotificationType', sql.NVarChar(40), 'OP')
-        .input('NotificationKind', sql.NVarChar(50), 'kds-status-update')
-        .input('StatusCode', sql.NVarChar(10), proStatus)
-        .input('Title', sql.NVarChar(160), statusTitle)
-        .input('Message', sql.NVarChar(500), message)
-        .input('TableNo', sql.NVarChar(50), String(first.TableNo ?? tableNo).trim() || null)
-        .input('InvoiceNo', sql.NVarChar(50), String(first.InvoiceNo ?? invoiceNo).trim() || null)
-        .input('ItemCode', sql.NVarChar(50), String(first.ItemCode ?? itemCode).trim())
-        .query(`
-          INSERT INTO dbo.Tbl_AppNotifications
-            (TargetDeviceId, NotificationType, NotificationKind, StatusCode, Title, Message, TableNo, InvoiceNo, ItemCode, ExpiresAt)
-          OUTPUT INSERTED.NotificationId, INSERTED.CreatedAt
-          VALUES
-            (@TargetDeviceId, @NotificationType, @NotificationKind, @StatusCode, @Title, @Message, @TableNo, @InvoiceNo, @ItemCode, DATEADD(DAY, 1, SYSDATETIME()))
-        `);
-      notification = notificationResult.recordset?.[0] ?? null;
-      await transaction.request()
-        .input('NotificationId', sql.BigInt, notification.NotificationId)
-        .input('ItemCode', sql.NVarChar(50), String(first.ItemCode ?? itemCode).trim())
-        .input('ItemName', sql.NVarChar(160), itemName)
-        .input('Quantity', sql.Float, Number(first.ItmQty ?? 0) || null)
-        .input('ItemRemarks', sql.NVarChar(1500), String(first.ItmRmks ?? '').trim() || null)
-        .input('ItemType', sql.NVarChar(10), String(first.KOTBOTType ?? type).trim() || null)
-        .query(`
-          INSERT INTO dbo.Tbl_AppNotificationItems
-            (NotificationId, ItemCode, ItemName, Quantity, ItemRemarks, ItemType)
-          VALUES
-            (@NotificationId, @ItemCode, @ItemName, @Quantity, @ItemRemarks, @ItemType)
-        `);
+      // Warkstation is the registered mobile Device ID. It is linked to the
+      // currently authenticated person through Tbl_Warkstation.UserID. Target
+      // this order's steward only — never broadcast their KDS update to every
+      // handset.
+      const stewardId = String(first.Steward ?? '').trim();
+      let targetDeviceId = '';
+      if (stewardId) {
+        const workstationResult = await transaction.request()
+          .input('Steward', sql.VarChar(10), stewardId)
+          .query(`
+            SELECT TOP (1) LTRIM(RTRIM(Warkstation)) AS TargetDeviceId
+            FROM dbo.Tbl_Warkstation WITH (UPDLOCK, HOLDLOCK)
+            WHERE LTRIM(RTRIM(ISNULL(UserID, ''))) = @Steward
+              AND ISNULL(IsApproved, 0) = 1
+            ORDER BY Warkstation ASC
+          `);
+        targetDeviceId = String(workstationResult.recordset?.[0]?.TargetDeviceId ?? '').trim();
+      }
+
+      // A steward may not currently be signed in on an approved device. In that
+      // case the KDS update is still committed, but no unrelated device gets a
+      // broadcast notification.
+      if (targetDeviceId) {
+        const notificationResult = await transaction.request()
+          .input('TargetDeviceId', sql.NVarChar(128), targetDeviceId)
+          .input('NotificationType', sql.NVarChar(40), 'OP')
+          .input('NotificationKind', sql.NVarChar(50), 'kds-status-update')
+          .input('StatusCode', sql.NVarChar(10), proStatus)
+          .input('Title', sql.NVarChar(160), statusTitle)
+          .input('Message', sql.NVarChar(500), message)
+          .input('TableNo', sql.NVarChar(50), String(first.TableNo ?? tableNo).trim() || null)
+          .input('InvoiceNo', sql.NVarChar(50), String(first.InvoiceNo ?? invoiceNo).trim() || null)
+          .input('ItemCode', sql.NVarChar(50), String(first.ItemCode ?? itemCode).trim())
+          .query(`
+            INSERT INTO dbo.Tbl_AppNotifications
+              (TargetDeviceId, NotificationType, NotificationKind, StatusCode, Title, Message, TableNo, InvoiceNo, ItemCode, ExpiresAt)
+            OUTPUT INSERTED.NotificationId, INSERTED.CreatedAt
+            VALUES
+              (@TargetDeviceId, @NotificationType, @NotificationKind, @StatusCode, @Title, @Message, @TableNo, @InvoiceNo, @ItemCode, DATEADD(DAY, 1, SYSDATETIME()))
+          `);
+        notification = notificationResult.recordset?.[0] ?? null;
+        await transaction.request()
+          .input('NotificationId', sql.BigInt, notification.NotificationId)
+          .input('ItemCode', sql.NVarChar(50), String(first.ItemCode ?? itemCode).trim())
+          .input('ItemName', sql.NVarChar(160), itemName)
+          .input('Quantity', sql.Float, Number(first.ItmQty ?? 0) || null)
+          .input('ItemRemarks', sql.NVarChar(1500), String(first.ItmRmks ?? '').trim() || null)
+          .input('ItemType', sql.NVarChar(10), String(first.KOTBOTType ?? type).trim() || null)
+          .query(`
+            INSERT INTO dbo.Tbl_AppNotificationItems
+              (NotificationId, ItemCode, ItemName, Quantity, ItemRemarks, ItemType)
+            VALUES (@NotificationId, @ItemCode, @ItemName, @Quantity, @ItemRemarks, @ItemType)
+          `);
+      }
     }
 
     await transaction.commit();
@@ -3303,8 +3439,9 @@ app.post('/api/user-floor-access/save', async (req, res) => {
 
 
 app.post('/api/devices/check-in', async (req, res) => {
-  const { deviceId, locCode } = req.body;
+  const { deviceId, locCode, userId: requestedUserId } = req.body;
   const resolvedLocCode = String(locCode || '1').trim();
+  const requestedUser = String(requestedUserId ?? '').trim().slice(0, 10);
 
   console.log(`[Backend] Received device verification request for ID: ${deviceId}, locCode: ${resolvedLocCode}`);
 
@@ -3314,6 +3451,17 @@ app.post('/api/devices/check-in', async (req, res) => {
 
   try {
     const pool = await poolPromise;
+
+    // User assignment is accepted only after successful authentication. The
+    // Android/iOS device ID is stored in Warkstation, not in a separate
+    // DeviceID column in this table definition.
+    let authenticatedUser = '';
+    if (requestedUser) {
+      authenticatedUser = getBearerUserInfo(req, '').userId;
+      if (!authenticatedUser || authenticatedUser !== requestedUser) {
+        return res.status(401).json({ allowed: false, message: 'Authenticated user does not match the workstation assignment.' });
+      }
+    }
 
     const checkResult = await pool.request()
       .input('deviceId', sql.VarChar, deviceId)
@@ -3326,8 +3474,34 @@ app.post('/api/devices/check-in', async (req, res) => {
 
       if (device.IsApproved === 1 || device.IsApproved === true || device.IsApproved === '1') {
         const deviceLocCode = String(device.LocCode || resolvedLocCode || '1').trim();
-        console.log(`[Backend] Device ${deviceId} is APPROVED. LocCode: ${deviceLocCode}`);
-        return res.json({ allowed: true, status: "approved", locCode: deviceLocCode });
+        if (authenticatedUser) {
+          const assignmentTransaction = new sql.Transaction(pool);
+          await assignmentTransaction.begin();
+          try {
+            // A steward is mapped to the one device on which they most recently
+            // authenticated. This makes KDS notifications unambiguous.
+            await new sql.Request(assignmentTransaction)
+              .input('UserID', sql.VarChar(10), authenticatedUser)
+              .input('DeviceId', sql.VarChar(50), deviceId)
+              .query(`
+                UPDATE dbo.Tbl_Warkstation
+                SET UserID = NULL
+                WHERE LTRIM(RTRIM(ISNULL(UserID, ''))) = @UserID
+                  AND LTRIM(RTRIM(Warkstation)) <> @DeviceId;
+
+                UPDATE dbo.Tbl_Warkstation
+                SET UserID = @UserID
+                WHERE LTRIM(RTRIM(Warkstation)) = @DeviceId
+                  AND ISNULL(IsApproved, 0) = 1;
+              `);
+            await assignmentTransaction.commit();
+          } catch (assignmentError) {
+            try { await assignmentTransaction.rollback(); } catch (_) {}
+            throw assignmentError;
+          }
+        }
+        console.log(`[Backend] Device ${deviceId} is APPROVED. LocCode: ${deviceLocCode}, UserID: ${authenticatedUser || '(not supplied)'}`);
+        return res.json({ allowed: true, status: "approved", locCode: deviceLocCode, userId: authenticatedUser || null });
       } else {
         console.log(`[Backend] Device ${deviceId} is PENDING approval.`);
         return res.json({ allowed: false, status: "pending", deviceId: deviceId });

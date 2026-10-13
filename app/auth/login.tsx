@@ -264,6 +264,26 @@ export default function LoginScreen() {
       }
 
       if (result.data?.token) {
+        // Resolve the authenticated user before device check-in. The backend
+        // writes this ID to the approved workstation row for KDS routing.
+        const loggedInUserName = String(
+          result.data?.user?.username ?? username
+        ).trim();
+        const loggedInUserId =
+          result.data?.user?.userId   ??
+          result.data?.user?.UserId   ??
+          result.data?.user?.UserCode ??
+          result.data?.user?.userCode ??
+          result.data?.user?.LogId    ??
+          result.data?.user?.StaffId  ??
+          result.data?.user?.EmpId    ??
+          '999';
+        const loggedInGroupId =
+          result.data?.user?.GroupId ??
+          result.data?.user?.groupId ??
+          result.data?.groupId       ??
+          '1';
+
         // ─── STEP 2: DEVICE CHECK (only runs after credentials are confirmed valid) ──
         try {
           console.log('[Login] Credentials OK. Now checking device authorization...');
@@ -286,11 +306,15 @@ export default function LoginScreen() {
               `http://${baseIP}:3000/api/devices/check-in`,
               {
                 method:  'POST',
-                headers: { 'Content-Type': 'application/json' },
-                // Pass the user's locCode so the server can store it correctly.
-                // Try every known field name the server might use.
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${result.data.token}`,
+                },
+                // A successful login maps this approved workstation/device to
+                // the authenticated UserID for steward-targeted KDS messages.
                 body:    JSON.stringify({
                   deviceId,
+                  userId: String(loggedInUserId),
                   locCode: (
                     result.data?.user?.locCode ??
                     result.data?.user?.LocCode ??
@@ -334,26 +358,6 @@ export default function LoginScreen() {
           return;
         }
         // ─── END DEVICE CHECK ────────────────────────────────────────────────────
-
-        const loggedInUserName = String(
-          result.data?.user?.username ?? username
-        ).trim();
-
-        const loggedInUserId =
-          result.data?.user?.userId   ??
-          result.data?.user?.UserId   ??
-          result.data?.user?.UserCode ??
-          result.data?.user?.userCode ??
-          result.data?.user?.LogId    ??
-          result.data?.user?.StaffId  ??
-          result.data?.user?.EmpId    ??
-          '999';
-
-        const loggedInGroupId =
-          result.data?.user?.GroupId ??
-          result.data?.user?.groupId ??
-          result.data?.groupId       ??
-          '1';
 
         console.log('[Login Success Check] Extracted Group ID:', loggedInGroupId);
 
@@ -424,8 +428,15 @@ export default function LoginScreen() {
       const baseIP = (global as any).backendIP || devIP.trim() || '192.168.8.100';
       const response = await fetch(`http://${baseIP}:3000/api/devices/check-in`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId, locCode: unlocked.session.user.locCode ?? null }),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${unlocked.session.token}`,
+        },
+        body: JSON.stringify({
+          deviceId,
+          userId: String(unlocked.session.user.userId ?? '').trim(),
+          locCode: unlocked.session.user.locCode ?? null,
+        }),
       });
       const deviceData = await response.json().catch(() => null);
       if (!response.ok || deviceData?.allowed !== true || String(deviceData?.status ?? '').toLowerCase() !== 'approved') {

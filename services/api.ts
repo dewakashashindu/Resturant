@@ -836,6 +836,23 @@ export const apiClient = {
     }
   },
 
+  deleteDeviceNotification: async (notificationId: string | number, deviceId: string) => {
+    const safeId = encodeURIComponent(String(notificationId ?? '').trim());
+    return requestJson(`${getDynamicApiBaseUrl()}/api/notifications/${safeId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: String(deviceId ?? '').trim() }),
+    });
+  },
+
+  clearDeviceNotifications: async (deviceId: string) => {
+    return requestJson(`${getDynamicApiBaseUrl()}/api/notifications/clear`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deviceId: String(deviceId ?? '').trim() }),
+    });
+  },
+
   getMenuItems: async (options?: { cursor?: string; limit?: number }) => {
     try {
       const limit = Math.min(100, Math.max(1, Number(options?.limit ?? 50) || 50));

@@ -9,7 +9,9 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { apiClient } from '../services/api';
 import { useAuthStore } from '../services/authStore';
+import { getUniqueDeviceId } from '../services/deviceIdService';
 import { useNotificationStore } from '../services/notificationStore';
 
 /**
@@ -31,6 +33,7 @@ export default function NotificationToastBubble({ allowMenu = false }: Notificat
   const activeToastId = useNotificationStore((state) => state.activeToastId);
   const dismissToast = useNotificationStore((state) => state.dismissToast);
   const markAsRead = useNotificationStore((state) => state.markAsRead);
+  const removeNotification = useNotificationStore((state) => state.removeNotification);
   const translateX = useRef(new Animated.Value(360)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
@@ -55,6 +58,28 @@ export default function NotificationToastBubble({ allowMenu = false }: Notificat
 
   const isMenuRoute = segments[0] === 'menu';
   if (!notification || !token || (isMenuRoute && !allowMenu)) return null;
+
+  const clearOperationalNotification = async () => {
+    const notificationType = String(notification.notificationType ?? '').trim().toUpperCase();
+    if (notificationType !== 'OP') {
+      dismissToast();
+      return;
+    }
+    try {
+      const deviceId = await getUniqueDeviceId();
+      if (!deviceId) throw new Error('Device ID is unavailable.');
+      const response = await apiClient.deleteDeviceNotification(notification.id, deviceId);
+      if (response.ok || /not found/i.test(String(response.data?.message ?? ''))) {
+        removeNotification(notification.id);
+      }
+    } catch (error) {
+      // Keep the local inbox record when the database could not be reached;
+      // the user can retry the permanent clear from Notifications.
+      console.log('[NotificationToast] permanent OP clear failed', error);
+    } finally {
+      dismissToast();
+    }
+  };
 
   const openInbox = () => {
     markAsRead(notification.id);
@@ -87,7 +112,7 @@ export default function NotificationToastBubble({ allowMenu = false }: Notificat
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.closeButton}
-          onPress={dismissToast}
+          onPress={() => void clearOperationalNotification()}
           accessibilityRole="button"
           accessibilityLabel="Dismiss notification popup"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}

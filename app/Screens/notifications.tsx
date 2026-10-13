@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
+import { getUniqueDeviceId } from '../../services/deviceIdService';
 import { AppNotification, useNotificationStore } from '../../services/notificationStore';
 
 type NotificationTab = 'operational' | 'items';
@@ -257,10 +258,43 @@ export default function NotificationsScreen() {
     if (activeTab === 'items' && latestItemNotification?.id) void loadCurrentUnavailableItems();
   }, [activeTab, latestItemNotification?.id, loadCurrentUnavailableItems]);
 
+  const deleteNotificationPermanently = useCallback(async (notificationId: string) => {
+    try {
+      const deviceId = await getUniqueDeviceId();
+      if (!deviceId) throw new Error('This device could not be identified.');
+      const response = await apiClient.deleteDeviceNotification(notificationId, deviceId);
+      // A 404 means this header was already purged by a newer IT notification;
+      // it is safe to remove that stale local copy as well.
+      if (response.ok || /not found/i.test(String(response.data?.message ?? ''))) {
+        removeNotification(notificationId);
+        return;
+      }
+      throw new Error(response.data?.message || 'The notification could not be cleared from the server.');
+    } catch (error) {
+      Alert.alert('Notification not cleared', error instanceof Error ? error.message : 'Please check the connection and try again.');
+    }
+  }, [removeNotification]);
+
   const handleClearAll = () => {
-    Alert.alert('Clear all notifications?', 'This removes notification history from this device.', [
+    Alert.alert('Clear all notifications?', 'This permanently removes notification history from this device and the server.', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear all', style: 'destructive', onPress: clearAll },
+      {
+        text: 'Clear all',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              const deviceId = await getUniqueDeviceId();
+              if (!deviceId) throw new Error('This device could not be identified.');
+              const response = await apiClient.clearDeviceNotifications(deviceId);
+              if (!response.ok) throw new Error(response.data?.message || 'The server could not clear notifications.');
+              clearAll();
+            } catch (error) {
+              Alert.alert('Notifications not cleared', error instanceof Error ? error.message : 'Please check the connection and try again.');
+            }
+          })();
+        },
+      },
     ]);
   };
 
@@ -325,7 +359,7 @@ export default function NotificationsScreen() {
               key={latestItemNotification.id}
               notification={latestItemNotification}
               onOpen={() => markAsRead(latestItemNotification.id)}
-              onClear={() => removeNotification(latestItemNotification.id)}
+              onClear={() => void deleteNotificationPermanently(latestItemNotification.id)}
             />
           ) : (
             <View style={styles.noLatestMessage}>
@@ -389,8 +423,10 @@ export default function NotificationsScreen() {
               <SwipeableNotificationRow
                 key={notification.id}
                 notification={notification}
-                onOpen={() => markAsRead(notification.id)}
-                onClear={() => removeNotification(notification.id)}
+                // Opening an operational alert means it has been actioned, so
+                // clear its local copy and its database header permanently.
+                onOpen={() => void deleteNotificationPermanently(notification.id)}
+                onClear={() => void deleteNotificationPermanently(notification.id)}
               />
             ))}
           </ScrollView>

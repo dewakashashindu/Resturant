@@ -1,6 +1,7 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRootNavigationState, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { useKeepAwake } from 'expo-keep-awake';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
 import { ActivityIndicator, AppState, AppStateStatus, StyleSheet, View } from 'react-native';
@@ -173,6 +174,8 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
+  // KDS and order-terminal devices must remain visible while the app is open.
+  useKeepAwake();
   const colorScheme = useColorScheme();
 
   return (
