@@ -178,62 +178,108 @@ function DraggableItem({ item, screenWidth, disabled, onTargetChange, onDrop }: 
   );
 }
 
+type DraggableOrderTableProps = {
+  order: KdsOrderGroup;
+  takeAway: boolean;
+  screenWidth: number;
+  disabled: boolean;
+  onTargetChange: (target: KdsStatus | null) => void;
+  onDrop: (order: KdsOrderGroup, target: 'P' | 'D') => void;
+};
+
+/**
+ * The table badge is the whole-order drag handle. Moving it to Processing or
+ * Done updates every active line in this order through the bulk API. Item rows
+ * remain independent drag handles for one-by-one status changes.
+ */
+function DraggableOrderTable({ order, takeAway, screenWidth, disabled, onTargetChange, onDrop }: DraggableOrderTableProps) {
+  const pan = useRef(new Animated.ValueXY()).current;
+
+  const reset = useCallback(() => {
+    onTargetChange(null);
+    Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 7 }).start();
+  }, [onTargetChange, pan]);
+
+  const responder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_event, gesture) => !disabled
+      && Math.abs(gesture.dx) > 7
+      && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+    onPanResponderGrant: () => onTargetChange(null),
+    onPanResponderMove: (_event, gesture) => {
+      pan.setValue({ x: gesture.dx, y: gesture.dy * 0.15 });
+      onTargetChange(columnForScreenX(gesture.moveX, screenWidth));
+    },
+    onPanResponderRelease: (_event, gesture) => {
+      const target = columnForScreenX(gesture.moveX, screenWidth);
+      reset();
+      // Whole-order drag intentionally supports the operational stages only.
+      // Dropping on To Do does not change an order, avoiding an accidental
+      // reset of a completed/preparing order.
+      if (target === 'P' || target === 'D') onDrop(order, target);
+    },
+    onPanResponderTerminate: reset,
+  }), [disabled, onDrop, onTargetChange, order, pan, reset, screenWidth]);
+
+  return (
+    <Animated.View
+      {...responder.panHandlers}
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={`Drag table ${order.tableNo || order.orderNo} to Processing or Done to update the whole order`}
+      style={[
+        styles.tableBadge,
+        styles.draggableTableBadge,
+        disabled && styles.tableBadgeUpdating,
+        { transform: pan.getTranslateTransform() },
+      ]}
+    >
+      <Text style={styles.tableLabel}>{takeAway ? 'TAKE AWAY' : 'TABLE'}</Text>
+      {disabled ? <ActivityIndicator size="small" color={COLORS.blue} /> : <Text style={styles.tableNumber} numberOfLines={1}>{order.tableNo || '—'}</Text>}
+      {!disabled ? <Ionicons name="move-outline" size={10} color={COLORS.blue} /> : null}
+    </Animated.View>
+  );
+}
+
 type OrderGroupProps = {
   order: KdsOrderGroup;
   screenWidth: number;
   updatingItemId: string | null;
   updatingOrderId: string | null;
-  onBulkStatus: (order: KdsOrderGroup, target: 'P' | 'D') => void;
+  onOrderDrop: (order: KdsOrderGroup, target: 'P' | 'D') => void;
   onTargetChange: (target: KdsStatus | null) => void;
   onDrop: (item: KdsItem, target: KdsStatus) => void;
   onShowDetails: (order: KdsOrderGroup) => void;
 };
 
-function OrderGroup({ order, screenWidth, updatingItemId, updatingOrderId, onBulkStatus, onTargetChange, onDrop, onShowDetails }: OrderGroupProps) {
+function OrderGroup({ order, screenWidth, updatingItemId, updatingOrderId, onOrderDrop, onTargetChange, onDrop, onShowDetails }: OrderGroupProps) {
   const takeAway = order.orderMode.toUpperCase().includes('TAKE') || order.tableNo.toUpperCase().startsWith('TA');
   return (
     <View style={styles.orderCard}>
-      <TouchableOpacity
-        style={styles.orderHeader}
-        onPress={() => onShowDetails(order)}
-        activeOpacity={0.78}
-        accessibilityRole="button"
-        accessibilityLabel={`Show details for order ${order.orderNo}`}
-      >
-        <View style={styles.orderCopy}>
+      <View style={styles.orderHeader}>
+        <TouchableOpacity
+          style={styles.orderCopy}
+          onPress={() => onShowDetails(order)}
+          activeOpacity={0.78}
+          accessibilityRole="button"
+          accessibilityLabel={`Show details for order ${order.orderNo}`}
+        >
           <Text style={styles.orderNo}>ORDER {order.orderNo}</Text>
           <Text style={styles.stewardName} numberOfLines={1}>STEWARD: {order.stewardName || '—'}</Text>
           <Text style={styles.tapDetails}>Tap for order details</Text>
-        </View>
-        <View style={styles.tableBadge}>
-          <Text style={styles.tableLabel}>{takeAway ? 'TAKE AWAY' : 'TABLE'}</Text>
-          <Text style={styles.tableNumber} numberOfLines={1}>{order.tableNo || '—'}</Text>
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
+        <DraggableOrderTable
+          order={order}
+          takeAway={takeAway}
+          screenWidth={screenWidth}
+          disabled={Boolean(updatingItemId) || Boolean(updatingOrderId)}
+          onTargetChange={onTargetChange}
+          onDrop={onOrderDrop}
+        />
+      </View>
       <View style={styles.orderMeta}>
         <Ionicons name="time-outline" size={12} color={COLORS.textMuted} />
         <Text style={styles.orderMetaText}>{relativeTime(order.placedTime)} ago</Text>
         {order.orderMode ? <><View style={styles.orderDot} /><Text style={styles.orderMetaText}>{order.orderMode}</Text></> : null}
-      </View>
-      <View style={styles.bulkActions}>
-        <TouchableOpacity
-          style={[styles.bulkButton, styles.bulkPreparingButton, updatingOrderId === order.id && styles.bulkButtonDisabled]}
-          onPress={() => onBulkStatus(order, 'P')}
-          disabled={Boolean(updatingItemId) || Boolean(updatingOrderId)}
-          accessibilityRole="button"
-          accessibilityLabel={`Set all items in order ${order.orderNo} to Preparing`}
-        >
-          {updatingOrderId === order.id ? <ActivityIndicator size="small" color={COLORS.white} /> : <><Ionicons name="flame-outline" size={13} color={COLORS.white} /><Text style={styles.bulkButtonText}>All Preparing</Text></>}
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.bulkButton, styles.bulkReadyButton, updatingOrderId === order.id && styles.bulkButtonDisabled]}
-          onPress={() => onBulkStatus(order, 'D')}
-          disabled={Boolean(updatingItemId) || Boolean(updatingOrderId)}
-          accessibilityRole="button"
-          accessibilityLabel={`Set all items in order ${order.orderNo} to Ready`}
-        >
-          {updatingOrderId === order.id ? <ActivityIndicator size="small" color={COLORS.white} /> : <><Ionicons name="checkmark-circle-outline" size={13} color={COLORS.white} /><Text style={styles.bulkButtonText}>All Ready</Text></>}
-        </TouchableOpacity>
       </View>
       <View style={styles.itemsList}>
         {order.items.map((item) => (
@@ -420,7 +466,7 @@ export default function KDSHomeScreen() {
 
       <View style={styles.boardHint}>
         <Ionicons name="information-circle-outline" size={15} color={COLORS.blue} />
-        <Text style={styles.boardHintText}>Drag one item to change its stage, or use All Preparing / All Ready for the complete order.</Text>
+        <Text style={styles.boardHintText}>Drag an item to change it alone. Drag the table number to Processing or Done to move the complete order.</Text>
       </View>
 
       <View style={styles.board}>
@@ -448,7 +494,7 @@ export default function KDSHomeScreen() {
                       screenWidth={width}
                       updatingItemId={updatingItemId}
                       updatingOrderId={updatingOrderId}
-                      onBulkStatus={(order, target) => void updateWholeOrderStatus(order, target)}
+                      onOrderDrop={(order, target) => void updateWholeOrderStatus(order, target)}
                       onTargetChange={setDragTarget}
                       onDrop={(item, target) => void dropItem(item, target)}
                       onShowDetails={(order) => setSelectedOrderKey(order.id)}
@@ -538,18 +584,14 @@ const styles = StyleSheet.create({
   orderNo: { color: COLORS.navy, fontSize: 11, fontWeight: '900' },
   stewardName: { color: COLORS.textMuted, fontSize: 8, fontWeight: '800', marginTop: 2 },
   tapDetails: { color: COLORS.blue, fontSize: 7, fontWeight: '800', marginTop: 2 },
-  tableBadge: { minWidth: 39, minHeight: 38, marginLeft: 5, paddingHorizontal: 3, justifyContent: 'center', alignItems: 'center', borderRadius: 9, backgroundColor: COLORS.blueSoft },
+  tableBadge: { minWidth: 44, minHeight: 42, marginLeft: 5, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 9, backgroundColor: COLORS.blueSoft },
+  draggableTableBadge: { borderWidth: 1, borderColor: '#CDE5F5', elevation: 1 },
+  tableBadgeUpdating: { opacity: 0.62 },
   tableLabel: { color: COLORS.textMuted, fontSize: 6, fontWeight: '900', letterSpacing: 0.25 },
   tableNumber: { maxWidth: 55, color: COLORS.navy, fontSize: 15, fontWeight: '900', marginTop: 1 },
   orderMeta: { paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
   orderMetaText: { color: COLORS.textMuted, fontSize: 8, fontWeight: '600' },
   orderDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#A9B8C4', marginHorizontal: 2 },
-  bulkActions: { paddingHorizontal: 7, paddingBottom: 7, flexDirection: 'row', gap: 5 },
-  bulkButton: { minHeight: 28, flex: 1, paddingHorizontal: 4, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 3, borderRadius: 7 },
-  bulkPreparingButton: { backgroundColor: COLORS.processing },
-  bulkReadyButton: { backgroundColor: COLORS.done },
-  bulkButtonDisabled: { opacity: 0.62 },
-  bulkButtonText: { color: COLORS.white, fontSize: 8, fontWeight: '900' },
   itemsList: { borderTopWidth: 1, borderTopColor: '#EDF2F5' },
   itemRow: { minHeight: 55, paddingHorizontal: 7, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#F0F4F6' },
   itemRowUpdating: { opacity: 0.58 },
