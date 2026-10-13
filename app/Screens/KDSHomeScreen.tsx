@@ -83,6 +83,21 @@ const typeLabel = (value: string) => {
   return type || 'KOT';
 };
 
+const nextStatus = (status: KdsStatus): KdsStatus | null => {
+  if (status === 'S') return 'P';
+  if (status === 'P') return 'D';
+  return null;
+};
+
+const previousStatus = (status: KdsStatus): KdsStatus | null => {
+  if (status === 'D') return 'P';
+  if (status === 'P') return 'S';
+  return null;
+};
+
+const orderKeyFor = (item: Pick<KdsItem, 'orderNo' | 'tableNo' | 'invoiceNo'>) =>
+  `${item.orderNo}|${item.tableNo}|${item.invoiceNo}`;
+
 const relativeTime = (value: string | null) => {
   if (!value) return 'New';
   const time = new Date(value).getTime();
@@ -133,9 +148,10 @@ type DraggableItemProps = {
   disabled: boolean;
   onTargetChange: (target: KdsStatus | null) => void;
   onDrop: (item: KdsItem, target: KdsStatus) => void;
+  onPress: (item: KdsItem) => void;
 };
 
-function DraggableItem({ item, screenWidth, disabled, onTargetChange, onDrop }: DraggableItemProps) {
+function DraggableItem({ item, screenWidth, disabled, onTargetChange, onDrop, onPress }: DraggableItemProps) {
   const pan = useRef(new Animated.ValueXY()).current;
 
   const responder = useMemo(() => PanResponder.create({
@@ -162,18 +178,27 @@ function DraggableItem({ item, screenWidth, disabled, onTargetChange, onDrop }: 
   return (
     <Animated.View
       {...responder.panHandlers}
-      style={[styles.itemRow, disabled && styles.itemRowUpdating, { transform: pan.getTranslateTransform() }]}
+      style={[styles.itemDragWrapper, disabled && styles.itemRowUpdating, { transform: pan.getTranslateTransform() }]}
     >
-      <View style={styles.qtyPill}><Text style={styles.qtyText}>{item.quantity}×</Text></View>
-      <View style={styles.itemCopy}>
-        <Text style={styles.itemName} numberOfLines={2}>{item.itemName}</Text>
-        <View style={styles.itemSubRow}>
-          <Text style={styles.itemCode}>{item.itemCode}</Text>
-          <View style={styles.typeBadge}><Text style={styles.typeBadgeText}>{typeLabel(item.type)}</Text></View>
+      <TouchableOpacity
+        style={styles.itemRow}
+        onPress={() => onPress(item)}
+        disabled={disabled}
+        activeOpacity={0.74}
+        accessibilityRole="button"
+        accessibilityLabel={`Select ${item.itemName} for a kitchen status action`}
+      >
+        <View style={styles.qtyPill}><Text style={styles.qtyText}>{item.quantity}×</Text></View>
+        <View style={styles.itemCopy}>
+          <Text style={styles.itemName} numberOfLines={2}>{item.itemName}</Text>
+          <View style={styles.itemSubRow}>
+            <Text style={styles.itemCode}>{item.itemCode}</Text>
+            <View style={styles.typeBadge}><Text style={styles.typeBadgeText}>{typeLabel(item.type)}</Text></View>
+          </View>
+          {item.remarks ? <Text style={styles.itemRemark} numberOfLines={2}>{item.remarks}</Text> : null}
         </View>
-        {item.remarks ? <Text style={styles.itemRemark} numberOfLines={2}>{item.remarks}</Text> : null}
-      </View>
-      {disabled ? <ActivityIndicator size="small" color={COLORS.blue} /> : <Ionicons name="reorder-three-outline" size={20} color="#9AAABA" />}
+        {disabled ? <ActivityIndicator size="small" color={COLORS.blue} /> : <Ionicons name="chevron-forward-circle-outline" size={19} color={COLORS.blue} />}
+      </TouchableOpacity>
     </Animated.View>
   );
 }
@@ -248,10 +273,11 @@ type OrderGroupProps = {
   onOrderDrop: (order: KdsOrderGroup, target: 'P' | 'D') => void;
   onTargetChange: (target: KdsStatus | null) => void;
   onDrop: (item: KdsItem, target: KdsStatus) => void;
+  onItemPress: (item: KdsItem) => void;
   onShowDetails: (order: KdsOrderGroup) => void;
 };
 
-function OrderGroup({ order, screenWidth, updatingItemId, updatingOrderId, onOrderDrop, onTargetChange, onDrop, onShowDetails }: OrderGroupProps) {
+function OrderGroup({ order, screenWidth, updatingItemId, updatingOrderId, onOrderDrop, onTargetChange, onDrop, onItemPress, onShowDetails }: OrderGroupProps) {
   const takeAway = order.orderMode.toUpperCase().includes('TAKE') || order.tableNo.toUpperCase().startsWith('TA');
   return (
     <View style={styles.orderCard}>
@@ -265,7 +291,7 @@ function OrderGroup({ order, screenWidth, updatingItemId, updatingOrderId, onOrd
         >
           <Text style={styles.orderNo}>ORDER {order.orderNo}</Text>
           <Text style={styles.stewardName} numberOfLines={1}>STEWARD: {order.stewardName || '—'}</Text>
-          <Text style={styles.tapDetails}>Tap for order details</Text>
+          <Text style={styles.tapDetails}>Tap order number for item selection</Text>
         </TouchableOpacity>
         <DraggableOrderTable
           order={order}
@@ -278,8 +304,8 @@ function OrderGroup({ order, screenWidth, updatingItemId, updatingOrderId, onOrd
       </View>
       <View style={styles.orderMeta}>
         <Ionicons name="time-outline" size={12} color={COLORS.textMuted} />
-        <Text style={styles.orderMetaText}>{relativeTime(order.placedTime)} ago</Text>
-        {order.orderMode ? <><View style={styles.orderDot} /><Text style={styles.orderMetaText}>{order.orderMode}</Text></> : null}
+        <Text style={styles.orderMetaText}>TIME {relativeTime(order.placedTime)} ago</Text>
+        {order.orderMode ? <><View style={styles.orderDot} /><Text style={styles.orderMetaText}>TYPE {order.orderMode}</Text></> : null}
       </View>
       <View style={styles.itemsList}>
         {order.items.map((item) => (
@@ -290,6 +316,7 @@ function OrderGroup({ order, screenWidth, updatingItemId, updatingOrderId, onOrd
             disabled={Boolean(updatingItemId) || Boolean(updatingOrderId)}
             onTargetChange={onTargetChange}
             onDrop={onDrop}
+            onPress={onItemPress}
           />
         ))}
       </View>
@@ -308,6 +335,8 @@ export default function KDSHomeScreen() {
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [selectedOrderKey, setSelectedOrderKey] = useState<string | null>(null);
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  const [isSelectionUpdating, setIsSelectionUpdating] = useState(false);
 
   const loadOrders = useCallback(async (silent = false) => {
     if (silent) setIsRefreshing(true);
@@ -365,13 +394,13 @@ export default function KDSHomeScreen() {
   const updateWholeOrderStatus = async (order: KdsOrderGroup, target: 'P' | 'D') => {
     if (updatingItemId || updatingOrderId) return;
     const orderKey = order.id;
-    const matchingItems = items.filter((item) => `${item.orderNo}|${item.tableNo}|${item.invoiceNo}` === orderKey);
+    const matchingItems = items.filter((item) => orderKeyFor(item) === orderKey);
     if (matchingItems.length === 0 || matchingItems.every((item) => item.status === target)) return;
 
     const before = items;
     setUpdatingOrderId(orderKey);
     setItems((current) => current.map((item) => (
-      `${item.orderNo}|${item.tableNo}|${item.invoiceNo}` === orderKey ? { ...item, status: target } : item
+      orderKeyFor(item) === orderKey ? { ...item, status: target } : item
     )));
     try {
       const response = await apiClient.updateKdsOrderBulkStatus({
@@ -398,7 +427,7 @@ export default function KDSHomeScreen() {
   const groupsFor = (status: KdsStatus): KdsOrderGroup[] => {
     const groups = new Map<string, KdsOrderGroup>();
     items.filter((item) => item.status === status).forEach((item) => {
-      const key = `${item.orderNo}|${item.tableNo}|${item.invoiceNo}`;
+      const key = orderKeyFor(item);
       const group = groups.get(key);
       if (group) {
         group.items.push(item);
@@ -420,7 +449,7 @@ export default function KDSHomeScreen() {
 
   const selectedOrder = useMemo(() => {
     if (!selectedOrderKey) return null;
-    const selectedItems = items.filter((item) => `${item.orderNo}|${item.tableNo}|${item.invoiceNo}` === selectedOrderKey);
+    const selectedItems = items.filter((item) => orderKeyFor(item) === selectedOrderKey);
     if (selectedItems.length === 0) return null;
     const first = selectedItems[0];
     return {
@@ -434,6 +463,104 @@ export default function KDSHomeScreen() {
       items: selectedItems,
     } as KdsOrderGroup;
   }, [items, selectedOrderKey]);
+
+  const closeDetails = () => {
+    setSelectedOrderKey(null);
+    setSelectedItemIds([]);
+  };
+
+  const openOrderDetails = (order: KdsOrderGroup) => {
+    setSelectedOrderKey(order.id);
+    setSelectedItemIds([]);
+  };
+
+  const openItemAction = (item: KdsItem) => {
+    setSelectedOrderKey(orderKeyFor(item));
+    setSelectedItemIds([item.id]);
+  };
+
+  const modalItems = selectedOrder?.items ?? [];
+  const selectedModalItems = modalItems.filter((item) => selectedItemIds.includes(item.id));
+  const allModalItemsSelected = modalItems.length > 0 && modalItems.every((item) => selectedItemIds.includes(item.id));
+  const canMoveNext = selectedModalItems.some((item) => nextStatus(item.status));
+  const canRevert = selectedModalItems.some((item) => previousStatus(item.status));
+  const selectedStatusSet = [...new Set(selectedModalItems.map((item) => item.status))];
+  const nextButtonText = selectedStatusSet.length === 1
+    ? (selectedStatusSet[0] === 'S' ? 'Move to Preparing' : selectedStatusSet[0] === 'P' ? 'Move to Ready' : 'Already Ready')
+    : 'Move Next';
+  const revertButtonText = selectedStatusSet.length === 1
+    ? (selectedStatusSet[0] === 'D' ? 'Revert to Preparing' : selectedStatusSet[0] === 'P' ? 'Revert to New' : 'Already New')
+    : 'Revert Selected';
+
+  const toggleSelectedItem = (itemId: string) => {
+    setSelectedItemIds((current) => current.includes(itemId)
+      ? current.filter((id) => id !== itemId)
+      : [...current, itemId]);
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedItemIds(allModalItemsSelected ? [] : modalItems.map((item) => item.id));
+  };
+
+  const moveSelectedItems = async (direction: 'next' | 'previous') => {
+    if (!selectedOrder || isSelectionUpdating || updatingItemId || updatingOrderId) return;
+    const statusFor = direction === 'next' ? nextStatus : previousStatus;
+    const targets = selectedModalItems
+      .map((item) => ({ item, target: statusFor(item.status) }))
+      .filter((value): value is { item: KdsItem; target: KdsStatus } => Boolean(value.target));
+    if (targets.length === 0) {
+      Alert.alert(
+        direction === 'next' ? 'Already at final stage' : 'Already at first stage',
+        direction === 'next'
+          ? 'Done / Ready items cannot move to another next stage.'
+          : 'New items cannot be reverted further.',
+      );
+      return;
+    }
+
+    // Duplicate view rows can point to one physical KOT/BOT line. Send each
+    // database identity only once, while retaining an optimistic update for
+    // every matching rendered row.
+    const uniqueTargets = [...new Map(targets.map(({ item, target }) => [
+      `${item.orderNo}|${item.itemCode}|${item.type}|${item.tableNo}|${item.invoiceNo}|${target}`,
+      { item, target },
+    ])).values()];
+    const before = items;
+    const optimisticStatusById = new Map(targets.map(({ item, target }) => [item.id, target]));
+    setIsSelectionUpdating(true);
+    setUpdatingOrderId(selectedOrder.id);
+    setItems((current) => current.map((item) => ({
+      ...item,
+      status: optimisticStatusById.get(item.id) ?? item.status,
+    })));
+
+    try {
+      const results = await Promise.all(uniqueTargets.map(({ item, target }) => (
+        apiClient.updateKdsOrderItemStatus({
+          orderNo: item.orderNo,
+          itemCode: item.itemCode,
+          type: item.type,
+          tableNo: item.tableNo,
+          invoiceNo: item.invoiceNo,
+          status: target,
+        })
+      )));
+      const failed = results.find((response) => !response.ok || !response.data?.ok);
+      if (failed) throw new Error(failed.data?.message || 'One or more selected item statuses could not be saved.');
+      setSelectedItemIds([]);
+      await loadOrders(true);
+    } catch (error) {
+      console.log('[KDS] selected status update failed', error);
+      // At least one request may have reached SQL before another failed. A
+      // refresh restores the authoritative state instead of showing stale UI.
+      setItems(before);
+      await loadOrders(true);
+      Alert.alert('Selected items not fully saved', error instanceof Error ? error.message : 'Please refresh and try again.');
+    } finally {
+      setUpdatingOrderId(null);
+      setIsSelectionUpdating(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -466,7 +593,7 @@ export default function KDSHomeScreen() {
 
       <View style={styles.boardHint}>
         <Ionicons name="information-circle-outline" size={15} color={COLORS.blue} />
-        <Text style={styles.boardHintText}>Drag an item to change it alone. Drag the table number to Processing or Done to move the complete order.</Text>
+        <Text style={styles.boardHintText}>Tap an item for direct actions. Tap an order number to select several items. Drag table number for the whole order.</Text>
       </View>
 
       <View style={styles.board}>
@@ -497,7 +624,8 @@ export default function KDSHomeScreen() {
                       onOrderDrop={(order, target) => void updateWholeOrderStatus(order, target)}
                       onTargetChange={setDragTarget}
                       onDrop={(item, target) => void dropItem(item, target)}
-                      onShowDetails={(order) => setSelectedOrderKey(order.id)}
+                      onItemPress={(item) => openItemAction(item)}
+                      onShowDetails={(order) => openOrderDetails(order)}
                     />
                   ))}
                 </ScrollView>
@@ -511,29 +639,61 @@ export default function KDSHomeScreen() {
         transparent
         animationType="slide"
         visible={Boolean(selectedOrder)}
-        onRequestClose={() => setSelectedOrderKey(null)}
+        onRequestClose={closeDetails}
       >
         <View style={styles.detailsOverlay}>
           <View style={styles.detailsSheet}>
             <View style={styles.detailsHeader}>
               <View style={styles.detailsHeaderCopy}>
-                <Text style={styles.detailsEyebrow}>KITCHEN ORDER DETAILS</Text>
+                <Text style={styles.detailsEyebrow}>{selectedItemIds.length === 1 ? 'ITEM ACTION' : 'KITCHEN ORDER DETAILS'}</Text>
                 <Text style={styles.detailsTitle}>Order {selectedOrder?.orderNo}</Text>
                 <Text style={styles.detailsSubtitle}>
                   {selectedOrder?.tableNo ? `Table ${selectedOrder.tableNo}` : 'Table not set'}
                   {selectedOrder?.stewardName ? `  ·  Steward: ${selectedOrder.stewardName}` : ''}
                 </Text>
               </View>
-              <TouchableOpacity style={styles.closeDetails} onPress={() => setSelectedOrderKey(null)} accessibilityLabel="Close order details">
+              <TouchableOpacity style={styles.closeDetails} onPress={closeDetails} accessibilityLabel="Close order details">
                 <Ionicons name="close" size={21} color={COLORS.navy} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.detailsHint}>Item quantity, KOT/BOT type, current status and remarks</Text>
+
+            <View style={styles.detailsOrderFacts}>
+              <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>ORDER TYPE</Text><Text style={styles.detailsFactValue}>{selectedOrder?.orderMode || '—'}</Text></View>
+              <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>ORDER AGE</Text><Text style={styles.detailsFactValue}>{relativeTime(selectedOrder?.placedTime ?? null)}</Text></View>
+              <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>TABLE</Text><Text style={styles.detailsFactValue}>{selectedOrder?.tableNo || '—'}</Text></View>
+            </View>
+
+            <View style={styles.selectionToolbar}>
+              <Text style={styles.selectionCount}>{selectedModalItems.length} of {modalItems.length} selected</Text>
+              <TouchableOpacity
+                style={styles.selectAllButton}
+                onPress={toggleSelectAll}
+                disabled={isSelectionUpdating}
+                accessibilityRole="button"
+                accessibilityLabel={allModalItemsSelected ? 'Clear all selected items' : 'Select all items'}
+              >
+                <Ionicons name={allModalItemsSelected ? 'checkbox' : 'square-outline'} size={16} color={COLORS.blue} />
+                <Text style={styles.selectAllText}>{allModalItemsSelected ? 'Clear all' : 'Select all'}</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.detailsHint}>Tap a row to select it. Move Next follows New → Preparing → Ready; Revert moves it back one step.</Text>
+
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailsList}>
-              {selectedOrder?.items.map((item) => {
+              {modalItems.map((item) => {
                 const column = COLUMNS.find((value) => value.id === item.status);
+                const checked = selectedItemIds.includes(item.id);
                 return (
-                  <View key={item.id} style={styles.detailsItem}>
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[styles.detailsItem, checked && styles.detailsItemSelected]}
+                    onPress={() => toggleSelectedItem(item.id)}
+                    disabled={isSelectionUpdating}
+                    activeOpacity={0.75}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked }}
+                    accessibilityLabel={`Select ${item.itemName}`}
+                  >
+                    <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={22} color={checked ? COLORS.blue : '#94A3B8'} />
                     <View style={styles.detailsQty}><Text style={styles.detailsQtyText}>{item.quantity}×</Text></View>
                     <View style={styles.detailsItemCopy}>
                       <Text style={styles.detailsItemName}>{item.itemName}</Text>
@@ -543,10 +703,33 @@ export default function KDSHomeScreen() {
                     <View style={[styles.detailsStatus, { backgroundColor: `${column?.color ?? COLORS.todo}20` }]}>
                       <Text style={[styles.detailsStatusText, { color: column?.color ?? COLORS.todo }]}>{column?.title ?? 'TO DO'}</Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalActionButton, styles.revertButton, (!canRevert || isSelectionUpdating) && styles.modalActionDisabled]}
+                onPress={() => void moveSelectedItems('previous')}
+                disabled={!canRevert || isSelectionUpdating}
+                accessibilityRole="button"
+                accessibilityLabel="Revert selected items by one kitchen stage"
+              >
+                {isSelectionUpdating ? <ActivityIndicator size="small" color={COLORS.navy} /> : <Ionicons name="arrow-undo-outline" size={17} color={COLORS.navy} />}
+                <Text style={styles.revertButtonText}>{revertButtonText}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalActionButton, styles.nextButton, (!canMoveNext || isSelectionUpdating) && styles.modalActionDisabled]}
+                onPress={() => void moveSelectedItems('next')}
+                disabled={!canMoveNext || isSelectionUpdating}
+                accessibilityRole="button"
+                accessibilityLabel="Move selected items to their next kitchen stage"
+              >
+                {isSelectionUpdating ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="arrow-forward-outline" size={17} color={COLORS.white} />}
+                <Text style={styles.nextButtonText}>{nextButtonText}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -593,7 +776,8 @@ const styles = StyleSheet.create({
   orderMetaText: { color: COLORS.textMuted, fontSize: 8, fontWeight: '600' },
   orderDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#A9B8C4', marginHorizontal: 2 },
   itemsList: { borderTopWidth: 1, borderTopColor: '#EDF2F5' },
-  itemRow: { minHeight: 55, paddingHorizontal: 7, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#F0F4F6' },
+  itemDragWrapper: { backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#F0F4F6' },
+  itemRow: { minHeight: 55, paddingHorizontal: 7, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.white },
   itemRowUpdating: { opacity: 0.58 },
   qtyPill: { minWidth: 27, height: 27, paddingHorizontal: 3, justifyContent: 'center', alignItems: 'center', borderRadius: 8, backgroundColor: '#EDF4F8' },
   qtyText: { color: COLORS.blue, fontSize: 11, fontWeight: '900' },
@@ -605,17 +789,26 @@ const styles = StyleSheet.create({
   typeBadgeText: { color: '#35627F', fontSize: 7, fontWeight: '900' },
   itemRemark: { color: '#A26B32', fontSize: 8, lineHeight: 11, fontWeight: '600', marginTop: 2 },
   detailsOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
-  detailsSheet: { maxHeight: '78%', padding: 18, borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: COLORS.white },
+  detailsSheet: { maxHeight: '88%', padding: 18, borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: COLORS.white },
   detailsHeader: { flexDirection: 'row', alignItems: 'flex-start' },
   detailsHeaderCopy: { flex: 1, minWidth: 0 },
   detailsEyebrow: { color: COLORS.blue, fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
   detailsTitle: { color: COLORS.navy, fontSize: 22, fontWeight: '900', marginTop: 2 },
   detailsSubtitle: { color: COLORS.textMuted, fontSize: 11, fontWeight: '700', marginTop: 3 },
   closeDetails: { width: 36, height: 36, marginLeft: 10, justifyContent: 'center', alignItems: 'center', borderRadius: 12, backgroundColor: '#EEF3F6' },
-  detailsHint: { color: COLORS.textMuted, fontSize: 11, marginTop: 14, marginBottom: 8 },
-  detailsList: { gap: 8, paddingBottom: 16 },
-  detailsItem: { minHeight: 69, padding: 10, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#E0E9EE', borderRadius: 13, backgroundColor: '#FBFDFE' },
-  detailsQty: { width: 38, height: 38, marginRight: 10, justifyContent: 'center', alignItems: 'center', borderRadius: 11, backgroundColor: '#E6F2FA' },
+  detailsOrderFacts: { marginTop: 13, padding: 10, flexDirection: 'row', gap: 7, borderRadius: 12, backgroundColor: '#F4F8FA' },
+  detailsFact: { flex: 1, minWidth: 0 },
+  detailsFactLabel: { color: COLORS.textMuted, fontSize: 7, fontWeight: '900', letterSpacing: 0.3 },
+  detailsFactValue: { color: COLORS.navy, fontSize: 10, fontWeight: '900', marginTop: 3 },
+  selectionToolbar: { marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  selectionCount: { color: COLORS.text, fontSize: 11, fontWeight: '800' },
+  selectAllButton: { minHeight: 30, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 8, backgroundColor: COLORS.blueSoft },
+  selectAllText: { color: COLORS.blue, fontSize: 10, fontWeight: '900' },
+  detailsHint: { color: COLORS.textMuted, fontSize: 10, lineHeight: 14, marginTop: 8, marginBottom: 8 },
+  detailsList: { gap: 8, paddingBottom: 12 },
+  detailsItem: { minHeight: 72, padding: 10, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#E0E9EE', borderRadius: 13, backgroundColor: '#FBFDFE' },
+  detailsItemSelected: { borderColor: '#64A9D8', backgroundColor: '#F1F8FD' },
+  detailsQty: { width: 38, height: 38, marginLeft: 8, marginRight: 10, justifyContent: 'center', alignItems: 'center', borderRadius: 11, backgroundColor: '#E6F2FA' },
   detailsQtyText: { color: COLORS.blue, fontSize: 13, fontWeight: '900' },
   detailsItemCopy: { flex: 1, minWidth: 0, paddingRight: 5 },
   detailsItemName: { color: COLORS.text, fontSize: 13, fontWeight: '900' },
@@ -624,4 +817,11 @@ const styles = StyleSheet.create({
   detailsNoRemark: { color: '#94A3B8', fontSize: 10, marginTop: 4 },
   detailsStatus: { maxWidth: 70, paddingHorizontal: 6, paddingVertical: 5, borderRadius: 7 },
   detailsStatusText: { fontSize: 8, fontWeight: '900', textAlign: 'center' },
+  modalActions: { paddingTop: 11, flexDirection: 'row', gap: 8, borderTopWidth: 1, borderTopColor: '#E4ECF1' },
+  modalActionButton: { minHeight: 42, flex: 1, paddingHorizontal: 7, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 5, borderRadius: 11 },
+  revertButton: { backgroundColor: '#FCECCF', borderWidth: 1, borderColor: '#F1CE93' },
+  nextButton: { backgroundColor: COLORS.blue },
+  modalActionDisabled: { opacity: 0.45 },
+  revertButtonText: { color: COLORS.navy, fontSize: 10, fontWeight: '900', textAlign: 'center' },
+  nextButtonText: { color: COLORS.white, fontSize: 10, fontWeight: '900', textAlign: 'center' },
 });
