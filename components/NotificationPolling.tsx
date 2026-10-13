@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
+import * as Speech from 'expo-speech';
 import { useEffect, useRef } from 'react';
 import { AppState, AppStateStatus, Platform, Vibration } from 'react-native';
 import { apiClient } from '../services/api';
@@ -42,6 +43,28 @@ const mapKind = (value: unknown): AppNotificationKind => {
   if (type === 'kitchen-item-ready' || type === 'item-ready') return 'kitchen-item-ready';
   if (type === 'kitchen-order-ready' || type === 'order-ready') return 'kitchen-order-ready';
   return 'general';
+};
+
+// READY announcements intentionally contain only the table number and the
+// affected item name(s), as requested. They run only for KDS DONE status.
+const readyAnnouncementText = (row: any): string | null => {
+  const status = asText(row?.StatusCode).toUpperCase();
+  const kind = asText(row?.NotificationKind).toLowerCase();
+  if (status !== 'D' || kind !== 'kds-status-update') return null;
+
+  const tableNo = asText(row?.TableNo);
+  const itemNames = Array.isArray(row?.Items)
+    ? row.Items
+      .map((item: any) => asText(item?.ItemName ?? item?.itemName))
+      .filter(Boolean)
+    : [];
+  const uniqueItemNames = [...new Set(itemNames)];
+  if (!tableNo || uniqueItemNames.length === 0) return null;
+
+  const itemPhrase = uniqueItemNames.length === 1
+    ? `${uniqueItemNames[0]} is ready.`
+    : `${uniqueItemNames.join('. ')} are ready.`;
+  return `Table ${tableNo}. ${itemPhrase}`;
 };
 
 const parseNotificationDetails = (row: any) => {
@@ -150,6 +173,21 @@ export default function NotificationPolling() {
             payload: parseNotificationDetails(row),
             createdAt: row.CreatedAt ? new Date(row.CreatedAt).toISOString() : new Date().toISOString(),
           });
+
+          // Free on-device Text-to-Speech. Example: "Table T26. Fried Rice is ready."
+          // No cloud voice service, API key, or item description is used.
+          const announcement = readyAnnouncementText(row);
+          if (announcement && preferences.soundEnabled) {
+            try {
+              Speech.speak(announcement, {
+                language: 'en-US',
+                rate: 0.88,
+                pitch: 1,
+              });
+            } catch (error) {
+              console.log('[Notifications] ready announcement failed', error);
+            }
+          }
 
           if (preferences.vibrationEnabled) {
             // A clear three-pulse alert. This is intentionally stronger and
