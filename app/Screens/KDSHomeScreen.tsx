@@ -1044,7 +1044,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
           ) : null}
         </View>
 
-        <View style={styles.stationIndicator}>
+        <View style={styles.stationIndicator} pointerEvents={hasTodoSearch ? 'none' : 'auto'}>
           <View style={styles.stationIndicatorIcon}>
             <Ionicons name={isKitchenDisplay ? 'restaurant-outline' : 'wine-outline'} size={15} color={COLORS.blue} />
           </View>
@@ -1053,13 +1053,15 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         </View>
       </View>
 
-      <View style={styles.summaryHeader}>
+      <View style={styles.summaryHeader} pointerEvents={hasTodoSearch ? 'none' : 'auto'}>
         <SeveritySummary title="TO DO" summary={todoSummary} />
         <View style={styles.summaryDivider} />
         <SeveritySummary title="IN PROGRESS" summary={inProgressSummary} />
       </View>
 
-      <View style={styles.board}>
+      {/* While the search dropdown is open, underlying card ScrollViews must
+          not capture a vertical swipe intended for the result list. */}
+      <View style={styles.board} pointerEvents={hasTodoSearch ? 'none' : 'auto'}>
         {COLUMNS.map((column) => {
           // Search is rendered in its own overlay and never changes the board
           // below it: all To-Do, In Progress, and Done cards stay in place.
