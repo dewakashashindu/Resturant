@@ -7,6 +7,7 @@ import { AppState, AppStateStatus, Platform, Vibration } from 'react-native';
 import { apiClient } from '../services/api';
 import { useAuthStore } from '../services/authStore';
 import { getUniqueDeviceId } from '../services/deviceIdService';
+import menuItemStore from '../services/itemStore';
 import {
   AppNotificationKind,
   getLastNotificationIdKey,
@@ -15,7 +16,9 @@ import {
 import { storage } from '../services/storage';
 
 const POLL_INTERVAL_MS = 3000;
-const NOTIFICATION_SOUND = 'notification-chime.wav';
+// Android resource filenames may contain only lowercase letters, numbers and
+// underscores. Keep this value exactly aligned with app.json and the asset.
+const NOTIFICATION_SOUND = 'notification_chime.wav';
 // Versioned channel IDs force Android to read the new sound configuration after
 // an app rebuild; Android does not allow an existing channel's sound to change.
 const ANDROID_SOUND_CHANNEL = 'restaurant-alert-sound-v2';
@@ -136,13 +139,13 @@ const configureAndroidChannels = async () => {
   if (Platform.OS !== 'android') return;
   await Promise.all([
     Notifications.setNotificationChannelAsync(ANDROID_SOUND_CHANNEL, {
-      name: 'Restaurant alerts',
+      name: 'Mila Mirissa alerts',
       importance: Notifications.AndroidImportance.MAX,
       sound: NOTIFICATION_SOUND,
       enableVibrate: false,
     }),
     Notifications.setNotificationChannelAsync(ANDROID_SILENT_CHANNEL, {
-      name: 'Restaurant alerts (silent)',
+      name: 'Mila Mirissa alerts (silent)',
       importance: Notifications.AndroidImportance.MAX,
       sound: undefined,
       enableVibrate: false,
@@ -213,7 +216,7 @@ export default function NotificationPolling() {
           if (idNumber <= lastIdRef.current) continue;
 
           const id = String(idNumber);
-          const title = asText(row.Title) || 'Restaurant update';
+          const title = asText(row.Title) || 'Mila Mirissa update';
           const message = asText(row.Message) || 'You have a new notification.';
           receiveNotification({
             id,
@@ -227,6 +230,15 @@ export default function NotificationPolling() {
             payload: parseNotificationDetails(row),
             createdAt: row.CreatedAt ? new Date(row.CreatedAt).toISOString() : new Date().toISOString(),
           });
+
+          // An IT message means KDS saved a new availability state. Refresh the
+          // local menu cache immediately, so unavailable items disappear from
+          // customer/POS menu cards without waiting for the next daily sync.
+          if (asText(row?.NotificationType).toUpperCase() === 'IT') {
+            void menuItemStore.getState().syncMenuData().catch((error) => {
+              console.log('[Notifications] menu availability refresh failed', error);
+            });
+          }
 
           const notificationStatus = asText(row?.StatusCode).toUpperCase();
           const notificationKind = asText(row?.NotificationKind).toLowerCase();

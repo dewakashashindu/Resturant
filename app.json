@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "Restaurant",
+    "name": "Mila Mirissa",
     "slug": "Restaurant",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/appiconw.png",
+    "icon": "./assets/icons/millamirissa-app-icon.png",
     "scheme": "restaurant",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -12,7 +12,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/appiconw.png"
+        "foregroundImage": "./assets/icons/millamirissa-adaptive.png",
+        "backgroundColor": "#FFF9F4"
       },
       "package": "com.dewaka_shashindu.Restaurant"
     },
@@ -21,10 +22,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/appiconw.png",
+          "image": "./assets/images/millamirissa.png",
           "imageWidth": 180,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#FFF9F4"
         }
       ],
       [
@@ -39,23 +40,23 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow Restaurant to use Face ID for secure sign in."
+          "faceIDPermission": "Allow Mila Mirissa to use Face ID for secure sign in."
         }
       ],
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/appiconw.png",
-          "color": "#002748",
-          "sounds": ["./assets/sounds/notification-chime.wav"]
+          "icon": "./assets/icons/millamirissa-notification.png",
+          "color": "#6F5434",
+          "sounds": ["./assets/sounds/notification_chime.wav"]
         }
       ],
       "@react-native-community/datetimepicker",
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Allow Restaurant app to access the microphone for voice queries.",
-          "speechRecognitionPermission": "Allow Restaurant app to use speech recognition to analyze sales data."
+          "microphonePermission": "Allow Mila Mirissa to access the microphone for voice queries.",
+          "speechRecognitionPermission": "Allow Mila Mirissa to use speech recognition to analyze sales data."
         }
       ]
     ],

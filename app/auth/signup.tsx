@@ -219,7 +219,7 @@ export default function SignUpScreen() {
 
       <View style={[styles.logoContainer, { marginTop: logoMT }]}>
         <Image
-          source={require('../../assets/images/CAPTURE 1.png')}
+          source={require('../../assets/images/millamirissa.png')}
           style={{ width: logoW, height: logoH }}
           resizeMode="contain"
         />

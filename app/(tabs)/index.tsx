@@ -16,8 +16,8 @@ import {
 import { useAuthStore } from '../../services/authStore';
 import { useCartStore } from '../../services/cartStore';
 import { useMenuSessionStore } from '../../services/menuSessionStore';
-import { useNotificationStore } from '../../services/notificationStore';
 import { useOrderStore } from '../../services/orderStore';
+import { useNotificationStore } from '../../services/notificationStore';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -175,14 +175,23 @@ export default function HomeScreen() {
       ionIcon: 'settings-outline',
     },
     {
-  title: 'KDS',
-  subtitle: 'Kitchen Display',
-  visible: true,
-  color: 'rgba(34,139,87,0.5)',
-  iconBg: 'rgba(34,139,87,0.6)',
-  route: '/Screens/KDSHomeScreen',
-  ionIcon: 'flame-outline',
-},
+      title: 'KDS',
+      subtitle: 'Kitchen Display',
+      visible: true,
+      color: 'rgba(34,139,87,0.5)',
+      iconBg: 'rgba(34,139,87,0.6)',
+      route: '/Screens/KDSHomeScreen',
+      ionIcon: 'flame-outline',
+    },
+    {
+      title: 'BDS',
+      subtitle: 'Bar Display',
+      visible: true,
+      color: 'rgba(127,91,180,0.5)',
+      iconBg: 'rgba(127,91,180,0.6)',
+      route: '/Screens/BDSHomeScreen',
+      ionIcon: 'wine-outline',
+    },
   ];
 
   return (
@@ -221,7 +230,7 @@ export default function HomeScreen() {
         {/* LOGO */}
         <View style={styles.logoContainer}>
           <Image
-            source={require('../../assets/images/CAPTURE 1.png')}
+            source={require('../../assets/images/millamirissa.png')}
             style={{ width: logoW, height: logoH }}
             resizeMode="contain"
           />

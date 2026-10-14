@@ -35,7 +35,7 @@ import { useMenuSessionStore } from '../../services/menuSessionStore';
 import { useOrderStore } from '../../services/orderStore';
 import { storage } from '../../services/storage';
 
-const LOGO        = require('../../assets/images/CAPTURE 1.png');
+const LOGO        = require('../../assets/images/millamirissa.png');
 const PLACEHOLDER = require('../../assets/images/image-removebg-preview.png');
 
 const PROMO_INTERVAL_MS  = 3_000;

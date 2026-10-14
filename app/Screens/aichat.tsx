@@ -442,7 +442,7 @@ export default function AiChat() {
       {/* HEADER */}
       <View style={s.header}>
         <View>
-          <Text style={s.title}>Restaurant AI</Text>
+          <Text style={s.title}>Mila Mirissa AI</Text>
           <Text style={s.subtitle}>Ask anything about your sales</Text>
         </View>
         {msgs.length > 0 && (

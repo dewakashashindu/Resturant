@@ -1,5 +1,8 @@
-import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
+import CoffeeLoader from '../../components/CoffeeLoader';
+import { ProtectedMenuExitModal } from '../../components/ProtectedMenuExitModal';
+import { useItemStore } from '../../services/itemStore';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,13 +18,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import CoffeeLoader from '../../components/CoffeeLoader';
-import { ProtectedMenuExitModal } from '../../components/ProtectedMenuExitModal';
-import { useItemStore } from '../../services/itemStore';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const LOGO     = require('../../assets/images/CAPTURE 1.png');
+const LOGO     = require('../../assets/images/millamirissa.png');
 const BG_IMAGE = require('../../assets/images/image-removebg-preview.png');
 
 // ══════════════════════════════════════

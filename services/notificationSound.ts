@@ -1,6 +1,6 @@
 import { Audio } from 'expo-av';
 
-const notificationChime = require('../assets/sounds/notification-chime.wav');
+const notificationChime = require('../assets/sounds/notification_chime.wav');
 let audioModeReady = false;
 
 /**

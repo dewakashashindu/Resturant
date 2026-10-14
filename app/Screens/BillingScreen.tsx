@@ -1273,7 +1273,7 @@ const goBack = useCallback(() => {
       <View style={s.fixedInfo}>
         <View style={s.logoContainer}>
           <Image
-            source={require('../../assets/images/CAPTURE 1.png')}
+            source={require('../../assets/images/millamirissa.png')}
             style={s.logo}
             resizeMode="contain"
           />

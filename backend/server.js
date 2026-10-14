@@ -1773,7 +1773,7 @@ app.post('/api/kds/menu-items/availability/batch', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Kitchen Display System order queue
 // Tbl_KOTBOTHeder.ProStatus is the source of truth:
-//   S = waiting / TO DO, P = PROCESSING, D = DONE.
+//   S = waiting / TO DO, P = IN PROGRESS, D = DONE.
 // The KDS reads the existing Vw_KOTBOTHder view; its [Type] value (KOT/BOT)
 // is returned unchanged and shown on each kitchen item.
 const normalizeKdsProStatus = (value) => {
@@ -1783,7 +1783,9 @@ const normalizeKdsProStatus = (value) => {
 
 app.get('/api/kds/orders', async (req, res) => {
   try {
-    const requestedType = String(req.query.type ?? '').trim().toUpperCase().slice(0, 2);
+    // KDS queue switch uses the first Type character: K = Kitchen, B = Bar.
+    // This also accepts existing KOT/BOT values without mixing both queues.
+    const requestedType = String(req.query.type ?? '').trim().toUpperCase().slice(0, 1);
     const pool = await poolPromise;
     const result = await pool.request()
       .input('Type', sql.VarChar(2), requestedType)
@@ -1801,6 +1803,9 @@ app.get('/api/kds/orders', async (req, res) => {
           ) AS StewardName,
           LTRIM(RTRIM(k.Cashier)) AS Cashier,
           k.KBDate,
+          -- SELECT DISTINCT requires every ORDER BY expression to be projected.
+          -- This keeps records with no PlacedTime after the dated orders.
+          CASE WHEN k.PlacedTime IS NULL THEN 1 ELSE 0 END AS SortMissingPlacedTime,
           LTRIM(RTRIM(k.ItemCode)) AS ItemCode,
           CAST(k.ItmQty AS float) AS ItmQty,
           LTRIM(RTRIM(k.ItmRmks)) AS ItmRmks,
@@ -1810,12 +1815,23 @@ app.get('/api/kds/orders', async (req, res) => {
           k.PlacedTime,
           k.ProStarted,
           k.ProDone,
+          CAST(ISNULL(m.PrepDuration, 0) AS float) AS PrepDuration,
           LTRIM(RTRIM(ISNULL(k.MenuItmDes, k.ItemCode))) AS MenuItmDes
         FROM dbo.Vw_KOTBOTHder k WITH (NOLOCK)
         LEFT JOIN dbo.Tbl_UserDetails u WITH (NOLOCK)
           ON LTRIM(RTRIM(u.UserId)) = LTRIM(RTRIM(k.Steward))
-        WHERE @Type = '' OR LTRIM(RTRIM(k.[Type])) = @Type
-        ORDER BY k.PlacedTime ASC, k.OrderNo ASC, k.ItemCode ASC
+        LEFT JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
+          ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(k.ItemCode))
+        WHERE @Type = ''
+           OR LEFT(UPPER(LTRIM(RTRIM(k.[Type]))), 1) = @Type
+        -- Oldest received order always appears first. Rows without a usable
+        -- PlacedTime are kept behind timestamped orders, then KBDate breaks ties.
+        ORDER BY
+          SortMissingPlacedTime ASC,
+          PlacedTime ASC,
+          KBDate ASC,
+          OrderNo ASC,
+          ItemCode ASC
       `);
 
     const items = (result.recordset ?? []).map((row) => ({
@@ -1835,6 +1851,7 @@ app.get('/api/kds/orders', async (req, res) => {
       placedTime: row.PlacedTime ?? row.KBDate ?? null,
       proStarted: row.ProStarted ?? null,
       proDone: row.ProDone ?? null,
+      prepDuration: Math.max(0, Number(row.PrepDuration ?? 0) || 0),
     })).filter((item) => item.orderNo && item.itemCode);
 
     return res.json({ ok: true, items });
@@ -1937,8 +1954,8 @@ app.post('/api/kds/orders/item-status', async (req, res) => {
         `);
       const first = changedRows[0];
       const itemName = String(menuResult.recordset?.[0]?.MenuItmDes ?? itemCode).trim() || itemCode;
-      const statusTitle = proStatus === 'P' ? 'ITEM IN PROCESSING' : 'ITEM READY';
-      const statusText = proStatus === 'P' ? 'is now processing' : 'is ready';
+      const statusTitle = proStatus === 'P' ? 'ITEM IN PROGRESS' : 'ITEM READY';
+      const statusText = proStatus === 'P' ? 'is now in progress' : 'is ready';
       const message = `${itemName} ${statusText}. Order ${String(first.OrderNo ?? orderNo).trim()}.`;
       // Warkstation is the registered mobile Device ID. It is linked to the
       // currently authenticated person through Tbl_Warkstation.UserID. Target
@@ -2132,8 +2149,8 @@ app.post('/api/kds/orders/bulk-status', async (req, res) => {
 
         const first = stewardRows[0];
         const itemCount = stewardRows.length;
-        const statusTitle = proStatus === 'P' ? 'ORDER IN PROCESSING' : 'ORDER READY';
-        const statusText = proStatus === 'P' ? 'is now processing' : 'is ready';
+        const statusTitle = proStatus === 'P' ? 'ORDER IN PROGRESS' : 'ORDER READY';
+        const statusText = proStatus === 'P' ? 'is now in progress' : 'is ready';
         const message = `${itemCount} item${itemCount === 1 ? '' : 's'} ${statusText}. Order ${String(first.OrderNo ?? orderNo).trim()}.`;
         const notificationResult = await transaction.request()
           .input('TargetDeviceId', sql.NVarChar(128), targetDeviceId)
