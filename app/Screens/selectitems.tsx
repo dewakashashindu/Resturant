@@ -1115,6 +1115,7 @@ export default function ItemSelection() {
           },
         ]}
       >
+        <View pointerEvents="none" style={s.headerCircle} />
         <View style={s.headerTopRow}>
           <TouchableOpacity style={s.backButton} onPress={handleBack}>
             <Image
@@ -1341,7 +1342,7 @@ export default function ItemSelection() {
               {globalSearchResults.length === 0 ? (
                 <View style={s.emptySearchWrap}>
                   <Text style={s.emptySearchText}>
-                    No items found for "{searchQuery}"
+                    {'No items found for "'}{searchQuery}{'"'}
                   </Text>
                 </View>
               ) : (
@@ -1776,6 +1777,17 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       header: {
         backgroundColor: '#72563C',
         justifyContent: 'center',
+        overflow: 'hidden',
+      },
+      // Match the Home and Table Selection header treatment.
+      headerCircle: {
+        position: 'absolute',
+        width: 220,
+        height: 220,
+        borderRadius: 110,
+        top: -60,
+        right: -60,
+        backgroundColor: 'rgba(163,140,119,0.45)',
       },
       headerTopRow: {
         flexDirection: 'row',

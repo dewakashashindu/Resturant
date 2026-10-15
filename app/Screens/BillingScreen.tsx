@@ -1236,6 +1236,7 @@ const goBack = useCallback(() => {
 
       {/* HEADER */}
       <View style={[s.header, { paddingTop: insets.top }]}>
+        <View pointerEvents="none" style={s.headerCircle} />
         <View style={s.headerTopRow}>
           <TouchableOpacity
             style={s.backButton}
@@ -2244,6 +2245,17 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       alignItems: 'center',
       justifyContent: 'space-between',
       backgroundColor: '#72563C',
+      overflow: 'hidden',
+    },
+    // Shared large warm-taupe circle behind the brown operational header.
+    headerCircle: {
+      position: 'absolute',
+      width: scale(220),
+      height: scale(220),
+      borderRadius: scale(110),
+      top: scale(-60),
+      right: scale(-60),
+      backgroundColor: 'rgba(163,140,119,0.45)',
     },
     headerTopRow: {
       flexDirection: 'row',

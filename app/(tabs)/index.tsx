@@ -368,7 +368,8 @@ const styles = StyleSheet.create({
     width: 220,
     height: 220,
     borderRadius: 110,
-    backgroundColor: 'rgba(114,86,60,0.2)',
+    // Visible warm-tone counterpart to the former blue header circle.
+    backgroundColor: 'rgba(163,140,119,0.45)',
     top: -60,
     right: -60,
   },

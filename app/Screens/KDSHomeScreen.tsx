@@ -76,6 +76,11 @@ const COLORS = {
   danger: '#D85A52',
 };
 
+type KdsUiMetrics = { styles: any; scale: number };
+// KDS and BDS share this context so cards, typography and touch targets scale
+// together across compact phones, standard phones and tablet displays.
+const KdsUiContext = React.createContext<KdsUiMetrics>({ styles: {}, scale: 1 });
+
 const COLUMNS: { id: KdsStatus; title: string; color: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { id: 'S', title: 'TO DO', color: COLORS.todo, icon: 'time-outline' },
   { id: 'P', title: 'IN PROGRESS', color: COLORS.processing, icon: 'flame-outline' },
@@ -295,10 +300,10 @@ const columnForScreenX = (screenX: number, screenWidth: number): KdsStatus => {
   return COLUMNS[index].id;
 };
 
-const cardStyleForAlertLevel = (level: AlertLevel) =>
+const cardStyleForAlertLevel = (level: AlertLevel, styles: any) =>
   level === 'red' ? styles.orderCardRed : level === 'amber' ? styles.orderCardAmber : null;
 
-const itemStyleForAlertLevel = (level: AlertLevel) =>
+const itemStyleForAlertLevel = (level: AlertLevel, styles: any) =>
   level === 'red' ? styles.itemRowRed : level === 'amber' ? styles.itemRowAmber : null;
 
 type AlertSummary = Record<AlertLevel, number>;
@@ -310,6 +315,7 @@ const summarizeOrderAlerts = (orders: KdsOrderGroup[], now: number): AlertSummar
 
 type SeveritySummaryProps = { title: string; summary: AlertSummary };
 function SeveritySummary({ title, summary }: SeveritySummaryProps) {
+  const { styles } = React.useContext(KdsUiContext);
   return (
     <View style={styles.severitySummary}>
       <Text style={styles.severitySummaryTitle}>{title}</Text>
@@ -333,6 +339,7 @@ type DraggableItemProps = {
 };
 
 function DraggableItem({ item, alertLevel, screenWidth, disabled, onTargetChange, onDrop, onPress }: DraggableItemProps) {
+  const { styles, scale } = React.useContext(KdsUiContext);
   const pan = useRef(new Animated.ValueXY()).current;
 
   const responder = useMemo(() => PanResponder.create({
@@ -359,10 +366,10 @@ function DraggableItem({ item, alertLevel, screenWidth, disabled, onTargetChange
   return (
     <Animated.View
       {...responder.panHandlers}
-      style={[styles.itemDragWrapper, itemStyleForAlertLevel(alertLevel), disabled && styles.itemRowUpdating, { transform: pan.getTranslateTransform() }]}
+      style={[styles.itemDragWrapper, itemStyleForAlertLevel(alertLevel, styles), disabled && styles.itemRowUpdating, { transform: pan.getTranslateTransform() }]}
     >
       <TouchableOpacity
-        style={[styles.itemRow, itemStyleForAlertLevel(alertLevel)]}
+        style={[styles.itemRow, itemStyleForAlertLevel(alertLevel, styles)]}
         onPress={() => onPress(item)}
         disabled={disabled}
         activeOpacity={0.74}
@@ -378,7 +385,7 @@ function DraggableItem({ item, alertLevel, screenWidth, disabled, onTargetChange
           </View>
           {item.remarks ? <Text style={styles.itemRemark} numberOfLines={2}>{item.remarks}</Text> : null}
         </View>
-        {disabled ? <ActivityIndicator size="small" color={COLORS.blue} /> : <Ionicons name="chevron-forward-circle-outline" size={19} color={COLORS.blue} />}
+        {disabled ? <ActivityIndicator size="small" color={COLORS.blue} /> : <Ionicons name="chevron-forward-circle-outline" size={Math.round(19 * scale)} color={COLORS.blue} />}
       </TouchableOpacity>
     </Animated.View>
   );
@@ -392,6 +399,7 @@ type TodoSearchResultProps = {
 
 /** A compact, complete row shown only for To-Do item-name/item-ID searches. */
 function TodoSearchResult({ item, disabled, onPress }: TodoSearchResultProps) {
+  const { styles, scale } = React.useContext(KdsUiContext);
   return (
     <TouchableOpacity
       style={[styles.searchResultRow, disabled && styles.searchResultDisabled]}
@@ -422,11 +430,11 @@ function TodoSearchResult({ item, disabled, onPress }: TodoSearchResultProps) {
         </View>
       </View>
       <View style={styles.searchResultNote}>
-        <Ionicons name="chatbox-ellipses-outline" size={13} color="#8A541F" />
+        <Ionicons name="chatbox-ellipses-outline" size={Math.round(13 * scale)} color="#8A541F" />
         <Text style={styles.searchResultNoteText}>NOTE: {item.remarks || 'No remark'}</Text>
       </View>
       <View style={styles.searchQuickAction}>
-        {disabled ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="arrow-forward-circle-outline" size={14} color={COLORS.white} />}
+        {disabled ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="arrow-forward-circle-outline" size={Math.round(14 * scale)} color={COLORS.white} />}
         <Text style={styles.searchQuickActionText}>MOVE TO IN PROGRESS</Text>
       </View>
     </TouchableOpacity>
@@ -448,6 +456,7 @@ type DraggableOrderTableProps = {
  * remain independent drag handles for one-by-one status changes.
  */
 function DraggableOrderTable({ order, takeAway, screenWidth, disabled, onTargetChange, onDrop }: DraggableOrderTableProps) {
+  const { styles, scale } = React.useContext(KdsUiContext);
   const pan = useRef(new Animated.ValueXY()).current;
 
   const reset = useCallback(() => {
@@ -490,7 +499,7 @@ function DraggableOrderTable({ order, takeAway, screenWidth, disabled, onTargetC
     >
       <Text style={styles.tableLabel}>{takeAway ? 'TAKE AWAY' : 'TABLE'}</Text>
       {disabled ? <ActivityIndicator size="small" color={COLORS.blue} /> : <Text style={styles.tableNumber} numberOfLines={1}>{order.tableNo || '—'}</Text>}
-      {!disabled ? <Ionicons name="move-outline" size={10} color={COLORS.blue} /> : null}
+      {!disabled ? <Ionicons name="move-outline" size={Math.round(10 * scale)} color={COLORS.blue} /> : null}
     </Animated.View>
   );
 }
@@ -509,10 +518,11 @@ type OrderGroupProps = {
 };
 
 function OrderGroup({ order, screenWidth, now, updatingItemId, updatingOrderId, onOrderDrop, onTargetChange, onDrop, onItemPress, onShowDetails }: OrderGroupProps) {
+  const { styles, scale } = React.useContext(KdsUiContext);
   const takeAway = order.orderMode.toUpperCase().includes('TAKE') || order.tableNo.toUpperCase().startsWith('TA');
   const cardAlertLevel = orderAlertLevel(order, now);
   return (
-    <View style={[styles.orderCard, cardStyleForAlertLevel(cardAlertLevel)]}>
+    <View style={[styles.orderCard, cardStyleForAlertLevel(cardAlertLevel, styles)]}>
       <View style={styles.orderHeader}>
         <TouchableOpacity
           style={styles.orderCopy}
@@ -535,7 +545,7 @@ function OrderGroup({ order, screenWidth, now, updatingItemId, updatingOrderId, 
         />
       </View>
       <View style={styles.orderMeta}>
-        <Ionicons name="time-outline" size={12} color={COLORS.textMuted} />
+        <Ionicons name="time-outline" size={Math.round(12 * scale)} color={COLORS.textMuted} />
         <Text style={styles.orderMetaText}>TIME {relativeTime(order.placedTime, now)} ago</Text>
         {order.orderMode ? <><View style={styles.orderDot} /><Text style={styles.orderMetaText}>TYPE {order.orderMode}</Text></> : null}
       </View>
@@ -568,6 +578,17 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
+  // Three responsive tiers: compact phone, regular phone, and tablet. The
+  // 520 dp tablet threshold also covers the Android tablet viewport shown in
+  // the supplied screenshot, where the prior fixed 7–13 px type was too small.
+  const isTablet = Math.min(width, height) >= 520;
+  const isCompactPhone = !isTablet && height < 700;
+  const uiScale = isTablet
+    ? Math.min(1.5, Math.max(1.32, width / 400))
+    : isCompactPhone ? 0.88 : 1;
+  const kdsUi = useMemo(() => ({ styles: createResponsiveKdsStyles(uiScale), scale: uiScale }), [uiScale]);
+  const styles = kdsUi.styles;
+  const iconSize = (size: number) => Math.round(size * uiScale);
   const isKdsScreenFocused = useIsFocused();
   const [appState, setAppState] = useState<AppStateStatus>(() => AppState.currentState);
   const [items, setItems] = useState<KdsItem[]>([]);
@@ -822,7 +843,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const hasTodoSearch = normalizedSearchQuery.length > 0;
   // The dropdown has an explicit, device-height-aware viewport. Its result
   // list can receive a vertical gesture rather than extending behind the board.
-  const searchDropdownMaxHeight = Math.max(240, Math.min(540, height - 180));
+  const searchDropdownMaxHeight = Math.max(240 * uiScale, Math.min(540 * uiScale, height - 180 * uiScale));
   const todoSearchResults = useMemo(() => {
     if (!hasTodoSearch) return [];
     return items
@@ -833,11 +854,12 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   }, [hasTodoSearch, items, normalizedSearchQuery]);
   // A real height (not only maxHeight) gives FlatList a bounded viewport on
   // Android, which is required for it to take the vertical scroll gesture.
+  const searchDropdownHeaderHeight = 47 * uiScale;
   const searchDropdownHeight = Math.min(
     searchDropdownMaxHeight,
-    47 + Math.max(152, todoSearchResults.length * 152),
+    searchDropdownHeaderHeight + Math.max(152 * uiScale, todoSearchResults.length * 152 * uiScale),
   );
-  const searchListHeight = Math.max(105, searchDropdownHeight - 47);
+  const searchListHeight = Math.max(105 * uiScale, searchDropdownHeight - searchDropdownHeaderHeight);
 
   // These summary counters always describe the full queue, not the temporary
   // To-Do search result subset.
@@ -949,8 +971,9 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   };
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.navy} />
+    <KdsUiContext.Provider value={kdsUi}>
+      <SafeAreaView style={styles.screen}>
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.navy} />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 10) }]}>
         <View style={styles.headerCopy}>
           <Text style={styles.headerEyebrow}>LIVE {displayName} QUEUE</Text>
@@ -964,7 +987,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
           accessibilityRole="button"
           accessibilityLabel={`Refresh the latest ${stationName.toLowerCase()} orders from the database`}
         >
-          {isRefreshing ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="refresh" size={20} color={COLORS.white} />}
+          {isRefreshing ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="refresh" size={iconSize(20)} color={COLORS.white} />}
         </TouchableOpacity>
         {isKitchenDisplay ? (
           <TouchableOpacity
@@ -973,7 +996,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
             accessibilityRole="button"
             accessibilityLabel="Open unavailable items"
           >
-            <Ionicons name="close-circle-outline" size={18} color={COLORS.white} />
+            <Ionicons name="close-circle-outline" size={iconSize(18)} color={COLORS.white} />
             <Text style={styles.unavailableButtonText}>Unavailable</Text>
           </TouchableOpacity>
         ) : null}
@@ -982,7 +1005,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
       <View style={styles.queueFilter}>
         <View style={styles.searchRow}>
           <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={18} color={COLORS.textMuted} />
+            <Ionicons name="search-outline" size={iconSize(18)} color={COLORS.textMuted} />
             <TextInput
               style={styles.searchInput}
               value={searchQuery}
@@ -1001,7 +1024,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                 accessibilityRole="button"
                 accessibilityLabel="Clear To Do item search"
               >
-                <Ionicons name="close-circle" size={18} color={COLORS.textMuted} />
+                <Ionicons name="close-circle" size={iconSize(18)} color={COLORS.textMuted} />
               </TouchableOpacity>
             ) : null}
           </View>
@@ -1035,7 +1058,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                 showsVerticalScrollIndicator
                 ListEmptyComponent={(
                   <View style={styles.searchNoResults}>
-                    <Ionicons name="search-outline" size={22} color="#A38C77" />
+                    <Ionicons name="search-outline" size={iconSize(22)} color="#A38C77" />
                     <Text style={styles.searchNoResultsText}>No To-Do item matches “{searchQuery.trim()}”</Text>
                   </View>
                 )}
@@ -1046,7 +1069,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
 
         <View style={styles.stationIndicator} pointerEvents={hasTodoSearch ? 'none' : 'auto'}>
           <View style={styles.stationIndicatorIcon}>
-            <Ionicons name={isKitchenDisplay ? 'restaurant-outline' : 'wine-outline'} size={15} color={COLORS.blue} />
+            <Ionicons name={isKitchenDisplay ? 'restaurant-outline' : 'wine-outline'} size={iconSize(15)} color={COLORS.blue} />
           </View>
           <Text style={styles.stationIndicatorTitle}>{displayName} · {stationName.toUpperCase()} STATION</Text>
           <Text style={styles.stationIndicatorHint}>Locked</Text>
@@ -1071,7 +1094,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
           return (
             <View key={column.id} style={[styles.column, isTarget && { borderColor: column.color, backgroundColor: `${column.color}12` }]}>
               <View style={[styles.columnHeader, { borderBottomColor: `${column.color}45` }]}>
-                <View style={[styles.columnIcon, { backgroundColor: `${column.color}20` }]}><Ionicons name={column.icon} size={16} color={column.color} /></View>
+                <View style={[styles.columnIcon, { backgroundColor: `${column.color}20` }]}><Ionicons name={column.icon} size={iconSize(16)} color={column.color} /></View>
                 <Text style={[styles.columnTitle, { color: column.color }]}>{column.title}</Text>
                 <View style={[styles.columnCount, { backgroundColor: column.color }]}><Text style={styles.columnCountText}>{itemCount}</Text></View>
               </View>
@@ -1080,7 +1103,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
               ) : (
                 <ScrollView style={styles.columnScroll} contentContainerStyle={styles.columnContent} showsVerticalScrollIndicator={false} nestedScrollEnabled>
                   {groups.length === 0 ? (
-                    <View style={styles.emptyColumn}><Ionicons name={isKitchenDisplay ? 'restaurant-outline' : 'wine-outline'} size={22} color="#B9C7D1" /><Text style={styles.emptyColumnText}>No {stationName} items</Text></View>
+                    <View style={styles.emptyColumn}><Ionicons name={isKitchenDisplay ? 'restaurant-outline' : 'wine-outline'} size={iconSize(22)} color="#B9C7D1" /><Text style={styles.emptyColumnText}>No {stationName} items</Text></View>
                   ) : groups.map((order) => (
                     <OrderGroup
                       key={`${column.id}-${order.id}`}
@@ -1127,7 +1150,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                 {selectedOrder?.stewardName ? <Text style={styles.detailsSubtitle}>Steward: {selectedOrder.stewardName}</Text> : null}
               </View>
               <TouchableOpacity style={styles.closeDetails} onPress={closeDetails} accessibilityLabel="Close order details">
-                <Ionicons name="close" size={21} color={COLORS.navy} />
+                <Ionicons name="close" size={iconSize(21)} color={COLORS.navy} />
               </TouchableOpacity>
             </View>
 
@@ -1146,7 +1169,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                 accessibilityRole="button"
                 accessibilityLabel={allModalItemsSelected ? 'Clear all selected items' : 'Select all items'}
               >
-                <Ionicons name={allModalItemsSelected ? 'checkbox' : 'square-outline'} size={16} color={COLORS.blue} />
+                <Ionicons name={allModalItemsSelected ? 'checkbox' : 'square-outline'} size={iconSize(16)} color={COLORS.blue} />
                 <Text style={styles.selectAllText}>{allModalItemsSelected ? 'Clear all' : 'Select all'}</Text>
               </TouchableOpacity>
             </View>
@@ -1167,14 +1190,14 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                     accessibilityState={{ checked }}
                     accessibilityLabel={`Select ${item.itemName}`}
                   >
-                    <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={22} color={checked ? COLORS.blue : '#A38C77'} />
+                    <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={iconSize(22)} color={checked ? COLORS.blue : '#A38C77'} />
                     <View style={styles.detailsQty}><Text style={styles.detailsQtyText}>{item.quantity}×</Text></View>
                     <View style={styles.detailsItemCopy}>
                       <Text style={styles.detailsItemName}>{item.itemName}</Text>
                       <Text style={styles.detailsItemCode}>{item.itemCode}  ·  {typeLabel(item.type)}  ·  Prep {item.prepDuration || 0} min</Text>
                       {item.remarks ? (
                         <View style={styles.detailsRemarkBanner}>
-                          <Ionicons name="chatbox-ellipses-outline" size={14} color="#8A541F" />
+                          <Ionicons name="chatbox-ellipses-outline" size={iconSize(14)} color="#8A541F" />
                           <Text style={styles.detailsRemarkText}>NOTE: {item.remarks}</Text>
                         </View>
                       ) : <Text style={styles.detailsNoRemark}>No remark</Text>}
@@ -1195,7 +1218,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                 accessibilityRole="button"
                 accessibilityLabel="Revert selected items by one kitchen stage"
               >
-                {isSelectionUpdating ? <ActivityIndicator size="small" color={COLORS.navy} /> : <Ionicons name="arrow-undo-outline" size={17} color={COLORS.navy} />}
+                {isSelectionUpdating ? <ActivityIndicator size="small" color={COLORS.navy} /> : <Ionicons name="arrow-undo-outline" size={iconSize(17)} color={COLORS.navy} />}
                 <Text style={styles.revertButtonText}>{revertButtonText}</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -1205,14 +1228,15 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                 accessibilityRole="button"
                 accessibilityLabel="Move selected items to their next kitchen stage"
               >
-                {isSelectionUpdating ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="arrow-forward-outline" size={17} color={COLORS.white} />}
+                {isSelectionUpdating ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="arrow-forward-outline" size={iconSize(17)} color={COLORS.white} />}
                 <Text style={styles.nextButtonText}>{nextButtonText}</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+      </SafeAreaView>
+    </KdsUiContext.Provider>
   );
 }
 
@@ -1221,7 +1245,7 @@ export default function KDSHomeScreen() {
   return <KdsDisplayScreen stationType="K" />;
 }
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
   header: { minHeight: 112, paddingHorizontal: 14, paddingBottom: 17, flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.navy },
   headerCopy: { flex: 1, minWidth: 0, paddingRight: 7 },
@@ -1366,3 +1390,40 @@ const styles = StyleSheet.create({
   revertButtonText: { color: COLORS.navy, fontSize: 10, fontWeight: '900', textAlign: 'center' },
   nextButtonText: { color: COLORS.white, fontSize: 10, fontWeight: '900', textAlign: 'center' },
 });
+
+const responsiveMetricKeys = new Set([
+  'fontSize', 'lineHeight', 'letterSpacing',
+  'padding', 'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight', 'paddingHorizontal', 'paddingVertical',
+  'margin', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'marginHorizontal', 'marginVertical',
+  'gap', 'width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight',
+  'top', 'bottom', 'left', 'right', 'borderRadius', 'shadowRadius',
+]);
+
+const responsiveStyleCache = new Map<number, any>();
+
+/** Builds scaled KDS/BDS styles without changing board behaviour or data flow. */
+function createResponsiveKdsStyles(scale: number) {
+  const cacheKey = Number(scale.toFixed(2));
+  const cached = responsiveStyleCache.get(cacheKey);
+  if (cached) return cached;
+  if (cacheKey === 1) {
+    responsiveStyleCache.set(cacheKey, baseStyles);
+    return baseStyles;
+  }
+
+  const scaled: Record<string, Record<string, unknown>> = {};
+  Object.entries(baseStyles).forEach(([styleName, registeredStyle]) => {
+    const source = StyleSheet.flatten(registeredStyle) as Record<string, unknown>;
+    const next: Record<string, unknown> = {};
+    Object.entries(source).forEach(([property, value]) => {
+      next[property] = responsiveMetricKeys.has(property) && typeof value === 'number'
+        ? Math.round(value * cacheKey * 100) / 100
+        : value;
+    });
+    scaled[styleName] = next;
+  });
+
+  const responsive = StyleSheet.create(scaled);
+  responsiveStyleCache.set(cacheKey, responsive);
+  return responsive;
+}

@@ -215,6 +215,7 @@ export default function TableSelectionScreen() {
 
       {/* FIXED HEADER */}
       <View style={[styles.header, { paddingHorizontal: hPad, paddingTop: insets.top, height: 200 + insets.top }]}>
+        <View pointerEvents="none" style={styles.headerCircle} />
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Image
             source={require('../../assets/icons/back.png')}
@@ -510,7 +511,9 @@ export default function TableSelectionScreen() {
 const styles = StyleSheet.create({
   container:    { flex: 1, backgroundColor: '#F4F6F8' },
 
-  header:       { backgroundColor: '#72563C', flexDirection: 'row', alignItems: 'center', paddingVertical: 16, height: 200 },
+  header:       { backgroundColor: '#72563C', flexDirection: 'row', alignItems: 'center', paddingVertical: 16, height: 200, overflow: 'hidden' },
+  // Same visible decorative circle used on the Home header, in a warm brown tone.
+  headerCircle: { position: 'absolute', width: 220, height: 220, borderRadius: 110, top: -60, right: -60, backgroundColor: 'rgba(163,140,119,0.45)' },
   backButton:   { marginRight: 16 },
   headerTitle: { fontWeight: '700', color: '#F8F7F5' },
 

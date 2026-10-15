@@ -207,6 +207,7 @@ export default function SettingsScreen() {
 
       {/* ── HEADER ── */}
       <View style={[s.header, { paddingTop: insets.top, height: s.header.height + insets.top }]}>
+        <View pointerEvents="none" style={s.headerCircle} />
         <View style={s.headerTopRow}>
           <TouchableOpacity style={s.backButton} onPress={() => router.back()} activeOpacity={0.7}>
             <Image
@@ -694,6 +695,17 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       height: scale(headerH),
       paddingHorizontal: scale(hPad),
       justifyContent: 'space-between',
+      overflow: 'hidden',
+    },
+    // Shared header decoration used throughout the operational app.
+    headerCircle: {
+      position: 'absolute',
+      width: scale(220),
+      height: scale(220),
+      borderRadius: scale(110),
+      top: scale(-60),
+      right: scale(-60),
+      backgroundColor: 'rgba(163,140,119,0.45)',
     },
     headerTopRow: {
       flexDirection: 'row',
