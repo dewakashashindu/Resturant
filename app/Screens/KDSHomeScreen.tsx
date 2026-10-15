@@ -7,12 +7,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   AppState,
   AppStateStatus,
   FlatList,
   Modal,
-  PanResponder,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -121,6 +119,13 @@ const previousStatus = (status: KdsStatus): KdsStatus | null => {
 
 const orderKeyFor = (item: Pick<KdsItem, 'orderNo' | 'tableNo' | 'invoiceNo'>) =>
   `${item.orderNo}|${item.tableNo}|${item.invoiceNo}`;
+
+// A queue aggregate follows the actual item code when present, with the item
+// name only as a safe fallback for legacy rows that have no code.
+const todoItemKeyFor = (item: Pick<KdsItem, 'itemCode' | 'itemName'>) => {
+  const code = String(item.itemCode ?? '').trim().toUpperCase();
+  return code ? `CODE:${code}` : `NAME:${String(item.itemName ?? '').trim().toUpperCase()}`;
+};
 
 // The KDS status API addresses a physical line with these five fields. A view
 // can surface that same line more than once, so optimistic UI changes must
@@ -295,11 +300,6 @@ const mergeKdsItems = (current: KdsItem[], incoming: KdsItem[]) => {
     });
 };
 
-const columnForScreenX = (screenX: number, screenWidth: number): KdsStatus => {
-  const index = Math.max(0, Math.min(2, Math.floor(screenX / (screenWidth / 3))));
-  return COLUMNS[index].id;
-};
-
 const cardStyleForAlertLevel = (level: AlertLevel, styles: any) =>
   level === 'red' ? styles.orderCardRed : level === 'amber' ? styles.orderCardAmber : null;
 
@@ -320,74 +320,73 @@ function SeveritySummary({ title, summary }: SeveritySummaryProps) {
     <View style={styles.severitySummary}>
       <Text style={styles.severitySummaryTitle}>{title}</Text>
       <View style={styles.severityPills}>
-        <View style={[styles.severityPill, styles.severityPillNormal]}><Text style={styles.severityPillText}>N {summary.normal}</Text></View>
-        <View style={[styles.severityPill, styles.severityPillAmber]}><Text style={styles.severityPillText}>A {summary.amber}</Text></View>
-        <View style={[styles.severityPill, styles.severityPillRed]}><Text style={styles.severityPillText}>R {summary.red}</Text></View>
+        <View style={[styles.severityPill, styles.severityPillNormal]}>
+          <Text style={styles.severityPillLabel}>NORMAL</Text>
+          <Text style={styles.severityPillCount}>{summary.normal}</Text>
+        </View>
+        <View style={[styles.severityPill, styles.severityPillAmber]}>
+          <Text style={styles.severityPillLabel}>AMBER</Text>
+          <Text style={styles.severityPillCount}>{summary.amber}</Text>
+        </View>
+        <View style={[styles.severityPill, styles.severityPillRed]}>
+          <Text style={styles.severityPillLabel}>RED</Text>
+          <Text style={styles.severityPillCount}>{summary.red}</Text>
+        </View>
       </View>
     </View>
   );
 }
 
-type DraggableItemProps = {
+type KdsOrderItemRowProps = {
   item: KdsItem;
   alertLevel: AlertLevel;
-  screenWidth: number;
   disabled: boolean;
-  onTargetChange: (target: KdsStatus | null) => void;
-  onDrop: (item: KdsItem, target: KdsStatus) => void;
+  queueMoreQuantity: number;
   onPress: (item: KdsItem) => void;
+  onTodoItemLongPress?: (item: KdsItem) => void;
 };
 
-function DraggableItem({ item, alertLevel, screenWidth, disabled, onTargetChange, onDrop, onPress }: DraggableItemProps) {
+/** A tap opens individual actions; a To-Do hold opens the same-item bulk move sheet. */
+function KdsOrderItemRow({
+  item,
+  alertLevel,
+  disabled,
+  queueMoreQuantity,
+  onPress,
+  onTodoItemLongPress,
+}: KdsOrderItemRowProps) {
   const { styles, scale } = React.useContext(KdsUiContext);
-  const pan = useRef(new Animated.ValueXY()).current;
-
-  const responder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_event, gesture) => !disabled
-      && Math.abs(gesture.dx) > 7
-      && Math.abs(gesture.dx) > Math.abs(gesture.dy),
-    onPanResponderGrant: () => onTargetChange(item.status),
-    onPanResponderMove: (_event, gesture) => {
-      pan.setValue({ x: gesture.dx, y: gesture.dy * 0.15 });
-      onTargetChange(columnForScreenX(gesture.moveX, screenWidth));
-    },
-    onPanResponderRelease: (_event, gesture) => {
-      const target = columnForScreenX(gesture.moveX, screenWidth);
-      onTargetChange(null);
-      Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 7 }).start();
-      onDrop(item, target);
-    },
-    onPanResponderTerminate: () => {
-      onTargetChange(null);
-      Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 7 }).start();
-    },
-  }), [disabled, item, onDrop, onTargetChange, pan, screenWidth]);
-
+  const heldLongEnough = useRef(false);
   return (
-    <Animated.View
-      {...responder.panHandlers}
-      style={[styles.itemDragWrapper, itemStyleForAlertLevel(alertLevel, styles), disabled && styles.itemRowUpdating, { transform: pan.getTranslateTransform() }]}
+    <TouchableOpacity
+      style={[styles.itemRow, itemStyleForAlertLevel(alertLevel, styles), disabled && styles.itemRowUpdating]}
+      onPressIn={() => { heldLongEnough.current = false; }}
+      onPress={() => { if (!heldLongEnough.current) onPress(item); }}
+      onLongPress={onTodoItemLongPress ? () => {
+        heldLongEnough.current = true;
+        onTodoItemLongPress(item);
+      } : undefined}
+      delayLongPress={420}
+      disabled={disabled}
+      activeOpacity={0.74}
+      accessibilityRole="button"
+      accessibilityLabel={onTodoItemLongPress
+        ? `Hold ${item.itemName} to select matching To Do orders, or tap for item actions`
+        : `Select ${item.itemName} for a kitchen status action`}
     >
-      <TouchableOpacity
-        style={[styles.itemRow, itemStyleForAlertLevel(alertLevel, styles)]}
-        onPress={() => onPress(item)}
-        disabled={disabled}
-        activeOpacity={0.74}
-        accessibilityRole="button"
-        accessibilityLabel={`Select ${item.itemName} for a kitchen status action`}
-      >
-        <View style={styles.qtyPill}><Text style={styles.qtyText}>{item.quantity}×</Text></View>
-        <View style={styles.itemCopy}>
-          <Text style={styles.itemName} numberOfLines={2}>{item.itemName}</Text>
-          <View style={styles.itemSubRow}>
-            <Text style={styles.itemCode}>{item.itemCode}</Text>
-            <View style={styles.typeBadge}><Text style={styles.typeBadgeText}>{typeLabel(item.type)}</Text></View>
+      <View style={styles.qtyPill}><Text style={styles.qtyText}>{item.quantity}×</Text></View>
+      <View style={styles.itemCopy}>
+        <Text style={styles.itemName} numberOfLines={2}>{item.itemName}</Text>
+        {item.remarks ? <Text style={styles.itemRemark} numberOfLines={2}>{item.remarks}</Text> : null}
+        {onTodoItemLongPress && queueMoreQuantity > 0 ? (
+          <View style={styles.queueAggregateBadge}>
+            <Ionicons name="layers-outline" size={Math.round(11 * scale)} color={COLORS.blue} />
+            <Text style={styles.queueAggregateText}>+{queueMoreQuantity} More in Queue</Text>
           </View>
-          {item.remarks ? <Text style={styles.itemRemark} numberOfLines={2}>{item.remarks}</Text> : null}
-        </View>
-        {disabled ? <ActivityIndicator size="small" color={COLORS.blue} /> : <Ionicons name="chevron-forward-circle-outline" size={Math.round(19 * scale)} color={COLORS.blue} />}
-      </TouchableOpacity>
-    </Animated.View>
+        ) : null}
+      </View>
+      {disabled ? <ActivityIndicator size="small" color={COLORS.blue} /> : <Ionicons name="chevron-forward-circle-outline" size={Math.round(19 * scale)} color={COLORS.blue} />}
+    </TouchableOpacity>
   );
 }
 
@@ -441,86 +440,46 @@ function TodoSearchResult({ item, disabled, onPress }: TodoSearchResultProps) {
   );
 }
 
-type DraggableOrderTableProps = {
-  order: KdsOrderGroup;
-  takeAway: boolean;
-  screenWidth: number;
-  disabled: boolean;
-  onTargetChange: (target: KdsStatus | null) => void;
-  onDrop: (order: KdsOrderGroup, target: 'P' | 'D') => void;
-};
+type OrderTableBadgeProps = { order: KdsOrderGroup; takeAway: boolean; disabled: boolean };
 
-/**
- * The table badge is the whole-order drag handle. Moving it to In Progress or
- * Done updates every active line in this order through the bulk API. Item rows
- * remain independent drag handles for one-by-one status changes.
- */
-function DraggableOrderTable({ order, takeAway, screenWidth, disabled, onTargetChange, onDrop }: DraggableOrderTableProps) {
-  const { styles, scale } = React.useContext(KdsUiContext);
-  const pan = useRef(new Animated.ValueXY()).current;
-
-  const reset = useCallback(() => {
-    onTargetChange(null);
-    Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 7 }).start();
-  }, [onTargetChange, pan]);
-
-  const responder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_event, gesture) => !disabled
-      && Math.abs(gesture.dx) > 7
-      && Math.abs(gesture.dx) > Math.abs(gesture.dy),
-    onPanResponderGrant: () => onTargetChange(null),
-    onPanResponderMove: (_event, gesture) => {
-      pan.setValue({ x: gesture.dx, y: gesture.dy * 0.15 });
-      onTargetChange(columnForScreenX(gesture.moveX, screenWidth));
-    },
-    onPanResponderRelease: (_event, gesture) => {
-      const target = columnForScreenX(gesture.moveX, screenWidth);
-      reset();
-      // Whole-order drag intentionally supports the operational stages only.
-      // Dropping on To Do does not change an order, avoiding an accidental
-      // reset of a completed/preparing order.
-      if (target === 'P' || target === 'D') onDrop(order, target);
-    },
-    onPanResponderTerminate: reset,
-  }), [disabled, onDrop, onTargetChange, order, pan, reset, screenWidth]);
-
+/** Display-only table marker. Whole-order drag/drop is intentionally removed. */
+function OrderTableBadge({ order, takeAway, disabled }: OrderTableBadgeProps) {
+  const { styles } = React.useContext(KdsUiContext);
   return (
-    <Animated.View
-      {...responder.panHandlers}
-      accessible
-      accessibilityRole="button"
-      accessibilityLabel={`Drag table ${order.tableNo || order.orderNo} to In Progress or Done to update the whole order`}
-      style={[
-        styles.tableBadge,
-        styles.draggableTableBadge,
-        disabled && styles.tableBadgeUpdating,
-        { transform: pan.getTranslateTransform() },
-      ]}
-    >
+    <View style={[styles.tableBadge, disabled && styles.tableBadgeUpdating]}>
       <Text style={styles.tableLabel}>{takeAway ? 'TAKE AWAY' : 'TABLE'}</Text>
       {disabled ? <ActivityIndicator size="small" color={COLORS.blue} /> : <Text style={styles.tableNumber} numberOfLines={1}>{order.tableNo || '—'}</Text>}
-      {!disabled ? <Ionicons name="move-outline" size={Math.round(10 * scale)} color={COLORS.blue} /> : null}
-    </Animated.View>
+    </View>
   );
 }
 
 type OrderGroupProps = {
   order: KdsOrderGroup;
-  screenWidth: number;
+  status: KdsStatus;
   now: number;
   updatingItemId: string | null;
   updatingOrderId: string | null;
-  onOrderDrop: (order: KdsOrderGroup, target: 'P' | 'D') => void;
-  onTargetChange: (target: KdsStatus | null) => void;
-  onDrop: (item: KdsItem, target: KdsStatus) => void;
   onItemPress: (item: KdsItem) => void;
+  onTodoItemLongPress: (item: KdsItem) => void;
+  queueMoreQuantityForItem: (item: KdsItem) => number;
   onShowDetails: (order: KdsOrderGroup) => void;
 };
 
-function OrderGroup({ order, screenWidth, now, updatingItemId, updatingOrderId, onOrderDrop, onTargetChange, onDrop, onItemPress, onShowDetails }: OrderGroupProps) {
+function OrderGroup({
+  order,
+  status,
+  now,
+  updatingItemId,
+  updatingOrderId,
+  onItemPress,
+  onTodoItemLongPress,
+  queueMoreQuantityForItem,
+  onShowDetails,
+}: OrderGroupProps) {
   const { styles, scale } = React.useContext(KdsUiContext);
   const takeAway = order.orderMode.toUpperCase().includes('TAKE') || order.tableNo.toUpperCase().startsWith('TA');
   const cardAlertLevel = orderAlertLevel(order, now);
+  const isTodo = status === 'S';
   return (
     <View style={[styles.orderCard, cardStyleForAlertLevel(cardAlertLevel, styles)]}>
       <View style={styles.orderHeader}>
@@ -535,13 +494,10 @@ function OrderGroup({ order, screenWidth, now, updatingItemId, updatingOrderId, 
           <Text style={styles.stewardName} numberOfLines={1}>STEWARD: {order.stewardName || '—'}</Text>
           <Text style={styles.tapDetails}>Tap order number for item selection</Text>
         </TouchableOpacity>
-        <DraggableOrderTable
+        <OrderTableBadge
           order={order}
           takeAway={takeAway}
-          screenWidth={screenWidth}
           disabled={Boolean(updatingItemId) || Boolean(updatingOrderId)}
-          onTargetChange={onTargetChange}
-          onDrop={onOrderDrop}
         />
       </View>
       <View style={styles.orderMeta}>
@@ -551,15 +507,14 @@ function OrderGroup({ order, screenWidth, now, updatingItemId, updatingOrderId, 
       </View>
       <View style={styles.itemsList}>
         {order.items.map((item) => (
-          <DraggableItem
+          <KdsOrderItemRow
             key={item.id}
             item={item}
             alertLevel={itemAlertLevel(item, now)}
-            screenWidth={screenWidth}
             disabled={Boolean(updatingItemId) || Boolean(updatingOrderId)}
-            onTargetChange={onTargetChange}
-            onDrop={onDrop}
+            queueMoreQuantity={isTodo ? queueMoreQuantityForItem(item) : 0}
             onPress={onItemPress}
+            onTodoItemLongPress={isTodo ? onTodoItemLongPress : undefined}
           />
         ))}
       </View>
@@ -601,12 +556,15 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const soundEnabled = useNotificationStore((state) => state.preferences.soundEnabled);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [dragTarget, setDragTarget] = useState<KdsStatus | null>(null);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [selectedOrderKey, setSelectedOrderKey] = useState<string | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [isSelectionUpdating, setIsSelectionUpdating] = useState(false);
+  const [bulkTodoItemKey, setBulkTodoItemKey] = useState<string | null>(null);
+  const [bulkTodoItemName, setBulkTodoItemName] = useState('');
+  const [bulkSelectedTodoIds, setBulkSelectedTodoIds] = useState<string[]>([]);
+  const [isBulkTodoMoving, setIsBulkTodoMoving] = useState(false);
   const isKitchenDisplay = kdsQueueType === 'K';
   const displayName = isKitchenDisplay ? 'KDS' : 'BDS';
   const stationName = isKitchenDisplay ? 'Kitchen' : 'Bar';
@@ -730,7 +688,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
       });
   }, [isVoiceAllowed, items, kdsQueueType, now, soundEnabled]);
 
-  const dropItem = async (item: KdsItem, target: KdsStatus) => {
+  const moveItemToStatus = async (item: KdsItem, target: KdsStatus) => {
     if (target === item.status || updatingItemId || updatingOrderId) return;
     const before = items;
     const startedAt = target === 'P' ? new Date().toISOString() : null;
@@ -761,39 +719,6 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
     }
   };
 
-  const updateWholeOrderStatus = async (order: KdsOrderGroup, target: 'P' | 'D') => {
-    if (updatingItemId || updatingOrderId) return;
-    const orderKey = order.id;
-    const matchingItems = items.filter((item) => orderKeyFor(item) === orderKey);
-    if (matchingItems.length === 0 || matchingItems.every((item) => item.status === target)) return;
-
-    const before = items;
-    setUpdatingOrderId(orderKey);
-    setItems((current) => current.map((item) => (
-      orderKeyFor(item) === orderKey ? { ...item, status: target } : item
-    )));
-    try {
-      const response = await apiClient.updateKdsOrderBulkStatus({
-        orderNo: order.orderNo,
-        tableNo: order.tableNo,
-        invoiceNo: order.invoiceNo,
-        status: target,
-      });
-      if (!response.ok || !response.data?.ok) {
-        throw new Error(response.data?.message || 'The order status was not saved.');
-      }
-      // Re-read the queue so that all KOT/BOT lines (including ones previously
-      // shown in another column) reflect the committed database state.
-      await loadOrders('background');
-    } catch (error) {
-      console.log('[KDS] bulk status update failed', error);
-      setItems(before);
-      Alert.alert('Order status not saved', error instanceof Error ? error.message : 'Please try again.');
-    } finally {
-      setUpdatingOrderId(null);
-    }
-  };
-
   const groupsFor = (status: KdsStatus, sourceItems = items): KdsOrderGroup[] => {
     const groups = new Map<string, KdsOrderGroup>();
     sourceItems.filter((item) => item.status === status).forEach((item) => {
@@ -814,12 +739,25 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         });
       }
     });
-    return [...groups.values()].sort((left, right) => {
-      const leftTime = left.placedTime ? new Date(left.placedTime).getTime() : Number.POSITIVE_INFINITY;
-      const rightTime = right.placedTime ? new Date(right.placedTime).getTime() : Number.POSITIVE_INFINITY;
-      if (leftTime !== rightTime) return leftTime - rightTime;
-      return left.orderNo.localeCompare(right.orderNo);
-    });
+
+    const movedAt = (item: KdsItem) => {
+      const source = status === 'P' ? (item.proStarted || item.placedTime) : item.placedTime;
+      const value = source ? new Date(source).getTime() : Number.POSITIVE_INFINITY;
+      return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+    };
+
+    return [...groups.values()]
+      .map((group) => ({
+        ...group,
+        // Within an In Progress order, items retain the moment each item moved.
+        items: [...group.items].sort((left, right) => movedAt(left) - movedAt(right) || left.itemName.localeCompare(right.itemName)),
+      }))
+      .sort((left, right) => {
+        const leftTime = Math.min(...left.items.map(movedAt));
+        const rightTime = Math.min(...right.items.map(movedAt));
+        if (leftTime !== rightTime) return leftTime - rightTime;
+        return left.orderNo.localeCompare(right.orderNo);
+      });
   };
 
   const selectedOrder = useMemo(() => {
@@ -866,6 +804,100 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const todoSummary = summarizeOrderAlerts(groupsFor('S'), now);
   const inProgressSummary = summarizeOrderAlerts(groupsFor('P'), now);
 
+  const todoQueueQuantityByItem = useMemo(() => {
+    const totals = new Map<string, number>();
+    items.filter((item) => item.status === 'S').forEach((item) => {
+      const key = todoItemKeyFor(item);
+      totals.set(key, (totals.get(key) ?? 0) + item.quantity);
+    });
+    return totals;
+  }, [items]);
+
+  const queueMoreQuantityForItem = useCallback((item: KdsItem) => (
+    Math.max(0, (todoQueueQuantityByItem.get(todoItemKeyFor(item)) ?? 0) - item.quantity)
+  ), [todoQueueQuantityByItem]);
+
+  const bulkTodoItems = useMemo(() => {
+    if (!bulkTodoItemKey) return [];
+    return items
+      .filter((item) => item.status === 'S' && todoItemKeyFor(item) === bulkTodoItemKey)
+      .sort(sortKdsItemsOldestFirst);
+  }, [bulkTodoItemKey, items]);
+
+  const bulkTodoAllSelected = bulkTodoItems.length > 0
+    && bulkTodoItems.every((item) => bulkSelectedTodoIds.includes(item.id));
+
+  const openTodoBulkMove = (item: KdsItem) => {
+    setBulkTodoItemKey(todoItemKeyFor(item));
+    setBulkTodoItemName(item.itemName);
+    // The held row is selected by default; staff can tick any additional orders.
+    setBulkSelectedTodoIds([item.id]);
+  };
+
+  const closeTodoBulkMove = (force = false) => {
+    if (isBulkTodoMoving && !force) return;
+    setBulkTodoItemKey(null);
+    setBulkTodoItemName('');
+    setBulkSelectedTodoIds([]);
+  };
+
+  const toggleBulkTodoItem = (itemId: string) => {
+    if (isBulkTodoMoving) return;
+    setBulkSelectedTodoIds((current) => current.includes(itemId)
+      ? current.filter((id) => id !== itemId)
+      : [...current, itemId]);
+  };
+
+  const toggleBulkTodoAll = () => {
+    if (isBulkTodoMoving) return;
+    setBulkSelectedTodoIds(bulkTodoAllSelected ? [] : bulkTodoItems.map((item) => item.id));
+  };
+
+  const moveBulkTodoItemsToInProgress = async () => {
+    if (isBulkTodoMoving || updatingItemId || updatingOrderId) return;
+    const selected = bulkTodoItems.filter((item) => bulkSelectedTodoIds.includes(item.id));
+    if (selected.length === 0) {
+      Alert.alert('Select orders', 'Select at least one To-Do order to move into In Progress.');
+      return;
+    }
+
+    const before = items;
+    const selectedIds = new Set(selected.map((item) => item.id));
+    const startedAt = new Date().toISOString();
+    // One request per physical KOT/BOT line, even if a source view repeated it.
+    const uniqueSelections = [...new Map(selected.map((item) => [
+      `${item.orderNo}|${item.itemCode}|${item.type}|${item.tableNo}|${item.invoiceNo}`,
+      item,
+    ])).values()];
+
+    setIsBulkTodoMoving(true);
+    setUpdatingItemId('bulk-todo-move');
+    setItems((current) => current.map((item) => (
+      selectedIds.has(item.id) ? { ...item, status: 'P', proStarted: startedAt } : item
+    )));
+    try {
+      const results = await Promise.all(uniqueSelections.map((item) => apiClient.updateKdsOrderItemStatus({
+        orderNo: item.orderNo,
+        itemCode: item.itemCode,
+        type: item.type,
+        tableNo: item.tableNo,
+        invoiceNo: item.invoiceNo,
+        status: 'P',
+      })));
+      const failed = results.find((response) => !response.ok || !response.data?.ok);
+      if (failed) throw new Error(failed.data?.message || 'One or more items could not be moved.');
+      closeTodoBulkMove(true);
+      await loadOrders('background');
+    } catch (error) {
+      console.log('[KDS] bulk To-Do item move failed', error);
+      setItems(before);
+      Alert.alert('Items not moved', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setUpdatingItemId(null);
+      setIsBulkTodoMoving(false);
+    }
+  };
+
   const closeDetails = () => {
     setSelectedOrderKey(null);
     setSelectedItemIds([]);
@@ -884,7 +916,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   // Search is a rapid To-Do → In Progress workflow. Keep the query intact so
   // the remaining matching rows stay visible and staff can tap the next one.
   const moveSearchItemToInProgress = (item: KdsItem) => {
-    void dropItem(item, 'P');
+    void moveItemToStatus(item, 'P');
   };
 
   const modalItems = selectedOrder?.items ?? [];
@@ -1067,13 +1099,6 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
           ) : null}
         </View>
 
-        <View style={styles.stationIndicator} pointerEvents={hasTodoSearch ? 'none' : 'auto'}>
-          <View style={styles.stationIndicatorIcon}>
-            <Ionicons name={isKitchenDisplay ? 'restaurant-outline' : 'wine-outline'} size={iconSize(15)} color={COLORS.blue} />
-          </View>
-          <Text style={styles.stationIndicatorTitle}>{displayName} · {stationName.toUpperCase()} STATION</Text>
-          <Text style={styles.stationIndicatorHint}>Locked</Text>
-        </View>
       </View>
 
       <View style={styles.summaryHeader} pointerEvents={hasTodoSearch ? 'none' : 'auto'}>
@@ -1090,9 +1115,8 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
           // below it: all To-Do, In Progress, and Done cards stay in place.
           const groups = groupsFor(column.id);
           const itemCount = groups.reduce((total, group) => total + group.items.length, 0);
-          const isTarget = dragTarget === column.id;
           return (
-            <View key={column.id} style={[styles.column, isTarget && { borderColor: column.color, backgroundColor: `${column.color}12` }]}>
+            <View key={column.id} style={styles.column}>
               <View style={[styles.columnHeader, { borderBottomColor: `${column.color}45` }]}>
                 <View style={[styles.columnIcon, { backgroundColor: `${column.color}20` }]}><Ionicons name={column.icon} size={iconSize(16)} color={column.color} /></View>
                 <Text style={[styles.columnTitle, { color: column.color }]}>{column.title}</Text>
@@ -1108,14 +1132,13 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                     <OrderGroup
                       key={`${column.id}-${order.id}`}
                       order={order}
-                      screenWidth={width}
+                      status={column.id}
                       now={now}
                       updatingItemId={updatingItemId}
                       updatingOrderId={updatingOrderId}
-                      onOrderDrop={(order, target) => void updateWholeOrderStatus(order, target)}
-                      onTargetChange={setDragTarget}
-                      onDrop={(item, target) => void dropItem(item, target)}
                       onItemPress={(item) => openItemAction(item)}
+                      onTodoItemLongPress={openTodoBulkMove}
+                      queueMoreQuantityForItem={queueMoreQuantityForItem}
                       onShowDetails={(order) => openOrderDetails(order)}
                     />
                   ))}
@@ -1125,6 +1148,85 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
           );
         })}
       </View>
+
+      {/* Hold a To-Do item to select matching items across all To-Do orders. */}
+      <Modal
+        transparent
+        animationType="slide"
+        visible={Boolean(bulkTodoItemKey)}
+        onRequestClose={() => closeTodoBulkMove()}
+      >
+        <View style={styles.bulkTodoOverlay}>
+          <View style={styles.bulkTodoSheet}>
+            <View style={styles.bulkTodoHeader}>
+              <View style={styles.bulkTodoHeaderCopy}>
+                <Text style={styles.bulkTodoEyebrow}>TO-DO BULK MOVE</Text>
+                <Text style={styles.bulkTodoTitle} numberOfLines={2}>{bulkTodoItemName}</Text>
+                <Text style={styles.bulkTodoHint}>Select matching orders, then move them directly to In Progress.</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.closeDetails}
+                onPress={() => closeTodoBulkMove()}
+                disabled={isBulkTodoMoving}
+                accessibilityLabel="Close matching To Do orders"
+              >
+                <Ionicons name="close" size={iconSize(21)} color={COLORS.navy} />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.bulkSelectAllButton}
+              onPress={toggleBulkTodoAll}
+              disabled={isBulkTodoMoving || bulkTodoItems.length === 0}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: bulkTodoAllSelected }}
+              accessibilityLabel={bulkTodoAllSelected ? 'Clear all matching To Do orders' : 'Select all matching To Do orders'}
+            >
+              <Ionicons name={bulkTodoAllSelected ? 'checkbox' : 'square-outline'} size={iconSize(19)} color={COLORS.blue} />
+              <Text style={styles.bulkSelectAllText}>{bulkTodoAllSelected ? 'Clear all' : 'Select all'} ({bulkTodoItems.length})</Text>
+            </TouchableOpacity>
+
+            <ScrollView style={styles.bulkTodoList} contentContainerStyle={styles.bulkTodoListContent} showsVerticalScrollIndicator={false}>
+              {bulkTodoItems.map((item) => {
+                const checked = bulkSelectedTodoIds.includes(item.id);
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[styles.bulkTodoRow, checked && styles.bulkTodoRowSelected]}
+                    onPress={() => toggleBulkTodoItem(item.id)}
+                    disabled={isBulkTodoMoving}
+                    activeOpacity={0.76}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked }}
+                    accessibilityLabel={`Order ${item.orderNo}, table ${item.tableNo || 'not assigned'}, quantity ${item.quantity}`}
+                  >
+                    <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={iconSize(23)} color={checked ? COLORS.blue : COLORS.textMuted} />
+                    <View style={styles.bulkTodoOrderCopy}>
+                      <View style={styles.bulkTodoOrderTopLine}>
+                        <Text style={styles.bulkTodoOrderNo}>ORDER {item.orderNo}</Text>
+                        <Text style={styles.bulkTodoTable}>TABLE {item.tableNo || '—'}</Text>
+                      </View>
+                      <Text style={styles.bulkTodoQuantity}>Quantity: {item.quantity}</Text>
+                      <Text style={styles.bulkTodoRemark} numberOfLines={2}>Note: {item.remarks || 'No remark'}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.bulkMoveButton, (bulkSelectedTodoIds.length === 0 || isBulkTodoMoving) && styles.modalActionDisabled]}
+              onPress={() => void moveBulkTodoItemsToInProgress()}
+              disabled={bulkSelectedTodoIds.length === 0 || isBulkTodoMoving}
+              accessibilityRole="button"
+              accessibilityLabel="Move selected matching To Do items to In Progress"
+            >
+              {isBulkTodoMoving ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="play-forward" size={iconSize(18)} color={COLORS.white} />}
+              <Text style={styles.bulkMoveButtonText}>Move {bulkSelectedTodoIds.length} to In Progress</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         transparent
@@ -1272,20 +1374,18 @@ const baseStyles = StyleSheet.create({
   searchDropdownContent: { padding: 7, gap: 6 },
   searchNoResults: { minHeight: 94, padding: 12, alignItems: 'center', justifyContent: 'center' },
   searchNoResultsText: { color: COLORS.textMuted, fontSize: 10, fontWeight: '800', textAlign: 'center', marginTop: 6 },
-  stationIndicator: { minHeight: 32, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 9, backgroundColor: COLORS.blueSoft, borderWidth: 1, borderColor: '#CFBDAA' },
-  stationIndicatorIcon: { width: 21, height: 21, justifyContent: 'center', alignItems: 'center', borderRadius: 7, backgroundColor: COLORS.white },
-  stationIndicatorTitle: { flex: 1, color: COLORS.blue, fontSize: 9, fontWeight: '900', letterSpacing: 0.25 },
-  stationIndicatorHint: { color: COLORS.textMuted, fontSize: 8, fontWeight: '800' },
-  summaryHeader: { marginHorizontal: 8, marginTop: 8, marginBottom: 7, paddingVertical: 7, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 11, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border },
-  summaryDivider: { width: 1, height: 28, backgroundColor: COLORS.border },
+  // The removed station-lock strip gives this summary room for legible counts.
+  summaryHeader: { marginHorizontal: 8, marginTop: 8, marginBottom: 7, paddingVertical: 9, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 9, borderRadius: 12, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border },
+  summaryDivider: { width: 1, height: 52, backgroundColor: COLORS.border },
   severitySummary: { flex: 1, minWidth: 0 },
-  severitySummaryTitle: { color: COLORS.navy, fontSize: 8, fontWeight: '900', letterSpacing: 0.35 },
-  severityPills: { marginTop: 4, flexDirection: 'row', gap: 3 },
-  severityPill: { minWidth: 27, paddingHorizontal: 4, paddingVertical: 3, alignItems: 'center', borderRadius: 5 },
+  severitySummaryTitle: { color: COLORS.navy, fontSize: 10, fontWeight: '900', letterSpacing: 0.45 },
+  severityPills: { marginTop: 5, flexDirection: 'row', gap: 4 },
+  severityPill: { flex: 1, minWidth: 0, minHeight: 42, paddingHorizontal: 3, paddingVertical: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 7 },
   severityPillNormal: { backgroundColor: '#A38C77' },
   severityPillAmber: { backgroundColor: '#E8A93F' },
   severityPillRed: { backgroundColor: COLORS.danger },
-  severityPillText: { color: COLORS.white, fontSize: 8, fontWeight: '900' },
+  severityPillLabel: { color: COLORS.white, fontSize: 6, fontWeight: '900', letterSpacing: 0.2 },
+  severityPillCount: { color: COLORS.white, fontSize: 17, lineHeight: 20, fontWeight: '900', marginTop: 1 },
   board: { flex: 1, flexDirection: 'row', gap: 7, paddingHorizontal: 7, paddingBottom: 7 },
   column: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, backgroundColor: '#F8F7F5' },
   columnHeader: { minHeight: 49, paddingHorizontal: 7, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1 },
@@ -1325,7 +1425,6 @@ const baseStyles = StyleSheet.create({
   stewardName: { color: COLORS.textMuted, fontSize: 8, fontWeight: '800', marginTop: 2 },
   tapDetails: { color: COLORS.blue, fontSize: 7, fontWeight: '800', marginTop: 2 },
   tableBadge: { minWidth: 44, minHeight: 42, marginLeft: 5, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 9, backgroundColor: COLORS.blueSoft },
-  draggableTableBadge: { borderWidth: 1, borderColor: '#ECDDCE', elevation: 1 },
   tableBadgeUpdating: { opacity: 0.62 },
   tableLabel: { color: COLORS.textMuted, fontSize: 6, fontWeight: '900', letterSpacing: 0.25 },
   tableNumber: { maxWidth: 55, color: COLORS.navy, fontSize: 15, fontWeight: '900', marginTop: 1 },
@@ -1333,8 +1432,7 @@ const baseStyles = StyleSheet.create({
   orderMetaText: { color: COLORS.textMuted, fontSize: 8, fontWeight: '600' },
   orderDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#A38C77', marginHorizontal: 2 },
   itemsList: { borderTopWidth: 1, borderTopColor: '#FBF1E5' },
-  itemDragWrapper: { backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#F8F7F5' },
-  itemRow: { minHeight: 55, paddingHorizontal: 7, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.white },
+  itemRow: { minHeight: 55, paddingHorizontal: 7, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#F8F7F5' },
   itemRowAmber: { backgroundColor: '#FFF4D9' },
   itemRowRed: { backgroundColor: '#FFE8E6' },
   itemRowUpdating: { opacity: 0.58 },
@@ -1342,11 +1440,30 @@ const baseStyles = StyleSheet.create({
   qtyText: { color: COLORS.blue, fontSize: 11, fontWeight: '900' },
   itemCopy: { flex: 1, minWidth: 0 },
   itemName: { color: COLORS.text, fontSize: 10, lineHeight: 13, fontWeight: '800' },
-  itemSubRow: { marginTop: 2, flexDirection: 'row', alignItems: 'center', gap: 5 },
-  itemCode: { color: COLORS.textMuted, fontSize: 8, fontWeight: '700' },
-  typeBadge: { paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, backgroundColor: '#E8F2F7' },
-  typeBadgeText: { color: '#35627F', fontSize: 7, fontWeight: '900' },
   itemRemark: { color: '#A26B32', fontSize: 8, lineHeight: 11, fontWeight: '600', marginTop: 2 },
+  queueAggregateBadge: { alignSelf: 'flex-start', marginTop: 5, paddingHorizontal: 6, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 6, backgroundColor: '#FBF1E5', borderWidth: 1, borderColor: '#CFBDAA' },
+  queueAggregateText: { color: COLORS.blue, fontSize: 8, fontWeight: '900' },
+  bulkTodoOverlay: { flex: 1, padding: 16, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
+  bulkTodoSheet: { width: '100%', maxWidth: 650, maxHeight: '86%', padding: 16, borderRadius: 22, backgroundColor: COLORS.white, shadowColor: '#72563C', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.24, shadowRadius: 18, elevation: 10 },
+  bulkTodoHeader: { flexDirection: 'row', alignItems: 'flex-start' },
+  bulkTodoHeaderCopy: { flex: 1, minWidth: 0 },
+  bulkTodoEyebrow: { color: COLORS.blue, fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
+  bulkTodoTitle: { color: COLORS.navy, fontSize: 21, fontWeight: '900', marginTop: 2 },
+  bulkTodoHint: { color: COLORS.textMuted, fontSize: 10, lineHeight: 14, marginTop: 4, paddingRight: 8 },
+  bulkSelectAllButton: { alignSelf: 'flex-start', minHeight: 33, marginTop: 11, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 9, backgroundColor: COLORS.blueSoft },
+  bulkSelectAllText: { color: COLORS.blue, fontSize: 10, fontWeight: '900' },
+  bulkTodoList: { marginTop: 10, flexGrow: 0 },
+  bulkTodoListContent: { gap: 7, paddingBottom: 8 },
+  bulkTodoRow: { minHeight: 70, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#CFBDAA', borderRadius: 12, backgroundColor: '#F8F7F5' },
+  bulkTodoRowSelected: { borderColor: COLORS.blue, backgroundColor: '#FBF1E5' },
+  bulkTodoOrderCopy: { flex: 1, minWidth: 0 },
+  bulkTodoOrderTopLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  bulkTodoOrderNo: { flex: 1, color: COLORS.navy, fontSize: 12, fontWeight: '900' },
+  bulkTodoTable: { color: COLORS.blue, fontSize: 11, fontWeight: '900' },
+  bulkTodoQuantity: { color: COLORS.text, fontSize: 10, fontWeight: '800', marginTop: 3 },
+  bulkTodoRemark: { color: COLORS.textMuted, fontSize: 9, lineHeight: 13, marginTop: 2 },
+  bulkMoveButton: { minHeight: 44, marginTop: 7, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, borderRadius: 12, backgroundColor: COLORS.blue },
+  bulkMoveButtonText: { color: COLORS.white, fontSize: 12, fontWeight: '900' },
   detailsOverlay: { flex: 1, padding: 18, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
   detailsSheet: { width: '100%', maxWidth: 680, maxHeight: '88%', padding: 18, borderRadius: 24, backgroundColor: COLORS.white, shadowColor: '#72563C', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.24, shadowRadius: 18, elevation: 10 },
   detailsHeader: { flexDirection: 'row', alignItems: 'flex-start' },
