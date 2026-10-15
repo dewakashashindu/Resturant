@@ -84,7 +84,7 @@ function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
         accessibilityLabel="Home"
         hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
       >
-        <Ionicons name="home" size={iconSize} color="#fff" />
+        <Ionicons name="home" size={iconSize} color="#F8F7F5" />
         <Text
           style={[styles.navText, { fontSize: textSize }]}
           allowFontScaling={false}
@@ -102,7 +102,7 @@ function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
         accessibilityLabel="Order Taking"
         hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
       >
-        <Ionicons name="receipt-outline" size={iconSize} color="#fff" />
+        <Ionicons name="receipt-outline" size={iconSize} color="#F8F7F5" />
         <Text style={[styles.navText, { fontSize: textSize }]} allowFontScaling={false} numberOfLines={1}>
           Order Taking
         </Text>
@@ -117,7 +117,7 @@ function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
         hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
       >
         <View style={styles.notificationIconWrap}>
-          <Ionicons name="notifications" size={iconSize} color="#fff" />
+          <Ionicons name="notifications" size={iconSize} color="#F8F7F5" />
           {unreadCount > 0 ? (
             <View style={styles.unreadBadge}>
               <Text style={styles.unreadBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
@@ -137,7 +137,7 @@ function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
         accessibilityLabel="Logout"
         hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
       >
-        <MaterialCommunityIcons name="logout" size={iconSize} color="#fff" />
+        <MaterialCommunityIcons name="logout" size={iconSize} color="#F8F7F5" />
         <Text
           style={[styles.navText, { fontSize: textSize }]}
           allowFontScaling={false}
@@ -166,7 +166,7 @@ export default function TabLayout() {
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
-const BAR_COLOR = 'rgb(66, 118, 164)';
+const BAR_COLOR = '#72563C';
 
 const styles = StyleSheet.create({
   // Wrapper fills the gap behind the rounded corners with the same colour,
@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
   },
 
   navText: {
-    color: '#fff',
+    color: '#F8F7F5',
     fontWeight: '500',
     marginTop: 3,
   },
@@ -231,11 +231,11 @@ const styles = StyleSheet.create({
     borderColor: BAR_COLOR,
     backgroundColor: '#E84B4B',
   },
-  unreadBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800' },
+  unreadBadgeText: { color: '#F8F7F5', fontSize: 9, fontWeight: '800' },
 
   divider: {
     width: 1,
     height: '60%',
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: 'rgba(248,247,245,0.25)',
   },
 });

@@ -19,7 +19,7 @@ const CHART_COLORS = ['#2563eb', '#16a34a', '#d97706', '#7c3aed', '#dc2626', '#0
 
 const PRIORITY_STYLE: Record<string, { bg: string; text: string; label: string }> = {
   HIGH:   { bg: '#fef2f2', text: '#dc2626', label: 'High' },
-  MEDIUM: { bg: '#fffbeb', text: '#d97706', label: 'Medium' },
+  MEDIUM: { bg: '#FFFBEB', text: '#d97706', label: 'Medium' },
   LOW:    { bg: '#f0fdf4', text: '#16a34a', label: 'Low' },
 };
 
@@ -124,7 +124,7 @@ function HighlightCard({ icon, title, detail, type }: {
   icon: string; title: string; detail: string; type: string;
 }) {
   const borderColor = type === 'positive' ? '#86efac' : type === 'critical' ? '#fca5a5' : '#fde68a';
-  const bgColor     = type === 'positive' ? '#f0fdf4' : type === 'critical' ? '#fef2f2' : '#fffbeb';
+  const bgColor     = type === 'positive' ? '#f0fdf4' : type === 'critical' ? '#fef2f2' : '#FFFBEB';
   return (
     <View style={[s.highlightCard, { borderLeftColor: borderColor, backgroundColor: bgColor }]}>
       <Text style={s.highlightIcon}>{icon}</Text>
@@ -307,15 +307,15 @@ const micS = StyleSheet.create({
   wrapper:      { width: 22, height: 22, alignItems: 'center', justifyContent: 'center', position: 'relative' },
   wrapperActive: {},
   body:         { width: 8, height: 11, borderRadius: 4, backgroundColor: '#64748b', position: 'absolute', top: 0 },
-  bodyActive:   { backgroundColor: '#fff' },
+  bodyActive:   { backgroundColor: '#F8F7F5' },
   neck:         { width: 12, height: 6, borderTopLeftRadius: 6, borderTopRightRadius: 6, borderWidth: 2, borderColor: '#64748b', borderBottomWidth: 0, position: 'absolute', top: 9, backgroundColor: 'transparent' },
-  neckActive:   { borderColor: '#fff' },
+  neckActive:   { borderColor: '#F8F7F5' },
   stand:        { width: 2, height: 4, backgroundColor: '#64748b', position: 'absolute', top: 15 },
-  standActive:  { backgroundColor: '#fff' },
+  standActive:  { backgroundColor: '#F8F7F5' },
   base:         { width: 8, height: 2, borderRadius: 1, backgroundColor: '#64748b', position: 'absolute', top: 19 },
-  baseActive:   { backgroundColor: '#fff' },
-  ring1:        { position: 'absolute', width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)', top: 2 },
-  ring2:        { position: 'absolute', width: 24, height: 24, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)', top: -1, left: -1 },
+  baseActive:   { backgroundColor: '#F8F7F5' },
+  ring1:        { position: 'absolute', width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: 'rgba(248,247,245,0.4)', top: 2 },
+  ring2:        { position: 'absolute', width: 24, height: 24, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(248,247,245,0.2)', top: -1, left: -1 },
 });
 
 // ─── SEND ICON ────────────────────────────────────────────────────────────────
@@ -334,10 +334,10 @@ const sendS = StyleSheet.create({
     width: 0, height: 0,
     borderLeftWidth: 6, borderLeftColor: 'transparent',
     borderRightWidth: 6, borderRightColor: 'transparent',
-    borderBottomWidth: 9, borderBottomColor: '#fff',
+    borderBottomWidth: 9, borderBottomColor: '#F8F7F5',
     marginBottom: -1,
   },
-  shaft: { width: 3, height: 10, backgroundColor: '#fff', borderRadius: 1.5 },
+  shaft: { width: 3, height: 10, backgroundColor: '#F8F7F5', borderRadius: 1.5 },
 });
 
 // ─── VOICE HOOK ───────────────────────────────────────────────────────────────
@@ -542,7 +542,7 @@ export default function AiChat() {
         >
           <View style={s.sendShine} />
           {busy
-            ? <ActivityIndicator color="#fff" size="small" />
+            ? <ActivityIndicator color="#F8F7F5" size="small" />
             : <SendIcon />
           }
         </TouchableOpacity>
@@ -559,7 +559,7 @@ const s = StyleSheet.create({
   // Header
   header: {
     paddingTop: 56, paddingBottom: 14, paddingHorizontal: 18,
-    backgroundColor: '#fff',
+    backgroundColor: '#F8F7F5',
     borderBottomWidth: 1, borderColor: '#e2e8f0',
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end',
   },
@@ -577,7 +577,7 @@ const s = StyleSheet.create({
   emptyHint:  { fontSize: 13, color: '#64748b', textAlign: 'center' },
   quickGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center', marginTop: 16 },
   quickBtn:   {
-    backgroundColor: '#fff', borderRadius: 12,
+    backgroundColor: '#F8F7F5', borderRadius: 12,
     paddingHorizontal: 16, paddingVertical: 10,
     borderWidth: 1, borderColor: '#e2e8f0',
     elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 },
@@ -592,11 +592,11 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 10,
     marginBottom: 12, maxWidth: '82%',
   },
-  userTxt: { color: '#fff', fontSize: 14, lineHeight: 20 },
+  userTxt: { color: '#F8F7F5', fontSize: 14, lineHeight: 20 },
 
   loadingBubble: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#fff', borderRadius: 12,
+    backgroundColor: '#F8F7F5', borderRadius: 12,
     padding: 14, marginBottom: 12,
     borderWidth: 1, borderColor: '#e2e8f0',
   },
@@ -614,7 +614,7 @@ const s = StyleSheet.create({
 
   // Result box
   resultBox: {
-    backgroundColor: '#fff', borderRadius: 16,
+    backgroundColor: '#F8F7F5', borderRadius: 16,
     padding: 16, borderWidth: 1, borderColor: '#e2e8f0',
     elevation: 1, shadowColor: '#000', shadowOpacity: 0.04,
     shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
@@ -623,7 +623,7 @@ const s = StyleSheet.create({
 
   // Fallback
   fallbackNotice: {
-    marginTop: 8, backgroundColor: '#fffbeb',
+    marginTop: 8, backgroundColor: '#FFFBEB',
     borderRadius: 8, padding: 8,
     borderWidth: 1, borderColor: '#fde68a',
   },
@@ -688,7 +688,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: Platform.OS === 'ios' ? 28 : 12,
-    backgroundColor: '#fff',
+    backgroundColor: '#F8F7F5',
     borderTopWidth: 1,
     borderColor: '#e2e8f0',
     shadowColor: '#000',
@@ -726,10 +726,10 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 2,
     backgroundColor: '#dc2626', borderRadius: 4,
     paddingHorizontal: 4, paddingVertical: 1,
-    borderWidth: 1.5, borderColor: '#fff',
+    borderWidth: 1.5, borderColor: '#F8F7F5',
   },
-  liveDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#fff' },
-  liveTxt: { fontSize: 7, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
+  liveDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#F8F7F5' },
+  liveTxt: { fontSize: 7, fontWeight: '800', color: '#F8F7F5', letterSpacing: 0.5 },
 
   // ── TEXT INPUT ──────────────────────────────────────────────────────────────
   input: {
@@ -743,7 +743,7 @@ const s = StyleSheet.create({
   },
   inputListening: {
     borderColor: '#fca5a5',
-    backgroundColor: '#fff5f5',
+    backgroundColor: '#FFF5F5',
   },
 
   // ── SEND BUTTON ─────────────────────────────────────────────────────────────
@@ -765,7 +765,7 @@ const s = StyleSheet.create({
     top: 4, left: 5,
     width: 16, height: 8,
     borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(248,247,245,0.22)',
     transform: [{ rotate: '-30deg' }],
   },
 });

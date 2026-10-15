@@ -28,16 +28,16 @@ type MenuAvailabilityItem = {
 type PendingAvailability = Record<string, boolean>;
 
 const COLORS = {
-  navy: '#002748',
-  blue: '#0B6AAE',
-  background: '#F2F6F8',
-  white: '#FFFFFF',
-  text: '#1E293B',
-  muted: '#64748B',
-  border: '#DCE6ED',
+  navy: '#72563C',
+  blue: '#72563C',
+  background: '#FCF7F4',
+  white: '#F8F7F5',
+  text: '#72563C',
+  muted: '#A38C77',
+  border: '#CFBDAA',
   available: '#2B9662',
   unavailable: '#D85A52',
-  unavailableSoft: '#FFF3F1',
+  unavailableSoft: '#FCE4E1',
 };
 
 const asItem = (row: any): MenuAvailabilityItem | null => {
@@ -291,7 +291,7 @@ export default function KdsUnavailableScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
   header: { minHeight: 82, paddingHorizontal: 16, paddingBottom: 13, flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.navy },
-  backButton: { width: 42, height: 42, marginRight: 11, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.13)' },
+  backButton: { width: 42, height: 42, marginRight: 11, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(248,247,245,0.13)' },
   headerText: { flex: 1 },
   eyebrow: { color: '#8FB8D7', fontSize: 10, fontWeight: '900', letterSpacing: 1.1 },
   title: { color: COLORS.white, fontSize: 23, lineHeight: 28, fontWeight: '900', marginTop: 2 },
@@ -330,7 +330,7 @@ const styles = StyleSheet.create({
   emptyTitle: { color: COLORS.text, fontSize: 15, fontWeight: '800', marginTop: 10 },
   emptyText: { color: COLORS.muted, fontSize: 12, marginTop: 4 },
   loader: { marginTop: 28 },
-  saveBar: { minHeight: 78, paddingTop: 10, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#DCE6ED', backgroundColor: COLORS.white },
+  saveBar: { minHeight: 78, paddingTop: 10, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#CFBDAA', backgroundColor: COLORS.white },
   saveCopy: { flex: 1, paddingRight: 10 },
   saveCount: { color: COLORS.text, fontSize: 12, fontWeight: '900' },
   saveDescription: { color: COLORS.muted, fontSize: 10, marginTop: 3 },

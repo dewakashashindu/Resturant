@@ -107,7 +107,7 @@ export default function ModeSelectionScreen() {
   // ── JSX ────────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={s.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F3F3F3" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
 
       {/* BACK BUTTON */}
       <TouchableOpacity style={s.backButtonAbsolute} onPress={() => router.back()}>
@@ -311,7 +311,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
   const s = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: '#F3F3F3',
+      backgroundColor: '#F8F7F5',
     },
     backButtonAbsolute: {
       position: 'absolute',
@@ -343,7 +343,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     mainCard: {
       width: cardW,
       padding: scale(innerPad),
-      backgroundColor: '#fff',
+      backgroundColor: '#F8F7F5',
       borderRadius: scale(cardRadius),
       elevation: 5,
       shadowColor: '#000',
@@ -375,7 +375,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       paddingVertical: scale(labelPadV),
     },
     label: {
-      color: '#fff',
+      color: '#F8F7F5',
       fontWeight: '600',
       fontSize: scale(labelFs),
     },
@@ -384,14 +384,14 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       marginTop: scale(billMT),
       paddingVertical: scale(billPadV),
       borderRadius: scale(billRadius),
-      backgroundColor: '#002748',
+      backgroundColor: '#72563C',
       alignItems: 'center',
       justifyContent: 'center',
     },
     billText: {
       fontSize: scale(billFs),
       fontWeight: '700',
-      color: '#fff',
+      color: '#F8F7F5',
     },
     overlayBackdrop: {
       flex: 1,
@@ -403,7 +403,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     overlayCard: {
       width: overlayCardW,
       padding: scale(overlayPad),
-      backgroundColor: '#FFF',
+      backgroundColor: '#F8F7F5',
       borderRadius: scale(overlayRadius),
       maxHeight: '78%',
       elevation: 8,
@@ -418,7 +418,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       justifyContent: 'space-between',
     },
     overlayTitle: {
-      color: '#002748',
+      color: '#72563C',
       fontSize: scale(overlayTitleFs),
       fontWeight: '800',
       flex: 1,
@@ -429,17 +429,17 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       borderRadius: scale(closeBtnRadius),
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'rgba(0,39,72,0.08)',
+      backgroundColor: 'rgba(114,86,60,0.08)',
     },
     overlayCloseText: {
-      color: '#002748',
+      color: '#72563C',
       fontSize: scale(closeIconFs),
       fontWeight: '800',
     },
     overlaySubtitle: {
       marginTop: scale(subtitleMT),
       marginBottom: scale(subtitleMB),
-      color: 'rgba(0,39,72,0.68)',
+      color: 'rgba(114,86,60,0.68)',
       fontSize: scale(subtitleFs),
       fontWeight: '500',
     },
@@ -456,21 +456,21 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       justifyContent: 'space-between',
       marginBottom: scale(rowMB),
       borderWidth: 1,
-      borderColor: 'rgba(0,39,72,0.08)',
+      borderColor: 'rgba(114,86,60,0.08)',
     },
     heldTableLabel: {
-      color: '#002748',
+      color: '#72563C',
       fontSize: scale(rowLabelFs),
       fontWeight: '800',
     },
     heldTableHint: {
-      color: 'rgba(0,39,72,0.58)',
+      color: 'rgba(114,86,60,0.58)',
       marginTop: scale(rowHintMT),
       fontSize: scale(rowHintFs),
       fontWeight: '500',
     },
     heldTableChevron: {
-      color: '#002748',
+      color: '#72563C',
       fontSize: scale(chevronFs),
       fontWeight: '300',
       marginLeft: scale(chevronML),
@@ -481,12 +481,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       paddingVertical: scale(emptyPadV),
     },
     emptyStateTitle: {
-      color: '#002748',
+      color: '#72563C',
       fontSize: scale(emptyTitleFs),
       fontWeight: '800',
     },
     emptyStateText: {
-      color: 'rgba(0,39,72,0.68)',
+      color: 'rgba(114,86,60,0.68)',
       textAlign: 'center',
       marginTop: scale(emptyTextMT),
       fontSize: scale(emptyTextFs),

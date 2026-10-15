@@ -1080,7 +1080,7 @@ export default function ItemSelection() {
           },
         ]}
       >
-        <ActivityIndicator size="large" color="#002748" />
+        <ActivityIndicator size="large" color="#72563C" />
       </View>
     );
   }
@@ -1089,7 +1089,7 @@ export default function ItemSelection() {
 
   return (
     <View style={s.container}>
-      <StatusBar backgroundColor="#002748" barStyle="light-content" />
+      <StatusBar backgroundColor="#72563C" barStyle="light-content" />
 
       {/* Navy notch fill */}
       <View
@@ -1099,7 +1099,7 @@ export default function ItemSelection() {
           left: 0,
           right: 0,
           height: insets.top,
-          backgroundColor: '#002748',
+          backgroundColor: '#72563C',
           zIndex: 0,
         }}
       />
@@ -1200,7 +1200,7 @@ export default function ItemSelection() {
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 placeholder="Search by item name or code..."
-                placeholderTextColor="rgba(255,255,255,0.55)"
+                placeholderTextColor="rgba(248,247,245,0.55)"
                 style={s.searchExpandInput}
                 returnKeyType="search"
               />
@@ -1209,7 +1209,7 @@ export default function ItemSelection() {
                 activeOpacity={0.7}
                 style={s.searchCloseBtn}
               >
-                <Ionicons name="close-circle" size={20} color="rgba(255,255,255,0.9)" />
+                <Ionicons name="close-circle" size={20} color="rgba(248,247,245,0.9)" />
               </TouchableOpacity>
             </View>
           </Animated.View>
@@ -1220,7 +1220,7 @@ export default function ItemSelection() {
             activeOpacity={0.8}
             onPress={openSearchBar}
           >
-            <Ionicons name="search" size={20} color="#FFF" />
+            <Ionicons name="search" size={20} color="#F8F7F5" />
           </TouchableOpacity>
         </View>
 
@@ -1569,7 +1569,7 @@ export default function ItemSelection() {
                                     activeOpacity={0.85}
                                     style={s.tagChipRemoveBtn}
                                   >
-                                    <Ionicons name="close" size={13} color="#FFF" />
+                                    <Ionicons name="close" size={13} color="#F8F7F5" />
                                   </TouchableOpacity>
                                 </View>
                               ))}
@@ -1601,7 +1601,7 @@ export default function ItemSelection() {
                               <Ionicons
                                 name="chevron-down"
                                 size={18}
-                                color="#0062AA"
+                                color="#72563C"
                               />
                             </TouchableOpacity>
                           </View>
@@ -1648,7 +1648,7 @@ export default function ItemSelection() {
 
                     {loadingRemarkOptions ? (
                       <View style={s.centerModalLoaderWrap}>
-                        <ActivityIndicator size="small" color="#002748" />
+                        <ActivityIndicator size="small" color="#72563C" />
                       </View>
                     ) : (
                       <ScrollView
@@ -1774,7 +1774,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       },
 
       header: {
-        backgroundColor: '#002748',
+        backgroundColor: '#72563C',
         justifyContent: 'center',
       },
       headerTopRow: {
@@ -1790,19 +1790,19 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       backIcon: {
         width: scale(backBtnSize),
         height: scale(backBtnSize),
-        tintColor: '#FFF',
+        tintColor: '#F8F7F5',
       },
       headerTitle: {
         fontSize: scale(titleFs),
         fontWeight: '700',
-        color: '#FFF',
+        color: '#F8F7F5',
         flex: 1,
         textAlign: 'center',
         marginHorizontal: scale(8),
       },
       tableBadge: {
         flexDirection: 'row',
-        backgroundColor: 'rgba(255,255,255,0.2)',
+        backgroundColor: 'rgba(248,247,245,0.2)',
         borderRadius: scale(20),
         alignItems: 'center',
         gap: scale(6),
@@ -1810,7 +1810,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingVertical: scale(badgePadV),
       },
       tableBadgeText: {
-        color: '#FFF',
+        color: '#F8F7F5',
         fontWeight: '600',
         fontSize: scale(badgeFs),
       },
@@ -1824,7 +1824,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         backgroundColor: 'transparent',
         borderLeftColor: 'transparent',
         borderRightColor: 'transparent',
-        borderTopColor: '#FFF',
+        borderTopColor: '#F8F7F5',
       },
 
       searchTabsRow: {
@@ -1837,7 +1837,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         width: scale(isSmall ? 34 : 38),
         height: scale(isSmall ? 34 : 38),
         borderRadius: scale(19),
-        backgroundColor: 'rgba(255,255,255,0.18)',
+        backgroundColor: 'rgba(248,247,245,0.18)',
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
@@ -1857,23 +1857,23 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingVertical: scale(scrollTabPadV),
         borderRadius: scale(scrollTabBr),
         borderWidth: 1.5,
-        borderColor: 'rgba(255,255,255,0.35)',
+        borderColor: 'rgba(248,247,245,0.35)',
         backgroundColor: 'transparent',
         justifyContent: 'center',
         alignItems: 'center',
       },
       headerTabActive: {
-        backgroundColor: '#FFF',
-        borderColor: '#FFF',
+        backgroundColor: '#F8F7F5',
+        borderColor: '#F8F7F5',
       },
       headerTabLabel: {
         fontSize: scale(13),
         fontWeight: '700',
-        color: 'rgba(255,255,255,0.75)',
+        color: 'rgba(248,247,245,0.75)',
         textAlign: 'center',
       },
       headerTabLabelActive: {
-        color: '#002748',
+        color: '#72563C',
       },
       searchExpandWrap: {
         flex: 1,
@@ -1882,16 +1882,16 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       searchExpandInner: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(255,255,255,0.16)',
+        backgroundColor: 'rgba(248,247,245,0.16)',
         borderRadius: scale(searchBr),
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.28)',
+        borderColor: 'rgba(248,247,245,0.28)',
         height: scale(searchH),
         paddingHorizontal: scale(searchPadH),
       },
       searchExpandInput: {
         flex: 1,
-        color: '#FFF',
+        color: '#F8F7F5',
         fontSize: scale(searchFs),
         paddingRight: scale(8),
         height: '100%',
@@ -1909,7 +1909,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       sectionTitleInHeader: {
         fontSize: scale(sectionFont),
         fontWeight: '700',
-        color: 'rgba(255,255,255,0.75)',
+        color: 'rgba(248,247,245,0.75)',
         letterSpacing: 0.4,
       },
 
@@ -1932,7 +1932,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       },
       dropdown: {
         position: 'absolute',
-        backgroundColor: '#FFF',
+        backgroundColor: '#F8F7F5',
         borderRadius: scale(dropdownBr),
         paddingVertical: scale(8),
         minWidth: scale(dropdownMinW),
@@ -1951,7 +1951,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       },
       dropdownTitle: {
         fontWeight: '700',
-        color: '#002748',
+        color: '#72563C',
         fontSize: scale(dropdownTitleFs),
       },
       dropdownClose: {
@@ -1984,13 +1984,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         marginHorizontal: scale(12),
         marginTop: scale(4),
         marginBottom: scale(6),
-        backgroundColor: '#002748',
+        backgroundColor: '#72563C',
         borderRadius: scale(10),
         alignItems: 'center',
         paddingVertical: scale(changeTablePadV),
       },
       changeTableText: {
-        color: '#FFF',
+        color: '#F8F7F5',
         fontWeight: '700',
         fontSize: scale(dropdownRowFs),
       },
@@ -2006,7 +2006,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         flexWrap: 'wrap',
       },
       breadLink: {
-        color: '#0062AA',
+        color: '#72563C',
         fontWeight: '500',
         fontSize: scale(breadFs),
       },
@@ -2015,12 +2015,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         fontSize: scale(breadFs),
       },
       breadActive: {
-        color: '#002748',
+        color: '#72563C',
         fontWeight: '700',
         fontSize: scale(breadFs),
       },
       searchScopeText: {
-        color: '#6B7280',
+        color: '#A38C77',
         fontSize: scale(12),
         marginBottom: scale(12),
       },
@@ -2030,7 +2030,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingVertical: scale(32),
       },
       emptySearchText: {
-        color: '#9CA3AF',
+        color: '#A38C77',
         fontSize: scale(14),
       },
 
@@ -2057,7 +2057,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         width: scale(60),
         height: scale(60),
         borderRadius: scale(30),
-        backgroundColor: 'rgba(255,255,255,0.18)',
+        backgroundColor: 'rgba(248,247,245,0.18)',
         top: scale(-15),
         right: scale(-15),
       },
@@ -2070,7 +2070,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       },
 
       itemCard: {
-        backgroundColor: '#FFF',
+        backgroundColor: '#F8F7F5',
         borderRadius: scale(itemCardBr),
         marginBottom: scale(itemCardMb),
         overflow: 'hidden',
@@ -2112,7 +2112,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       },
       pathText: {
         fontSize: scale(pathTextFs),
-        color: '#64748B',
+        color: '#A38C77',
         marginTop: scale(2),
         textAlign: 'center',
         paddingHorizontal: scale(8),
@@ -2126,7 +2126,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         justifyContent: 'center',
       },
       cardRemarkChip: {
-        backgroundColor: '#F1F5F9',
+        backgroundColor: '#F8F7F5',
         borderRadius: scale(5),
         paddingHorizontal: scale(6),
         paddingVertical: scale(3),
@@ -2177,7 +2177,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       },
 
       existingQtyBadge: {
-        backgroundColor: '#F1F5F9',
+        backgroundColor: '#F8F7F5',
         borderRadius: scale(5),
         paddingHorizontal: scale(8),
         paddingVertical: scale(2),
@@ -2186,7 +2186,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       },
       existingQtyText: {
         fontSize: scale(10),
-        color: '#64748B',
+        color: '#A38C77',
         fontWeight: '600',
       },
 
@@ -2195,7 +2195,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: '#ffffff',
+        backgroundColor: '#F8F7F5',
         paddingTop: scale(10),
         elevation: 8,
         shadowColor: '#000',
@@ -2215,13 +2215,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#002748',
+        backgroundColor: '#72563C',
         borderRadius: scale(goToCartBtnBr),
         paddingVertical: scale(goToCartBtnPadV),
         paddingHorizontal: scale(goToCartBtnPadH),
       },
       goToCartText: {
-        color: '#FFF',
+        color: '#F8F7F5',
         fontSize: scale(goToCartTextFs),
         fontWeight: '700',
       },
@@ -2236,7 +2236,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingHorizontal: scale(8),
       },
       goToCartBadgeText: {
-        color: '#FFF',
+        color: '#F8F7F5',
         fontSize: scale(goToCartBadgeFs),
         fontWeight: '700',
       },
@@ -2252,7 +2252,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         width: '100%',
         maxWidth: scale(centerCardW),
         height: scale(centerCardH),
-        backgroundColor: '#FFF',
+        backgroundColor: '#F8F7F5',
         borderRadius: scale(centerCardBr),
         overflow: 'hidden',
         padding: scale(centerCardPad),
@@ -2322,7 +2322,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       tagChip: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#002748',
+        backgroundColor: '#72563C',
         borderRadius: scale(999),
         paddingLeft: scale(tagChipPadL),
         paddingRight: scale(tagChipPadR),
@@ -2334,7 +2334,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         marginRight: scale(6),
       },
       tagChipText: {
-        color: '#FFF',
+        color: '#F8F7F5',
         fontSize: scale(tagChipFs),
         fontWeight: '700',
         marginRight: scale(6),
@@ -2346,7 +2346,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         borderRadius: scale(10),
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'rgba(255,255,255,0.16)',
+        backgroundColor: 'rgba(248,247,245,0.16)',
       },
 
       remarkSectionWrap: {
@@ -2371,7 +2371,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingRight: scale(44),
         color: '#000',
         fontSize: scale(remarkInputFs),
-        backgroundColor: '#FFF',
+        backgroundColor: '#F8F7F5',
         textAlignVertical: 'center',
       },
       remarkDropdownIconBtn: {
@@ -2392,7 +2392,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         borderColor: 'rgba(141,158,212,0.35)',
       },
       addTagBtnText: {
-        color: '#002748',
+        color: '#72563C',
         fontSize: scale(addTagBtnFs),
         fontWeight: '800',
         letterSpacing: 0.8,
@@ -2407,7 +2407,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         justifyContent: 'center',
       },
       saveBtnText: {
-        color: '#FFF',
+        color: '#F8F7F5',
         fontSize: scale(saveBtnFs),
         fontWeight: '800',
         letterSpacing: 0.4,
@@ -2439,7 +2439,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       },
       presetsDivider: {
         height: 1,
-        backgroundColor: '#E2E8F0',
+        backgroundColor: '#CFBDAA',
         marginTop: scale(10),
         marginBottom: scale(8),
       },

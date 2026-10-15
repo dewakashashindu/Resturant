@@ -192,7 +192,7 @@ export default function PaxCountScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor="#FFFFFF" barStyle="dark-content" />
+      <StatusBar backgroundColor="#F8F7F5" barStyle="dark-content" />
 
       {/* ── BACK BUTTON (absolute) ── */}
       <TouchableOpacity
@@ -267,7 +267,7 @@ export default function PaxCountScreen() {
             disabled={!canContinue || continuing}
           >
             {continuing ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <ActivityIndicator color="#F8F7F5" />
             ) : (
               <Text style={[styles.nextText, { fontSize: btnFs }]}>Confirm</Text>
             )}
@@ -283,7 +283,7 @@ export default function PaxCountScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8F7F5',
   },
   backButtonAbsolute: {
     position: 'absolute',
@@ -308,7 +308,7 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   mainCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#F8F7F5',
     borderRadius: 16,
     elevation: 5,
     shadowColor: '#000',
@@ -323,15 +323,15 @@ const styles = StyleSheet.create({
   input: {
     width: '100%',
     borderWidth: 1.5,
-    borderColor: '#0062AA',
+    borderColor: '#72563C',
     borderRadius: 10,
     paddingHorizontal: 16,
     color: '#000',
-    backgroundColor: '#FAFAFA',
+    backgroundColor: '#F8F7F5',
   },
   nextButton: {
     width: '100%',
-    backgroundColor: '#0062AA',
+    backgroundColor: '#72563C',
     borderRadius: 10,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -342,11 +342,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#A0C4DF', // Greys out slightly if inputs are empty
   },
   nextText: {
-    color: '#FFF',
+    color: '#F8F7F5',
     fontWeight: '700',
   },
   checkIcon: {
-    color: '#FFF',
+    color: '#F8F7F5',
     fontWeight: '700',
   },
 });

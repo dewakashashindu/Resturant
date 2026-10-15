@@ -58,6 +58,8 @@ export default function NotificationToastBubble({ allowMenu = false }: Notificat
 
   const isMenuRoute = segments[0] === 'menu';
   if (!notification || !token || (isMenuRoute && !allowMenu)) return null;
+  // Menu retains its existing blue styling. Operational routes use Mila brown.
+  const activeStyles = isMenuRoute ? styles : operationalStyles;
 
   const clearOperationalNotification = async () => {
     const notificationType = String(notification.notificationType ?? '').trim().toUpperCase();
@@ -97,27 +99,27 @@ export default function NotificationToastBubble({ allowMenu = false }: Notificat
       >
         <TouchableOpacity
           activeOpacity={0.9}
-          style={styles.card}
+          style={activeStyles.card}
           onPress={openInbox}
           accessibilityRole="button"
           accessibilityLabel="Open notifications"
         >
-          <View style={styles.iconWrap}>
-            <Ionicons name="notifications" size={20} color="#FFFFFF" />
+          <View style={activeStyles.iconWrap}>
+            <Ionicons name="notifications" size={20} color={isMenuRoute ? '#FFFFFF' : '#F8F7F5'} />
           </View>
-          <View style={styles.messageWrap}>
-            <Text style={styles.title} numberOfLines={1}>{notification.title}</Text>
-            <Text style={styles.message} numberOfLines={2}>{notification.message}</Text>
+          <View style={activeStyles.messageWrap}>
+            <Text style={activeStyles.title} numberOfLines={1}>{notification.title}</Text>
+            <Text style={activeStyles.message} numberOfLines={2}>{notification.message}</Text>
           </View>
         </TouchableOpacity>
         <TouchableOpacity
-          style={styles.closeButton}
+          style={activeStyles.closeButton}
           onPress={() => void clearOperationalNotification()}
           accessibilityRole="button"
           accessibilityLabel="Dismiss notification popup"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Ionicons name="close" size={16} color="#64748B" />
+          <Ionicons name="close" size={16} color={isMenuRoute ? '#64748B' : '#A38C77'} />
         </TouchableOpacity>
       </Animated.View>
     </View>
@@ -173,5 +175,49 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 12,
     backgroundColor: '#F1F5F9',
+  },
+});
+
+const operationalStyles = StyleSheet.create({
+  card: {
+    flex: 1,
+    minHeight: 70,
+    paddingVertical: 11,
+    paddingLeft: 11,
+    paddingRight: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: 'rgba(114,86,60,0.18)',
+    backgroundColor: '#F8F7F5',
+    shadowColor: '#72563C',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 11,
+  },
+  iconWrap: {
+    width: 38,
+    height: 38,
+    marginRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 13,
+    backgroundColor: '#72563C',
+  },
+  messageWrap: { flex: 1 },
+  title: { color: '#72563C', fontSize: 13, fontWeight: '800' },
+  message: { color: '#A38C77', fontSize: 11, lineHeight: 16, marginTop: 2 },
+  closeButton: {
+    position: 'absolute',
+    top: 7,
+    right: 7,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+    backgroundColor: '#FBF1E5',
   },
 });

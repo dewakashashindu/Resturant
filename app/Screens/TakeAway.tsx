@@ -143,7 +143,7 @@ export default function TakeAwayScreen() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={s.container}>
-        <StatusBar backgroundColor="#FFFFFF" barStyle="dark-content" />
+        <StatusBar backgroundColor="#F8F7F5" barStyle="dark-content" />
 
         {/* HEADER */}
         <View style={s.headerContainer}>
@@ -337,7 +337,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: '#F8F7F5',
     },
 
     // ── Header ──────────────────────────────────────────────────────────────
@@ -345,7 +345,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: '#FFFFFF',
+      backgroundColor: '#F8F7F5',
       marginTop: scale(headerMT),
       paddingHorizontal: scale(hPad),
       paddingVertical: scale(headerPadV),
@@ -392,7 +392,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: cardW,
       padding: scale(innerPad),
       gap: scale(cardGap),
-      backgroundColor: '#FFFFFF',
+      backgroundColor: '#F8F7F5',
       borderRadius: scale(cardRadius),
       elevation: 3,
       shadowColor: '#000000',
@@ -406,24 +406,24 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: '100%',
       height: scale(inputH),
       borderWidth: inputBW,
-      borderColor: '#075EA7',
+      borderColor: '#72563C',
       borderRadius: scale(inputRadius),
       paddingHorizontal: scale(inputPadH),
       fontSize: scale(inputFs),
       color: '#000000',
-      backgroundColor: '#FFFFFF',
+      backgroundColor: '#F8F7F5',
       fontFamily: 'Inter',
     },
     remarkInput: {
       width: '100%',
       minHeight: scale(remarkMinH),
       borderWidth: inputBW,
-      borderColor: '#075EA7',
+      borderColor: '#72563C',
       borderRadius: scale(inputRadius),
       paddingHorizontal: scale(inputPadH),
       fontSize: scale(inputFs),
       color: '#000000',
-      backgroundColor: '#FFFFFF',
+      backgroundColor: '#F8F7F5',
       fontFamily: 'Inter',
       textAlignVertical: 'top',
       paddingTop: scale(remarkPadT),
@@ -434,7 +434,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: cardW,
       padding: scale(innerPad),
       paddingVertical: scale(behaviorPadV),
-      backgroundColor: '#FFFFFF',
+      backgroundColor: '#F8F7F5',
       borderRadius: scale(behaviorCardR),
       elevation: 3,
       shadowColor: '#000000',
@@ -475,7 +475,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: scale(knobSz),
       height: scale(knobSz),
       borderRadius: scale(knobSz / 2),
-      backgroundColor: '#FFFFFF',
+      backgroundColor: '#F8F7F5',
       justifyContent: 'center',
       alignItems: 'center',
       shadowColor: '#000000',
@@ -488,16 +488,16 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: scale(knobSz - 16),
       height: scale(knobSz - 16),
       borderRadius: scale((knobSz - 16) / 2),
-      backgroundColor: '#075EA7',
+      backgroundColor: '#72563C',
       position: 'relative',
       borderWidth: 2,
-      borderColor: '#FFFFFF',
+      borderColor: '#F8F7F5',
     },
     knobIndicator: {
       width: scale(knobIndW),
       height: scale(knobIndH),
       borderRadius: scale(knobIndR),
-      backgroundColor: '#FFFFFF',
+      backgroundColor: '#F8F7F5',
       position: 'absolute',
       top: scale(knobIndTop),
       alignSelf: 'center',
@@ -507,7 +507,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     confirmButton: {
       width: cardW,
       height: scale(confirmBtnH),
-      backgroundColor: '#0062AA',
+      backgroundColor: '#72563C',
       borderRadius: scale(confirmBtnR),
       flexDirection: 'row',
       justifyContent: 'center',
@@ -521,7 +521,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       shadowRadius: scale(confirmShadR),
     },
     confirmButtonText: {
-      color: '#FFFFFF',
+      color: '#F8F7F5',
       fontWeight: '700',
       fontFamily: 'Inter',
       fontSize: scale(confirmBtnFs),

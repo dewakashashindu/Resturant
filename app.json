@@ -13,7 +13,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/icons/millamirissa-adaptive.png",
-        "backgroundColor": "#FFF9F4"
+        "backgroundColor": "#F8F7F5"
       },
       "package": "com.dewaka_shashindu.Restaurant"
     },
@@ -25,7 +25,7 @@
           "image": "./assets/images/millamirissa.png",
           "imageWidth": 180,
           "resizeMode": "contain",
-          "backgroundColor": "#FFF9F4"
+          "backgroundColor": "#F8F7F5"
         }
       ],
       [
@@ -47,7 +47,7 @@
         "expo-notifications",
         {
           "icon": "./assets/icons/millamirissa-notification.png",
-          "color": "#6F5434",
+          "color": "#72563C",
           "sounds": ["./assets/sounds/notification_chime.wav"]
         }
       ],

@@ -98,7 +98,7 @@ export default function PasswordUpdatedModal({ visible, onClose, onSignIn }: Pro
                     },
                   ]}
                 >
-                  <Ionicons name="checkmark" size={isTablet ? 82 : isSmall ? 52 : 64} color="#fff" />
+                  <Ionicons name="checkmark" size={isTablet ? 82 : isSmall ? 52 : 64} color="#F8F7F5" />
                 </Animated.View>
               </View>
 
@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
 
   // ── CARD ────────────────────────────────────────
   card: {
-    backgroundColor: '#F3F3F3',
+    backgroundColor: '#F8F7F5',
     borderRadius: 12,
     alignItems: 'center',
     overflow: 'hidden',
@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
 
   // ── IMAGE CARD ──────────────────────────────────
   imageCard: {
-    backgroundColor: '#FFF',
+    backgroundColor: '#F8F7F5',
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -195,13 +195,13 @@ const styles = StyleSheet.create({
   // ── BUTTON ──────────────────────────────────────
   signInBtn: {
     width: '100%',
-    backgroundColor: '#0062AA',
+    backgroundColor: '#72563C',
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
   signInText: {
-    color: '#FFF',
+    color: '#F8F7F5',
     fontWeight: '700',
   },
 });

@@ -50,7 +50,7 @@ export default function ScreensLayout() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#F8F7F5',
   },
   content: {
     flex: 1,

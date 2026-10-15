@@ -134,7 +134,7 @@ export default function ResetPasswordScreen() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
 
       <View style={[styles.topCircle, {
         width:  isTablet ? 220 : 160,
@@ -169,7 +169,7 @@ export default function ResetPasswordScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  passwordError ? '#D32F2F' : '#0062AA',
+              borderColor:  passwordError ? '#D32F2F' : '#72563C',
             },
           ]}
         >
@@ -209,7 +209,7 @@ export default function ResetPasswordScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  confirmError ? '#D32F2F' : '#0062AA',
+              borderColor:  confirmError ? '#D32F2F' : '#72563C',
             },
           ]}
         >
@@ -269,7 +269,7 @@ export default function ResetPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  container:     { flex: 1, backgroundColor: '#FFFFFF' },
+  container:     { flex: 1, backgroundColor: '#F8F7F5' },
   topCircle:     { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(98,145,185,0.35)', left: -70 },
   bottomCircle:  { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(98,145,185,0.35)', bottom: -60, right: -70 },
   logoContainer: { alignItems: 'center' },
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: 16,
-    backgroundColor:   '#fff',
+    backgroundColor:   '#F8F7F5',
   },
 
   inputInner: {
@@ -312,9 +312,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
 
-  button:         { width: '100%', backgroundColor: '#0062AA', justifyContent: 'center', alignItems: 'center' },
-  buttonText:     { color: '#fff', fontWeight: '700' },
+  button:         { width: '100%', backgroundColor: '#72563C', justifyContent: 'center', alignItems: 'center' },
+  buttonText:     { color: '#F8F7F5', fontWeight: '700' },
   signupContainer:{ flexDirection: 'row', justifyContent: 'center' },
   signupText:     { color: '#3B4054' },
-  signupLink:     { color: '#075EA7', fontWeight: '600' },
+  signupLink:     { color: '#72563C', fontWeight: '600' },
 });

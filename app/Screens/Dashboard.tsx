@@ -141,7 +141,7 @@ const PCT_TAKE_AWAY   = Math.round((TOTAL_TAKE_AWAY / GRAND_TOTAL) * 100);
 const PCT_PICK_UP     = Math.round((TOTAL_PICK_UP   / GRAND_TOTAL) * 100);
 const PCT_DELIVERY    = 100 - PCT_DINE_IN - PCT_TAKE_AWAY - PCT_PICK_UP;
 
-const COLOR_DINE_IN   = '#075EA7';
+const COLOR_DINE_IN   = '#72563C';
 const COLOR_TAKE_AWAY = 'rgba(98,145,185,0.9)';
 const COLOR_PICK_UP   = '#703DDE';
 const COLOR_DELIVERY  = '#3C3C41';
@@ -467,12 +467,12 @@ const drStyles = StyleSheet.create({
   divider:        { height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(0,0,0,0.22)' },
   tabRow:         { flexDirection: 'row', margin: SP.md, backgroundColor: 'rgba(120,120,128,0.12)', borderRadius: BR.md, padding: sw(2) },
   tab:            { flex: 1, paddingVertical: sw(7), borderRadius: BR.sm, alignItems: 'center' },
-  tabActive:      { backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: sw(4), shadowOffset: { width: 0, height: sw(1) }, elevation: 2 },
+  tabActive:      { backgroundColor: '#F8F7F5', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: sw(4), shadowOffset: { width: 0, height: sw(1) }, elevation: 2 },
   tabText:        { fontSize: FS.xs, color: 'rgba(0,0,0,0.40)', fontWeight: '500' },
   tabTextActive:  { color: '#000' },
-  drumsRow:       { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: SP.xxs, paddingHorizontal: SP.lg, paddingVertical: SP.sm, backgroundColor: '#fff' },
+  drumsRow:       { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: SP.xxs, paddingHorizontal: SP.lg, paddingVertical: SP.sm, backgroundColor: '#F8F7F5' },
   confirmBtn:     { paddingVertical: SP.lg, alignItems: 'center' },
-  confirmBtnText: { fontSize: FS.lg, color: '#007AFF', fontWeight: '400' },
+  confirmBtnText: { fontSize: FS.lg, color: '#72563C', fontWeight: '400' },
 });
 
 // ── Side Drawer ────────────────────────────────────────────────────────────────
@@ -572,14 +572,14 @@ const SideDrawer = ({
                     <View
                       style={[
                         drawerStyles.tabIconBox,
-                        { backgroundColor: activeTab === tab ? '#2F6FE4' : 'rgba(47,111,228,0.10)' },
+                        { backgroundColor: activeTab === tab ? '#72563C' : 'rgba(47,111,228,0.10)' },
                       ]}
                     >
                       <Svg width={sw(16)} height={sw(16)} viewBox="0 0 24 24">
                         {tab === 'Overview' && (
                           <Path
                             d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"
-                            stroke={activeTab === tab ? '#fff' : '#2F6FE4'}
+                            stroke={activeTab === tab ? '#F8F7F5' : '#72563C'}
                             strokeWidth={1.8}
                             fill="none"
                             strokeLinejoin="round"
@@ -587,18 +587,18 @@ const SideDrawer = ({
                         )}
                         {tab === 'Customers' && (
                           <>
-                            <Circle cx={12} cy={8} r={4} stroke={activeTab === tab ? '#fff' : '#2F6FE4'} strokeWidth={1.8} fill="none" />
-                            <Path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={activeTab === tab ? '#fff' : '#2F6FE4'} strokeWidth={1.8} fill="none" />
+                            <Circle cx={12} cy={8} r={4} stroke={activeTab === tab ? '#F8F7F5' : '#72563C'} strokeWidth={1.8} fill="none" />
+                            <Path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={activeTab === tab ? '#F8F7F5' : '#72563C'} strokeWidth={1.8} fill="none" />
                           </>
                         )}
                         {tab === 'Food' && (
                           <>
-                            <Path d="M6 2h12v6a6 6 0 01-12 0V2z" stroke={activeTab === tab ? '#fff' : '#2F6FE4'} strokeWidth={1.8} fill="none" />
-                            <Path d="M8 22h8M12 14v8" stroke={activeTab === tab ? '#fff' : '#2F6FE4'} strokeWidth={1.8} fill="none" strokeLinecap="round" />
+                            <Path d="M6 2h12v6a6 6 0 01-12 0V2z" stroke={activeTab === tab ? '#F8F7F5' : '#72563C'} strokeWidth={1.8} fill="none" />
+                            <Path d="M8 22h8M12 14v8" stroke={activeTab === tab ? '#F8F7F5' : '#72563C'} strokeWidth={1.8} fill="none" strokeLinecap="round" />
                           </>
                         )}
                         {tab === 'Performance' && (
-                          <Path d="M3 17l5-5 4 4 9-9" stroke={activeTab === tab ? '#fff' : '#2F6FE4'} strokeWidth={1.8} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                          <Path d="M3 17l5-5 4 4 9-9" stroke={activeTab === tab ? '#F8F7F5' : '#72563C'} strokeWidth={1.8} fill="none" strokeLinecap="round" strokeLinejoin="round" />
                         )}
                       </Svg>
                     </View>
@@ -633,7 +633,7 @@ const SideDrawer = ({
                       activeOpacity={0.7}
                     >
                       <Svg width={sw(13)} height={sw(13)} viewBox="0 0 24 24">
-                        <Path d="M5 12h14M13 6l6 6-6 6" stroke="#2F6FE4" strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                        <Path d="M5 12h14M13 6l6 6-6 6" stroke="#72563C" strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
                       </Svg>
                       <Text style={drawerStyles.goToTabText}>Go to {tab}</Text>
                     </TouchableOpacity>
@@ -654,7 +654,7 @@ const SideDrawer = ({
                             <View style={[drawerStyles.chartCheckbox, isSelected && drawerStyles.chartCheckboxChecked]}>
                               {isSelected && (
                                 <Svg width={sw(11)} height={sw(11)} viewBox="0 0 24 24">
-                                  <Path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                                  <Path d="M5 13l4 4L19 7" stroke="#F8F7F5" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
                                 </Svg>
                               )}
                             </View>
@@ -690,9 +690,9 @@ const SideDrawer = ({
 };
 
 const drawerStyles = StyleSheet.create({
-  panel:                { position: 'absolute', top: 0, left: 0, bottom: 0, width: DRAWER_WIDTH, backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: sw(16), shadowOffset: { width: sw(4), height: 0 }, elevation: 10 },
+  panel:                { position: 'absolute', top: 0, left: 0, bottom: 0, width: DRAWER_WIDTH, backgroundColor: '#F8F7F5', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: sw(16), shadowOffset: { width: sw(4), height: 0 }, elevation: 10 },
   drawerHeader:         { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.lg, paddingTop: isTablet ? SP.xl : sh(48), paddingBottom: SP.lg, backgroundColor: '#F7F9FF' },
-  drawerAvatarRing:     { width: SZ.drawerAvatar, height: SZ.drawerAvatar, borderRadius: SZ.drawerAvatar / 2, borderWidth: sw(2), borderColor: '#2F6FE4', padding: sw(2) },
+  drawerAvatarRing:     { width: SZ.drawerAvatar, height: SZ.drawerAvatar, borderRadius: SZ.drawerAvatar / 2, borderWidth: sw(2), borderColor: '#72563C', padding: sw(2) },
   drawerAvatar:         { width: '100%', height: '100%', borderRadius: BR.pill },
   drawerUserName:       { fontSize: FS.md, fontWeight: '700', color: '#000' },
   drawerUserRole:       { fontSize: FS.sm, color: '#666', marginTop: sw(2) },
@@ -703,20 +703,20 @@ const drawerStyles = StyleSheet.create({
   tabLeft:              { flexDirection: 'row', alignItems: 'center', gap: SP.md },
   tabIconBox:           { width: SZ.tabIconBox, height: SZ.tabIconBox, borderRadius: BR.md, justifyContent: 'center', alignItems: 'center' },
   tabLabel:             { fontSize: FS.md, fontWeight: '600', color: '#333' },
-  tabLabelActive:       { color: '#2F6FE4' },
-  selBadge:             { backgroundColor: '#2F6FE4', borderRadius: sw(10), paddingHorizontal: sw(7), paddingVertical: sw(2) },
-  selBadgeText:         { fontSize: FS.xs, color: '#fff', fontWeight: '700' },
+  tabLabelActive:       { color: '#72563C' },
+  selBadge:             { backgroundColor: '#72563C', borderRadius: sw(10), paddingHorizontal: sw(7), paddingVertical: sw(2) },
+  selBadgeText:         { fontSize: FS.xs, color: '#F8F7F5', fontWeight: '700' },
   chartList:            { backgroundColor: 'rgba(47,111,228,0.03)', paddingHorizontal: SP.lg, paddingBottom: SP.sm },
   goToTabBtn:           { flexDirection: 'row', alignItems: 'center', gap: SP.xs, paddingVertical: sw(10), marginBottom: SP.xs },
-  goToTabText:          { fontSize: FS.sm, color: '#2F6FE4', fontWeight: '600' },
+  goToTabText:          { fontSize: FS.sm, color: '#72563C', fontWeight: '600' },
   chartListHeading:     { fontSize: FS.xs, color: '#999', fontWeight: '600', marginBottom: SP.sm, letterSpacing: 0.5 },
   chartRow:             { flexDirection: 'row', alignItems: 'center', gap: SP.md, paddingVertical: sw(9), borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
   chartCheckbox:        { width: SZ.checkboxSm, height: SZ.checkboxSm, borderRadius: BR.xs, borderWidth: sw(1.5), borderColor: '#ccc', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-  chartCheckboxChecked: { backgroundColor: '#2F6FE4', borderColor: '#2F6FE4' },
+  chartCheckboxChecked: { backgroundColor: '#72563C', borderColor: '#72563C' },
   chartLabel:           { fontSize: FS.sm, color: '#555', fontWeight: '400' },
   chartLabelSelected:   { color: '#000', fontWeight: '600' },
   selectedTag:          { backgroundColor: 'rgba(47,111,228,0.12)', borderRadius: BR.xs, paddingHorizontal: SP.sm, paddingVertical: sw(3) },
-  selectedTagText:      { fontSize: FS.xxs, color: '#2F6FE4', fontWeight: '600' },
+  selectedTagText:      { fontSize: FS.xxs, color: '#72563C', fontWeight: '600' },
 });
 
 // ── Header ─────────────────────────────────────────────────────────────────────
@@ -746,7 +746,7 @@ const Checkbox = ({ checked }: CheckboxProps) => (
   <View style={[styles.checkboxBox, checked && styles.checkboxBoxChecked]}>
     {checked && (
       <Svg width={sw(14)} height={sw(14)} viewBox="0 0 24 24">
-        <Path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M5 13l4 4L19 7" stroke="#F8F7F5" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
     )}
   </View>
@@ -873,8 +873,8 @@ const SalesDistributionExpanded = ({
   tableData: { color: string; mode: string; pct: string; volume: string }[];
 }) => (
   <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-    <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+    <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
+    <View style={{ flex: 1, backgroundColor: '#F8F7F5' }}>
       <View style={expStyles.header}>
         <TouchableOpacity onPress={onClose} style={expStyles.backBtn} activeOpacity={0.7}>
           <Svg width={sw(28)} height={sw(28)} viewBox="0 0 24 24">
@@ -891,7 +891,7 @@ const SalesDistributionExpanded = ({
             data={pieData}
             radius={sc(120, 80, 150)}
             innerRadius={sc(74, 48, 90)}
-            innerCircleColor="#fff"
+            innerCircleColor="#F8F7F5"
             showText
             textBackgroundRadius={0}
             isAnimated
@@ -899,7 +899,7 @@ const SalesDistributionExpanded = ({
             sectionAutoFocus
             focusOnPress
             strokeWidth={2}
-            strokeColor="#fff"
+            strokeColor="#F8F7F5"
           />
         </View>
         <View style={expStyles.divider} />
@@ -964,8 +964,8 @@ const TopPerformanceExpanded = ({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
+      <View style={{ flex: 1, backgroundColor: '#F8F7F5' }}>
         <View style={topExpStyles.header}>
           <TouchableOpacity onPress={onClose} style={topExpStyles.backBtn} activeOpacity={0.7}>
             <Svg width={sw(28)} height={sw(28)} viewBox="0 0 24 24">
@@ -1077,17 +1077,17 @@ const TopPerformanceExpanded = ({
 };
 
 const topExpStyles = StyleSheet.create({
-  header:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingTop: isTablet ? SP.xl : sh(44), paddingBottom: SP.md, backgroundColor: '#fff' },
+  header:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingTop: isTablet ? SP.xl : sh(44), paddingBottom: SP.md, backgroundColor: '#F8F7F5' },
   backBtn:        { width: sw(44), height: sw(44), justifyContent: 'center', alignItems: 'flex-start' },
   title:          { fontSize: FS.xl, fontWeight: '500', color: '#000', textAlign: 'center' },
-  sectionCard:    { backgroundColor: '#fff', borderRadius: BR.lg, paddingVertical: SP.md, marginBottom: SP.xxs },
+  sectionCard:    { backgroundColor: '#F8F7F5', borderRadius: BR.lg, paddingVertical: SP.md, marginBottom: SP.xxs },
   sectionLabel:   { fontSize: FS.sm, fontWeight: '600', color: '#54555A', marginBottom: SP.md },
   axisLabel:      { fontSize: FS.xxs, color: '#54555A', textAlign: 'center' },
   perfRow:        { flexDirection: 'row', alignItems: 'center' },
   perfName:       { fontSize: FS.xs, color: '#54555A', textAlign: 'right' },
   perfTrack:      { height: sc(28, 22, 36), backgroundColor: 'rgba(180,180,180,0.15)', borderRadius: BR.xs, overflow: 'hidden' },
   perfFill:       { height: '100%', backgroundColor: 'rgba(0,98,170,0.60)', justifyContent: 'center', alignItems: 'flex-end', paddingRight: SP.xs, borderRadius: BR.xs },
-  perfFillVal:    { fontSize: FS.xs, color: '#fff', fontWeight: '600' },
+  perfFillVal:    { fontSize: FS.xs, color: '#F8F7F5', fontWeight: '600' },
   perfAxisLine:   { height: 1, backgroundColor: '#E0E0E0', marginTop: SP.xxs },
   divider:        { height: 1, backgroundColor: 'rgba(0,0,0,0.15)', marginVertical: SP.lg },
   restaurantName: { fontSize: FS.md, fontWeight: '600', color: '#000', marginBottom: SP.md },
@@ -1122,7 +1122,7 @@ const PerformanceTab = ({
   return (
     <ScrollView
       ref={scrollRef}
-      style={{ flex: 1, backgroundColor: '#fff' }}
+      style={{ flex: 1, backgroundColor: '#F8F7F5' }}
       contentContainerStyle={{ padding: SP.lg, gap: SP.lg, paddingBottom: sh(40) }}
       showsVerticalScrollIndicator={false}
     >
@@ -1203,11 +1203,11 @@ const perfStyles = StyleSheet.create({
   warningText:    { fontSize: FS.sm, lineHeight: sh(20) },
   warningLabel:   { color: '#FF0202', fontWeight: '700', fontSize: FS.sm },
   warningBody:    { color: '#000', fontWeight: '500', fontSize: FS.sm },
-  card:           { backgroundColor: '#fff', borderRadius: BR.xxl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4 },
+  card:           { backgroundColor: '#F8F7F5', borderRadius: BR.xxl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4 },
   cardTitle:      { fontSize: FS.md, fontWeight: '500', color: '#000', marginBottom: sw(14) },
-  liveOpRow:      { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(97,145,185,0.22)', borderRadius: BR.md, paddingHorizontal: sw(14), paddingVertical: SP.md, marginBottom: SP.md, minHeight: sh(80), shadowColor: '#ffffff', shadowOpacity: 0.08, shadowRadius: SP.xs, shadowOffset: { width: 0, height: sw(2) }, elevation: 2 },
+  liveOpRow:      { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(97,145,185,0.22)', borderRadius: BR.md, paddingHorizontal: sw(14), paddingVertical: SP.md, marginBottom: SP.md, minHeight: sh(80), shadowColor: '#F8F7F5', shadowOpacity: 0.08, shadowRadius: SP.xs, shadowOffset: { width: 0, height: sw(2) }, elevation: 2 },
   liveOpLeft:     { flex: 1, justifyContent: 'space-between', alignSelf: 'stretch' },
-  liveOpIconBox:  { width: sc(36, 28, 44), height: sc(36, 28, 44), backgroundColor: '#fff', borderRadius: BR.md, justifyContent: 'center', alignItems: 'center', marginBottom: SP.xxs },
+  liveOpIconBox:  { width: sc(36, 28, 44), height: sc(36, 28, 44), backgroundColor: '#F8F7F5', borderRadius: BR.md, justifyContent: 'center', alignItems: 'center', marginBottom: SP.xxs },
   liveOpLabel:    { fontSize: FS.sm, fontWeight: '500', color: '#000' },
   liveOpValue:    { fontSize: sc(26, 20, 34), fontWeight: '500', color: '#000', textAlign: 'right', alignSelf: 'center', marginLeft: SP.sm },
   rowDivider:     { height: 1, backgroundColor: 'rgba(0,0,0,0.12)', marginVertical: SP.xs },
@@ -1261,8 +1261,8 @@ const FoodItemExpanded = ({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
+      <View style={{ flex: 1, backgroundColor: '#F8F7F5' }}>
         <View style={foodExpStyles.header}>
           <TouchableOpacity onPress={onClose} style={foodExpStyles.backBtn} activeOpacity={0.7}>
             <Svg width={sw(28)} height={sw(28)} viewBox="0 0 24 24">
@@ -1343,7 +1343,7 @@ const FoodItemExpanded = ({
 };
 
 const foodExpStyles = StyleSheet.create({
-  header:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingTop: isTablet ? SP.xl : sh(44), paddingBottom: SP.md, backgroundColor: '#fff' },
+  header:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingTop: isTablet ? SP.xl : sh(44), paddingBottom: SP.md, backgroundColor: '#F8F7F5' },
   backBtn:       { width: sw(44), height: sw(44), justifyContent: 'center', alignItems: 'flex-start' },
   title:         { flex: 1, fontSize: FS.xl, fontWeight: '500', color: '#000', textAlign: 'center' },
   summaryRow:    { flexDirection: 'row', gap: SP.md, marginTop: SP.sm },
@@ -1416,7 +1416,7 @@ const FoodTab = ({
   return (
     <ScrollView
       ref={scrollRef}
-      style={{ flex: 1, backgroundColor: '#fff' }}
+      style={{ flex: 1, backgroundColor: '#F8F7F5' }}
       contentContainerStyle={{ padding: SP.lg, gap: SP.lg, paddingBottom: sh(40) }}
       showsVerticalScrollIndicator={false}
     >
@@ -1509,11 +1509,11 @@ const FoodTab = ({
 };
 
 const foodStyles = StyleSheet.create({
-  card:          { backgroundColor: '#fff', borderRadius: sw(30), padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4 },
+  card:          { backgroundColor: '#F8F7F5', borderRadius: sw(30), padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4 },
   cardTitle:     { fontSize: FS.lg, fontWeight: '500', color: '#000', marginBottom: sw(14), marginLeft: SP.xxs },
   chip:          { borderRadius: BR.xs, paddingHorizontal: sw(14), paddingVertical: SP.md, minWidth: sc(123, 90, 150), alignItems: 'center', justifyContent: 'center' },
   chipText:      { fontSize: FS.sm, fontWeight: '500', color: '#000' },
-  expandIconBtn: { width: sc(26, 20, 32), height: sc(26, 20, 32), justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff', borderRadius: BR.xs, borderWidth: 1, borderColor: 'rgba(0,0,0,0.20)', shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.xs, shadowOffset: { width: 0, height: sw(2) }, elevation: 2 },
+  expandIconBtn: { width: sc(26, 20, 32), height: sc(26, 20, 32), justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F7F5', borderRadius: BR.xs, borderWidth: 1, borderColor: 'rgba(0,0,0,0.20)', shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.xs, shadowOffset: { width: 0, height: sw(2) }, elevation: 2 },
 });
 
 // ── Filter Row ─────────────────────────────────────────────────────────────────
@@ -1567,7 +1567,7 @@ const KPICards = ({ onSalesVolumePress }: KPICardsProps) => {
 
   const mainCards = [
     {
-      bg: 'rgba(7,94,167,0.22)',
+      bg: 'rgba(114,86,60,0.22)',
       icon: (
         <Svg width={SZ.icon} height={SZ.icon} viewBox="0 0 24 24">
           <Path d="M3 3h18v4H3zM3 9h8v4H3zM3 15h8v4H3z" stroke="#333" strokeWidth={1.5} fill="none" />
@@ -1777,10 +1777,10 @@ const SalesDistributionCard = () => {
   const innerRadius = sc(isTablet ? 58 : isSmall ? 38 : 48,  30, 75);
 
   const pieData = [
-    { value: PCT_DINE_IN,   color: COLOR_DINE_IN,   text: `${PCT_DINE_IN}%`,   textColor: '#fff', textSize: FS.xs, fontWeight: 'bold' },
-    { value: PCT_TAKE_AWAY, color: COLOR_TAKE_AWAY, text: `${PCT_TAKE_AWAY}%`, textColor: '#fff', textSize: FS.xs, fontWeight: 'bold' },
-    { value: PCT_PICK_UP,   color: COLOR_PICK_UP,   text: `${PCT_PICK_UP}%`,   textColor: '#fff', textSize: FS.xs, fontWeight: 'bold' },
-    { value: PCT_DELIVERY,  color: COLOR_DELIVERY,  text: `${PCT_DELIVERY}%`,  textColor: '#fff', textSize: FS.xs, fontWeight: 'bold' },
+    { value: PCT_DINE_IN,   color: COLOR_DINE_IN,   text: `${PCT_DINE_IN}%`,   textColor: '#F8F7F5', textSize: FS.xs, fontWeight: 'bold' },
+    { value: PCT_TAKE_AWAY, color: COLOR_TAKE_AWAY, text: `${PCT_TAKE_AWAY}%`, textColor: '#F8F7F5', textSize: FS.xs, fontWeight: 'bold' },
+    { value: PCT_PICK_UP,   color: COLOR_PICK_UP,   text: `${PCT_PICK_UP}%`,   textColor: '#F8F7F5', textSize: FS.xs, fontWeight: 'bold' },
+    { value: PCT_DELIVERY,  color: COLOR_DELIVERY,  text: `${PCT_DELIVERY}%`,  textColor: '#F8F7F5', textSize: FS.xs, fontWeight: 'bold' },
   ];
 
   const legend = [
@@ -1816,7 +1816,7 @@ const SalesDistributionCard = () => {
             data={pieData}
             radius={radius}
             innerRadius={innerRadius}
-            innerCircleColor="#fff"
+            innerCircleColor="#F8F7F5"
             showText
             textBackgroundRadius={0}
             isAnimated
@@ -1824,7 +1824,7 @@ const SalesDistributionCard = () => {
             sectionAutoFocus
             focusOnPress
             strokeWidth={2}
-            strokeColor="#fff"
+            strokeColor="#F8F7F5"
           />
           <View style={styles.donutLegend}>
             {legend.map((l) => (
@@ -1948,13 +1948,13 @@ const PaymentTypeCard = () => {
           data={pieData}
           radius={radius}
           innerRadius={innerRadius}
-          innerCircleColor="#fff"
+          innerCircleColor="#F8F7F5"
           isAnimated
           animationDuration={800}
           sectionAutoFocus
           focusOnPress
           strokeWidth={2}
-          strokeColor="#fff"
+          strokeColor="#F8F7F5"
           centerLabelComponent={() => (
             <View style={{ alignItems: 'center' }}>
               <Text style={{ fontSize: FS.xs, color: '#54555A', fontWeight: '600' }}>Payment</Text>
@@ -2203,7 +2203,7 @@ const CustomersTab = ({
   return (
     <ScrollView
       ref={scrollRef}
-      style={{ flex: 1, backgroundColor: '#fff' }}
+      style={{ flex: 1, backgroundColor: '#F8F7F5' }}
       contentContainerStyle={{ padding: SP.lg, gap: SP.lg, paddingBottom: sh(40) }}
       showsVerticalScrollIndicator={false}
     >
@@ -2263,7 +2263,7 @@ const CustomersTab = ({
 };
 
 const custStyles = StyleSheet.create({
-  reviewsCard:           { backgroundColor: '#fff', borderRadius: BR.xxl, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4 },
+  reviewsCard:           { backgroundColor: '#F8F7F5', borderRadius: BR.xxl, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4 },
   reviewsCardHeader:     { backgroundColor: 'rgba(97,145,185,0.34)', paddingHorizontal: SP.lg, paddingVertical: sw(14) },
   reviewsCardHeaderText: { fontSize: FS.md, fontWeight: '500', color: '#000' },
   restaurantName:        { fontSize: FS.md, fontWeight: '400', color: '#000', marginTop: SP.sm },
@@ -2275,7 +2275,7 @@ const custStyles = StyleSheet.create({
   chartFill:             { backgroundColor: '#AAC3D9', borderRadius: sw(2) },
   chartCountLabel:       { fontSize: FS.xxs, color: '#54555A', width: sw(24), textAlign: 'right' },
   chartXLabel:           { fontSize: FS.xxs, color: '#54555A', textAlign: 'center' },
-  reviewCard:            { flexDirection: 'row', backgroundColor: '#fff', borderRadius: BR.xxl, padding: SP.lg, gap: SP.md, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4, marginBottom: SP.lg },
+  reviewCard:            { flexDirection: 'row', backgroundColor: '#F8F7F5', borderRadius: BR.xxl, padding: SP.lg, gap: SP.md, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4, marginBottom: SP.lg },
   reviewAvatar:          { width: sc(52, 40, 64), height: sc(52, 40, 64), borderRadius: BR.md, backgroundColor: '#D9D9D9', flexShrink: 0 },
   reviewerName:          { fontSize: FS.md, fontWeight: '700', color: '#000' },
   reviewMeta:            { fontSize: FS.sm, fontWeight: '700', color: 'rgba(0,0,0,0.50)', marginTop: sw(2) },
@@ -2315,25 +2315,25 @@ const TabBar = ({
 const RobotIcon = ({ size }: { size: number }) => (
   <Svg width={size} height={size} viewBox="0 0 64 64">
     {/* Antenna */}
-    <Line x1={32} y1={6} x2={32} y2={14} stroke="#fff" strokeWidth={3} strokeLinecap="round" />
-    <Circle cx={32} cy={5} r={3} fill="#fff" />
+    <Line x1={32} y1={6} x2={32} y2={14} stroke="#F8F7F5" strokeWidth={3} strokeLinecap="round" />
+    <Circle cx={32} cy={5} r={3} fill="#F8F7F5" />
     {/* Head */}
-    <Rect x={12} y={14} width={40} height={28} rx={8} fill="#fff" opacity={0.95} />
+    <Rect x={12} y={14} width={40} height={28} rx={8} fill="#F8F7F5" opacity={0.95} />
     {/* Eyes */}
-    <Circle cx={23} cy={26} r={5} fill="#2F6FE4" />
-    <Circle cx={41} cy={26} r={5} fill="#2F6FE4" />
-    <Circle cx={24.5} cy={24.5} r={1.8} fill="#fff" />
-    <Circle cx={42.5} cy={24.5} r={1.8} fill="#fff" />
+    <Circle cx={23} cy={26} r={5} fill="#72563C" />
+    <Circle cx={41} cy={26} r={5} fill="#72563C" />
+    <Circle cx={24.5} cy={24.5} r={1.8} fill="#F8F7F5" />
+    <Circle cx={42.5} cy={24.5} r={1.8} fill="#F8F7F5" />
     {/* Mouth */}
-    <Rect x={22} y={34} width={20} height={3} rx={1.5} fill="#2F6FE4" opacity={0.7} />
+    <Rect x={22} y={34} width={20} height={3} rx={1.5} fill="#72563C" opacity={0.7} />
     {/* Body */}
-    <Rect x={18} y={44} width={28} height={14} rx={5} fill="#fff" opacity={0.85} />
+    <Rect x={18} y={44} width={28} height={14} rx={5} fill="#F8F7F5" opacity={0.85} />
     {/* Body detail */}
-    <Rect x={24} y={49} width={5} height={5} rx={1.5} fill="#2F6FE4" opacity={0.6} />
-    <Rect x={35} y={49} width={5} height={5} rx={1.5} fill="#2F6FE4" opacity={0.6} />
+    <Rect x={24} y={49} width={5} height={5} rx={1.5} fill="#72563C" opacity={0.6} />
+    <Rect x={35} y={49} width={5} height={5} rx={1.5} fill="#72563C" opacity={0.6} />
     {/* Arms */}
-    <Rect x={6}  y={44} width={10} height={6} rx={3} fill="#fff" opacity={0.85} />
-    <Rect x={48} y={44} width={10} height={6} rx={3} fill="#fff" opacity={0.85} />
+    <Rect x={6}  y={44} width={10} height={6} rx={3} fill="#F8F7F5" opacity={0.85} />
+    <Rect x={48} y={44} width={10} height={6} rx={3} fill="#F8F7F5" opacity={0.85} />
   </Svg>
 );
 
@@ -2442,13 +2442,13 @@ const fabStyles = StyleSheet.create({
   },
   fabRing: {
     position: 'absolute',
-    backgroundColor: '#2F6FE4',
+    backgroundColor: '#72563C',
   },
   fab: {
-    backgroundColor: '#2F6FE4',
+    backgroundColor: '#72563C',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#2F6FE4',
+    shadowColor: '#72563C',
     shadowOpacity: 0.55,
     shadowRadius: sw(12),
     shadowOffset: { width: 0, height: sw(4) },
@@ -2463,7 +2463,7 @@ const fabStyles = StyleSheet.create({
   },
   fabLabelText: {
     fontSize: FS.xxs,
-    color: '#fff',
+    color: '#F8F7F5',
     fontWeight: '700',
     letterSpacing: 0.4,
   },
@@ -2557,7 +2557,7 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.screen}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
 
       <View style={styles.topArea}>
         <Header onHamburger={() => setDrawerVisible(true)} />
@@ -2635,49 +2635,49 @@ export default function DashboardScreen() {
 
 // ── Global styles ──────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  screen:             { flex: 1, backgroundColor: '#fff' },
-  topArea:            { backgroundColor: '#fff', elevation: 2, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: SP.xxs, shadowOffset: { width: 0, height: sw(2) } },
+  screen:             { flex: 1, backgroundColor: '#F8F7F5' },
+  topArea:            { backgroundColor: '#F8F7F5', elevation: 2, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: SP.xxs, shadowOffset: { width: 0, height: sw(2) } },
 
   // Header
-  headerContainer:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.lg, paddingTop: isTablet ? sw(14) : sh(30), paddingBottom: isTablet ? SP.md : SP.sm, backgroundColor: '#fff' },
+  headerContainer:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.lg, paddingTop: isTablet ? sw(14) : sh(30), paddingBottom: isTablet ? SP.md : SP.sm, backgroundColor: '#F8F7F5' },
   hamburger:          { width: HEADER_SIDE_W, gap: sw(5) },
   hamLine:            { width: SZ.hamLineW, height: SZ.hamLineH, backgroundColor: '#1A1A2E', borderRadius: sw(1) },
   headerTitle:        { flex: 1, textAlign: 'center', fontSize: FS.xl, fontWeight: '700', color: '#000' },
-  avatarRing:         { width: HEADER_SIDE_W, height: HEADER_SIDE_W, borderRadius: HEADER_SIDE_W / 2, borderWidth: sw(2), borderColor: '#2F6FE4', padding: sw(2), alignSelf: 'flex-end' },
+  avatarRing:         { width: HEADER_SIDE_W, height: HEADER_SIDE_W, borderRadius: HEADER_SIDE_W / 2, borderWidth: sw(2), borderColor: '#72563C', padding: sw(2), alignSelf: 'flex-end' },
   avatar:             { width: '100%', height: '100%', borderRadius: BR.pill, backgroundColor: '#D9D9D9' },
 
   // Tab bar
   tabBarWrapper:      { flexDirection: 'row', alignItems: 'stretch', marginHorizontal: SP.lg, marginBottom: SP.md, backgroundColor: '#E7F0FB', borderRadius: BR.md, padding: SP.xxs },
   tabItem:            { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: SP.sm, borderRadius: BR.md },
-  activeTab:          { backgroundColor: '#2F6FE4' },
-  activeTabText:      { color: '#fff', fontWeight: '600' },
+  activeTab:          { backgroundColor: '#72563C' },
+  activeTabText:      { color: '#F8F7F5', fontWeight: '600' },
   tabText:            { fontSize: FS.sm, fontWeight: '500', color: '#3A3A3A', textAlign: 'center' },
 
   // Filter row
-  filterRow:          { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingVertical: SP.md, backgroundColor: '#fff' },
-  filterPill:         { flexDirection: 'row', alignItems: 'center', gap: SP.xs, backgroundColor: '#fff', borderRadius: sw(20), paddingHorizontal: SP.md, paddingVertical: sw(7), borderWidth: 1, borderColor: '#E5E5E5', maxWidth: (CARD_WIDTH - SP.md) / 2 },
+  filterRow:          { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingVertical: SP.md, backgroundColor: '#F8F7F5' },
+  filterPill:         { flexDirection: 'row', alignItems: 'center', gap: SP.xs, backgroundColor: '#F8F7F5', borderRadius: sw(20), paddingHorizontal: SP.md, paddingVertical: sw(7), borderWidth: 1, borderColor: '#E5E5E5', maxWidth: (CARD_WIDTH - SP.md) / 2 },
   filterText:         { fontSize: FS.xs, fontWeight: '500', color: '#333', flexShrink: 1 },
 
   // Scroll content
   scrollContent:      { padding: SP.lg, gap: SP.lg },
 
   // KPI
-  kpiOuterCard:       { backgroundColor: '#fff', borderRadius: BR.xl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.sm, shadowOffset: { width: 0, height: sw(2) }, elevation: 3 },
+  kpiOuterCard:       { backgroundColor: '#F8F7F5', borderRadius: BR.xl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.sm, shadowOffset: { width: 0, height: sw(2) }, elevation: 3 },
   kpiGrid:            { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: SP.md },
   kpiInnerCard:       { borderRadius: BR.lg, padding: SP.md, minHeight: sh(isTablet ? 150 : 130) },
   kpiIconBadgeRow:    { flexDirection: 'row', alignItems: 'center', gap: SP.sm, marginBottom: SP.md },
-  kpiIconBox:         { width: SZ.iconBox, height: SZ.iconBox, backgroundColor: 'rgba(255,255,255,0.80)', borderRadius: BR.sm, justifyContent: 'center', alignItems: 'center' },
+  kpiIconBox:         { width: SZ.iconBox, height: SZ.iconBox, backgroundColor: 'rgba(248,247,245,0.80)', borderRadius: BR.sm, justifyContent: 'center', alignItems: 'center' },
   kpiBadge:           { fontSize: FS.xs, fontWeight: '700', color: '#333' },
   kpiLabel:           { fontSize: FS.sm, fontWeight: '500', color: 'rgba(0,0,0,0.70)', marginBottom: sw(2) },
   kpiValue:           { fontSize: FS.kpi, fontWeight: '700', color: '#1A1A2E', marginBottom: SP.xs },
   kpiSubRow:          { flexDirection: 'row', alignItems: 'center', gap: SP.xxs },
   kpiSub:             { fontSize: FS.xxs, color: 'rgba(0,0,0,0.55)', fontWeight: '500', flexShrink: 1 },
   kpiMoreRow:         { alignItems: 'flex-end', marginTop: SP.md },
-  moreBtn:            { flexDirection: 'row', alignItems: 'center', gap: SP.xxs, backgroundColor: '#fff', borderRadius: sw(10), paddingHorizontal: SZ.moreBtn.paddingH, paddingVertical: SZ.moreBtn.paddingV, borderWidth: 1, borderColor: '#E0E0E0', shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.xxs, shadowOffset: { width: 0, height: sw(2) }, elevation: 2 },
+  moreBtn:            { flexDirection: 'row', alignItems: 'center', gap: SP.xxs, backgroundColor: '#F8F7F5', borderRadius: sw(10), paddingHorizontal: SZ.moreBtn.paddingH, paddingVertical: SZ.moreBtn.paddingV, borderWidth: 1, borderColor: '#E0E0E0', shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.xxs, shadowOffset: { width: 0, height: sw(2) }, elevation: 2 },
   moreBtnText:        { fontSize: FS.sm, color: '#000', fontWeight: '500' },
 
   // Section card
-  sectionCard:        { backgroundColor: '#fff', borderRadius: BR.xl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.sm, shadowOffset: { width: 0, height: sw(2) }, elevation: 3 },
+  sectionCard:        { backgroundColor: '#F8F7F5', borderRadius: BR.xl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.sm, shadowOffset: { width: 0, height: sw(2) }, elevation: 3 },
   sectionTitle:       { fontSize: FS.md, fontWeight: '600', color: '#000', marginBottom: SP.md },
   cardHeaderRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP.md },
   expandBtn:          { width: SZ.expandBtn, height: SZ.expandBtn, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F0F0F0', borderRadius: BR.xs },
@@ -2701,7 +2701,7 @@ const styles = StyleSheet.create({
   perfName:           { fontSize: FS.xs, color: '#54555A', textAlign: 'right' },
   perfTrack:          { height: sc(28, 20, 36), backgroundColor: 'rgba(180,180,180,0.15)', borderRadius: BR.xs, overflow: 'hidden' },
   perfFill:           { height: '100%', backgroundColor: 'rgba(0,98,170,0.60)', justifyContent: 'center', alignItems: 'flex-end', paddingRight: SP.xs, borderRadius: BR.xs },
-  perfFillVal:        { fontSize: FS.xs, color: '#fff', fontWeight: '600' },
+  perfFillVal:        { fontSize: FS.xs, color: '#F8F7F5', fontWeight: '600' },
   perfAxisLine:       { height: 1, backgroundColor: '#E0E0E0', marginTop: SP.xxs },
 
   // Payment legend
@@ -2712,10 +2712,10 @@ const styles = StyleSheet.create({
 
   // Modals
   modalOverlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: SP.xl },
-  modalCard:          { width: '100%', maxWidth: sw(420), backgroundColor: '#fff', borderRadius: sw(24), padding: SP.xl },
+  modalCard:          { width: '100%', maxWidth: sw(420), backgroundColor: '#F8F7F5', borderRadius: sw(24), padding: SP.xl },
   modalTitle:         { fontSize: FS.lg, fontWeight: '700', color: '#000', marginBottom: SP.lg },
   confirmBtn:         { backgroundColor: '#4A87C6', borderRadius: sw(24), paddingVertical: sw(14), alignItems: 'center', marginTop: SP.lg },
-  confirmBtnText:     { color: '#fff', fontSize: FS.md, fontWeight: '600' },
+  confirmBtnText:     { color: '#F8F7F5', fontSize: FS.md, fontWeight: '600' },
   closeBtn:           { width: SZ.closeBtn, height: SZ.closeBtn, justifyContent: 'center', alignItems: 'center' },
   modalOptionRow:     { flexDirection: 'row', alignItems: 'center', gap: sw(14), paddingVertical: sw(14), borderBottomWidth: 1, borderBottomColor: '#EEE' },
   modalOptionText:    { fontSize: FS.md, fontWeight: '600', color: '#000' },
@@ -2726,7 +2726,7 @@ const styles = StyleSheet.create({
   svLocRow:           { marginBottom: sw(14) },
   svLocHeader:        { flexDirection: 'row', justifyContent: 'space-between', marginBottom: SP.xs },
   svLocName:          { fontSize: FS.sm, fontWeight: '600', color: '#333' },
-  svLocValue:         { fontSize: FS.sm, fontWeight: '700', color: '#075EA7' },
-  svTrack:            { height: sw(10), borderRadius: sw(5), backgroundColor: 'rgba(7,94,167,0.12)', overflow: 'hidden' },
-  svFill:             { height: '100%', backgroundColor: '#075EA7', borderRadius: sw(5) },
+  svLocValue:         { fontSize: FS.sm, fontWeight: '700', color: '#72563C' },
+  svTrack:            { height: sw(10), borderRadius: sw(5), backgroundColor: 'rgba(114,86,60,0.12)', overflow: 'hidden' },
+  svFill:             { height: '100%', backgroundColor: '#72563C', borderRadius: sw(5) },
 });

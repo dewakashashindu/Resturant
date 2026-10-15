@@ -50,7 +50,7 @@ export default function DefineTableScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor="#FFFFFF" barStyle="dark-content" />
+      <StatusBar backgroundColor="#F8F7F5" barStyle="dark-content" />
 
       {/* BACK BUTTON */}
       <TouchableOpacity
@@ -118,7 +118,7 @@ export default function DefineTableScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8F7F5',
   },
   backButtonAbsolute: {
     position: 'absolute',
@@ -143,7 +143,7 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   mainCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#F8F7F5',
     borderRadius: 16,
     elevation: 5,
     shadowColor: '#000',
@@ -158,15 +158,15 @@ const styles = StyleSheet.create({
   input: {
     width: '100%',
     borderWidth: 1.5,
-    borderColor: '#0062AA',
+    borderColor: '#72563C',
     borderRadius: 10,
     paddingHorizontal: 16,
     color: '#000',
-    backgroundColor: '#FAFAFA',
+    backgroundColor: '#F8F7F5',
   },
   nextButton: {
     width: '100%',
-    backgroundColor: '#0062AA',
+    backgroundColor: '#72563C',
     borderRadius: 10,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -174,11 +174,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   nextText: {
-    color: '#FFF',
+    color: '#F8F7F5',
     fontWeight: '700',
   },
   nextIcon: {
-    tintColor: '#FFF',
+    tintColor: '#F8F7F5',
     transform: [{ rotate: '180deg' }],
   },
 });

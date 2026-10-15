@@ -196,7 +196,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#002748" />
+      <StatusBar barStyle="light-content" backgroundColor="#72563C" />
 
       {/* HEADER - fixed, not scrollable */}
       <View
@@ -219,7 +219,7 @@ export default function HomeScreen() {
           accessibilityRole="button"
           accessibilityLabel={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
         >
-          <Ionicons name="notifications-outline" size={isTablet ? 27 : 23} color="#FFFFFF" />
+          <Ionicons name="notifications-outline" size={isTablet ? 27 : 23} color="#F8F7F5" />
           {unreadCount > 0 ? (
             <View style={styles.headerUnreadBadge}>
               <Text style={styles.headerUnreadBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
@@ -323,7 +323,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#FCF7F4',
   },
   scrollContent: {
     flexGrow: 1,
@@ -332,7 +332,7 @@ const styles = StyleSheet.create({
 
   // ── HEADER ──────────────────────────────────
   header: {
-    backgroundColor: '#002748',
+    backgroundColor: '#72563C',
     justifyContent: 'space-between',
   },
   headerNotificationButton: {
@@ -345,8 +345,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(248,247,245,0.20)',
+    backgroundColor: 'rgba(248,247,245,0.12)',
   },
   headerUnreadBadge: {
     position: 'absolute',
@@ -359,16 +359,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 9,
     borderWidth: 1.5,
-    borderColor: '#002748',
+    borderColor: '#72563C',
     backgroundColor: '#E84B4B',
   },
-  headerUnreadBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800' },
+  headerUnreadBadgeText: { color: '#F8F7F5', fontSize: 9, fontWeight: '800' },
   circle: {
     position: 'absolute',
     width: 220,
     height: 220,
     borderRadius: 110,
-    backgroundColor: 'rgba(0,98,170,0.2)',
+    backgroundColor: 'rgba(114,86,60,0.2)',
     top: -60,
     right: -60,
   },
@@ -385,25 +385,25 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   greeting: {
-    color: '#fff',
+    color: '#F8F7F5',
   },
   name: {
-    color: '#fff',
+    color: '#F8F7F5',
     fontWeight: '700',
   },
   dateContainer: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(248,247,245,0.2)',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
   },
   dateText: {
-    color: '#fff',
+    color: '#F8F7F5',
   },
 
   // ── CONTENT ─────────────────────────────────
   content: {
-    backgroundColor: '#fff',
+    backgroundColor: '#F8F7F5',
   },
   sectionTitle: {
     fontWeight: '600',

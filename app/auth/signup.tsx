@@ -205,7 +205,7 @@ export default function SignUpScreen() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
 
       <View style={[styles.topCircle, {
         width:  isTablet ? 220 : 150,
@@ -245,7 +245,7 @@ export default function SignUpScreen() {
               height:       inputH,
               fontSize:     inputFs,
               borderRadius: inputRadius,
-              borderColor:  usernameError ? '#D32F2F' : '#075EA7',
+              borderColor:  usernameError ? '#D32F2F' : '#72563C',
             },
           ]}
           value={username}
@@ -279,7 +279,7 @@ export default function SignUpScreen() {
               height:       inputH,
               fontSize:     inputFs,
               borderRadius: inputRadius,
-              borderColor:  phoneError ? '#D32F2F' : '#075EA7',
+              borderColor:  phoneError ? '#D32F2F' : '#72563C',
             },
           ]}
           value={phoneNumber}
@@ -306,7 +306,7 @@ export default function SignUpScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  passwordError ? '#D32F2F' : '#075EA7',
+              borderColor:  passwordError ? '#D32F2F' : '#72563C',
             },
           ]}
         >
@@ -347,7 +347,7 @@ export default function SignUpScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  confirmError ? '#D32F2F' : '#075EA7',
+              borderColor:  confirmError ? '#D32F2F' : '#72563C',
             },
           ]}
         >
@@ -401,7 +401,7 @@ export default function SignUpScreen() {
 }
 
 const styles = StyleSheet.create({
-  container:     { flex: 1, backgroundColor: '#FFFFFF' },
+  container:     { flex: 1, backgroundColor: '#F8F7F5' },
   topCircle:     { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(97,145,185,0.54)', left: -60 },
   bottomCircle:  { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(97,145,185,0.54)', bottom: -50, right: -60 },
   logoContainer: { alignItems: 'center' },
@@ -413,7 +413,7 @@ const styles = StyleSheet.create({
     borderWidth:       1.5,
     paddingHorizontal: 16,
     color:             '#000',
-    backgroundColor:   '#fff',
+    backgroundColor:   '#F8F7F5',
   },
 
   inputWrapper: {
@@ -422,7 +422,7 @@ const styles = StyleSheet.create({
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: 16,
-    backgroundColor:   '#fff',
+    backgroundColor:   '#F8F7F5',
   },
 
   inputInner: {
@@ -452,9 +452,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
 
-  signUpButton:    { width: '100%', backgroundColor: '#0062AA', justifyContent: 'center', alignItems: 'center' },
-  signUpText:      { color: '#fff', fontWeight: '700' },
+  signUpButton:    { width: '100%', backgroundColor: '#72563C', justifyContent: 'center', alignItems: 'center' },
+  signUpText:      { color: '#F8F7F5', fontWeight: '700' },
   footerContainer: { flexDirection: 'row', justifyContent: 'center' },
   footerText:      { color: '#3B4054' },
-  signInText:      { color: '#075EA7', fontWeight: '600' },
+  signInText:      { color: '#72563C', fontWeight: '600' },
 });

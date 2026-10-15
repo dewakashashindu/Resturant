@@ -189,7 +189,7 @@ export default function ChangePasswordScreen() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
 
       {/* BACK BUTTON */}
       <TouchableOpacity style={styles.backButtonAbsolute} onPress={() => router.back()}>
@@ -236,7 +236,7 @@ export default function ChangePasswordScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  oldPasswordError ? '#D32F2F' : '#0062AA',
+              borderColor:  oldPasswordError ? '#D32F2F' : '#72563C',
             },
           ]}
         >
@@ -271,7 +271,7 @@ export default function ChangePasswordScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  newPasswordError ? '#D32F2F' : '#0062AA',
+              borderColor:  newPasswordError ? '#D32F2F' : '#72563C',
             },
           ]}
         >
@@ -307,7 +307,7 @@ export default function ChangePasswordScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  confirmError ? '#D32F2F' : '#0062AA',
+              borderColor:  confirmError ? '#D32F2F' : '#72563C',
             },
           ]}
         >
@@ -353,7 +353,7 @@ export default function ChangePasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  container:          { flex: 1, backgroundColor: '#FFFFFF' },
+  container:          { flex: 1, backgroundColor: '#F8F7F5' },
 
   backButtonAbsolute: { position: 'absolute', top: 50, left: 16, zIndex: 10 },
 
@@ -371,7 +371,7 @@ const styles = StyleSheet.create({
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: 16,
-    backgroundColor:   '#fff',
+    backgroundColor:   '#F8F7F5',
   },
 
   input: {
@@ -410,5 +410,5 @@ const styles = StyleSheet.create({
     gap:             10,
   },
 
-  buttonText: { color: '#FFF', fontWeight: '700' },
+  buttonText: { color: '#F8F7F5', fontWeight: '700' },
 });

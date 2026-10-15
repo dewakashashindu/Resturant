@@ -204,21 +204,21 @@ export default function TableSelectionScreen() {
     switch (status) {
       case 'occupied': return '#E6A46B';
       case 'reserved': return '#4E8EC4';
-      default:         return '#FFFFFF';
+      default:         return '#F8F7F5';
     }
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      <StatusBar backgroundColor="#002748" barStyle="light-content" />
+      <StatusBar backgroundColor="#72563C" barStyle="light-content" />
 
       {/* FIXED HEADER */}
       <View style={[styles.header, { paddingHorizontal: hPad, paddingTop: insets.top, height: 200 + insets.top }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Image
             source={require('../../assets/icons/back.png')}
-            style={{ width: backIconSize, height: backIconSize, tintColor: '#FFF' }}
+            style={{ width: backIconSize, height: backIconSize, tintColor: '#F8F7F5' }}
             resizeMode="contain"
           />
         </TouchableOpacity>
@@ -286,7 +286,7 @@ export default function TableSelectionScreen() {
         <View style={[styles.statusContainer, { paddingHorizontal: hPad }]}>
           <View style={[styles.statusBox, styles.availableBox]}>
             {loadingCounts ? (
-              <ActivityIndicator size="small" color="#002748" />
+              <ActivityIndicator size="small" color="#72563C" />
             ) : (
               <Text style={[styles.statusNumber, { fontSize: statNumFs }]}>
                 {availableCount}
@@ -299,7 +299,7 @@ export default function TableSelectionScreen() {
 
           <View style={[styles.statusBox, { backgroundColor: '#E6A46B' }]}>
             {loadingCounts ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color="#F8F7F5" />
             ) : (
               <Text style={[styles.statusNumber, { fontSize: statNumFs }]}>
                 {occupiedCount}
@@ -312,7 +312,7 @@ export default function TableSelectionScreen() {
 
           <View style={[styles.statusBox, { backgroundColor: '#4E8EC4' }]}>
             {loadingCounts ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color="#F8F7F5" />
             ) : (
               <Text style={[styles.statusNumber, { fontSize: statNumFs }]}>
                 {reservedCount}
@@ -339,7 +339,7 @@ export default function TableSelectionScreen() {
         contentContainerStyle={{ paddingBottom: 30 + insets.bottom }}
       >
         {loadingTables ? (
-          <ActivityIndicator size="small" color="#002748" style={{ marginTop: 30 }} />
+          <ActivityIndicator size="small" color="#72563C" style={{ marginTop: 30 }} />
         ) : tableError ? (
           <View style={{ alignItems: 'center', marginTop: 30, gap: 10 }}>
             <Text style={{ color: '#D32F2F', fontSize: 14 }}>{tableError}</Text>
@@ -491,7 +491,7 @@ export default function TableSelectionScreen() {
                 {table.status === 'available' ? (
                   <Text style={[styles.plusIcon, { fontSize: plusFs }]}>+</Text>
                   ) : openingTableId === table.id ? (
-                    <ActivityIndicator size="small" color="#002748" />
+                    <ActivityIndicator size="small" color="#72563C" />
                   ) : (
                   <Text style={{ fontSize: emojiFs, marginBottom: 4 }}>👥</Text>
                 )}
@@ -510,9 +510,9 @@ export default function TableSelectionScreen() {
 const styles = StyleSheet.create({
   container:    { flex: 1, backgroundColor: '#F4F6F8' },
 
-  header:       { backgroundColor: '#002748', flexDirection: 'row', alignItems: 'center', paddingVertical: 16, height: 200 },
+  header:       { backgroundColor: '#72563C', flexDirection: 'row', alignItems: 'center', paddingVertical: 16, height: 200 },
   backButton:   { marginRight: 16 },
-  headerTitle: { fontWeight: '700', color: '#FFF' },
+  headerTitle: { fontWeight: '700', color: '#F8F7F5' },
 
   fixedTopContainer: { backgroundColor: '#F4F6F8' },
   gridScrollContainer: { flex: 1 },
@@ -523,15 +523,15 @@ const styles = StyleSheet.create({
   activeFloorText:   { color: '#000' },
   activeFloorButton: {
     backgroundColor: '#fcfcfc',
-    borderBlockColor: '#002748',
+    borderBlockColor: '#72563C',
     borderWidth: 1.5,
   },
   banner:     { marginTop: 10, backgroundColor: '#7FAFD2', borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  bannerText: { color: '#FFF', fontWeight: '700', letterSpacing: 0.5 },
+  bannerText: { color: '#F8F7F5', fontWeight: '700', letterSpacing: 0.5 },
 
   statusContainer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, gap: 8 },
   statusBox:       { flex: 1, borderRadius: 12, paddingVertical: 8, justifyContent: 'center', alignItems: 'center' },
-  availableBox:    { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DDD' },
+  availableBox:    { backgroundColor: '#F8F7F5', borderWidth: 1, borderColor: '#DDD' },
   statusNumber:    { fontWeight: '800', color: '#000' },
   statusLabel:     { fontWeight: '700', color: '#111', marginTop: 2 },
 
@@ -542,6 +542,6 @@ const styles = StyleSheet.create({
   tableCardAvailable: { borderWidth: 1.5, borderColor: '#DDD' },
   plusIcon:           { fontWeight: '300', color: '#333', marginBottom: 2 },
   tableText:          { fontWeight: '800', color: '#000' },
-  retryBtn:           { backgroundColor: '#002748', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 },
-  retryText:          { color: '#FFF', fontWeight: '700', fontSize: 14 },
+  retryBtn:           { backgroundColor: '#72563C', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 },
+  retryText:          { color: '#F8F7F5', fontWeight: '700', fontSize: 14 },
 });

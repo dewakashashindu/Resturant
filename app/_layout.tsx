@@ -28,7 +28,7 @@ export const unstable_settings = {
 function LoadingScreen() {
   return (
     <View style={styles.loadingContainer}>
-      <ActivityIndicator size="large" color="#002748" />
+      <ActivityIndicator size="large" color="#72563C" />
     </View>
   );
 }
@@ -197,6 +197,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#ffffff00',
+    backgroundColor: '#F8F7F500',
   },
 });

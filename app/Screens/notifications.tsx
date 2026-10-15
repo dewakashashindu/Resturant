@@ -115,7 +115,7 @@ function SwipeableNotificationRow({
   return (
     <View style={styles.swipeShell}>
       <View style={styles.clearUnderlay}>
-        <Ionicons name="trash-outline" size={21} color="#FFFFFF" />
+        <Ionicons name="trash-outline" size={21} color="#F8F7F5" />
         <Text style={styles.clearUnderlayText}>Clear</Text>
       </View>
       <Animated.View
@@ -128,7 +128,7 @@ function SwipeableNotificationRow({
           onPress={() => { if (!didClear.current) onOpen(); }}
         >
           <View style={[styles.cardIcon, tabForNotification(notification) === 'items' && styles.itemIcon]}>
-            <Ionicons name={notificationIcon(notification)} size={21} color="#FFFFFF" />
+            <Ionicons name={notificationIcon(notification)} size={21} color="#F8F7F5" />
           </View>
           <View style={styles.cardContent}>
             <View style={styles.cardTopLine}>
@@ -138,7 +138,7 @@ function SwipeableNotificationRow({
             {unavailableUpdate ? (
               <View style={styles.unavailableNotice}>
                 <View style={styles.unavailableLabel}>
-                  <Ionicons name="alert-circle" size={13} color="#FFFFFF" />
+                  <Ionicons name="alert-circle" size={13} color="#F8F7F5" />
                   <Text style={styles.unavailableLabelText}>UNAVAILABLE LIST UPDATED</Text>
                 </View>
                 <Text style={styles.unavailableLead}>{notification.message}</Text>
@@ -146,7 +146,7 @@ function SwipeableNotificationRow({
             ) : statusItems.length > 0 ? (
               <View style={[styles.kdsStatusNotice, processingUpdate ? styles.processingNotice : styles.doneNotice]}>
                 <View style={[styles.kdsStatusLabel, processingUpdate ? styles.processingLabel : styles.doneLabel]}>
-                  <Ionicons name={processingUpdate ? 'flame' : 'checkmark-circle'} size={13} color="#FFFFFF" />
+                  <Ionicons name={processingUpdate ? 'flame' : 'checkmark-circle'} size={13} color="#F8F7F5" />
                   <Text style={styles.kdsStatusLabelText}>{processingUpdate ? 'PROCESSING' : 'DONE'}</Text>
                 </View>
                 <Text style={styles.kdsStatusLead}>{processingUpdate ? 'Kitchen has started this item:' : 'Kitchen has completed this item:'}</Text>
@@ -300,7 +300,7 @@ export default function NotificationsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar backgroundColor="#F3F3F3" barStyle="dark-content" />
+      <StatusBar backgroundColor="#F8F7F5" barStyle="dark-content" />
 
       <TouchableOpacity
         style={[styles.backButtonAbsolute, { top: backBtnTop, left: backBtnLeft, padding: backBtnPad }]}
@@ -327,7 +327,7 @@ export default function NotificationsScreen() {
           style={[styles.tabButton, activeTab === 'operational' && styles.activeTabButton]}
           onPress={() => setActiveTab('operational')}
         >
-          <Ionicons name="notifications-outline" size={17} color={activeTab === 'operational' ? '#FFFFFF' : '#64748B'} />
+          <Ionicons name="notifications-outline" size={17} color={activeTab === 'operational' ? '#F8F7F5' : '#A38C77'} />
           <Text style={[styles.tabText, activeTab === 'operational' && styles.activeTabText]}>Operational</Text>
           <View style={[styles.tabCount, activeTab === 'operational' && styles.activeTabCount]}>
             <Text style={[styles.tabCountText, activeTab === 'operational' && styles.activeTabCountText]}>{operationalNotifications.length}</Text>
@@ -337,7 +337,7 @@ export default function NotificationsScreen() {
           style={[styles.tabButton, activeTab === 'items' && styles.activeTabButton]}
           onPress={() => setActiveTab('items')}
         >
-          <Ionicons name="restaurant-outline" size={17} color={activeTab === 'items' ? '#FFFFFF' : '#64748B'} />
+          <Ionicons name="restaurant-outline" size={17} color={activeTab === 'items' ? '#F8F7F5' : '#A38C77'} />
           <Text style={[styles.tabText, activeTab === 'items' && styles.activeTabText]}>Item</Text>
           <View style={[styles.tabCount, activeTab === 'items' && styles.activeTabCount]}>
             <Text style={[styles.tabCountText, activeTab === 'items' && styles.activeTabCountText]}>{latestItemNotification ? 1 : 0}</Text>
@@ -363,7 +363,7 @@ export default function NotificationsScreen() {
             />
           ) : (
             <View style={styles.noLatestMessage}>
-              <Ionicons name="notifications-outline" size={19} color="#94A3B8" />
+              <Ionicons name="notifications-outline" size={19} color="#A38C77" />
               <Text style={styles.noLatestMessageText}>No new unavailable-item message.</Text>
             </View>
           )}
@@ -380,11 +380,11 @@ export default function NotificationsScreen() {
               disabled={loadingUnavailableItems}
               accessibilityLabel="Refresh unavailable item list"
             >
-              {loadingUnavailableItems ? <ActivityIndicator size="small" color="#075EA7" /> : <Ionicons name="refresh" size={18} color="#075EA7" />}
+              {loadingUnavailableItems ? <ActivityIndicator size="small" color="#72563C" /> : <Ionicons name="refresh" size={18} color="#72563C" />}
             </TouchableOpacity>
           </View>
           {loadingUnavailableItems && currentUnavailableItems.length === 0 ? (
-            <ActivityIndicator style={styles.unavailableLoader} color="#075EA7" />
+            <ActivityIndicator style={styles.unavailableLoader} color="#72563C" />
           ) : currentUnavailableItems.length === 0 ? (
             <View style={styles.currentUnavailableEmpty}>
               <Ionicons name="checkmark-circle-outline" size={24} color="#2B9662" />
@@ -408,7 +408,7 @@ export default function NotificationsScreen() {
       ) : visibleNotifications.length === 0 ? (
         <View style={styles.emptyWrap}>
           <View style={styles.emptyIconWrap}>
-            <Ionicons name="notifications-outline" size={38} color="#075EA7" />
+            <Ionicons name="notifications-outline" size={38} color="#72563C" />
           </View>
           <Text style={styles.emptyTitle}>No operational notifications</Text>
           <Text style={styles.emptyText}>Kitchen processing and completion updates will appear here.</Text>
@@ -432,7 +432,7 @@ export default function NotificationsScreen() {
           </ScrollView>
           <Text style={styles.swipeHint}>Swipe a notification left to clear it</Text>
           <TouchableOpacity style={styles.clearButton} onPress={handleClearAll} accessibilityRole="button">
-            <Ionicons name="trash-outline" size={17} color="#64748B" />
+            <Ionicons name="trash-outline" size={17} color="#A38C77" />
             <Text style={styles.clearText}>Clear all</Text>
           </TouchableOpacity>
         </>
@@ -442,94 +442,94 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F3F3F3' },
+  safe: { flex: 1, backgroundColor: '#F8F7F5' },
   backButtonAbsolute: { position: 'absolute', zIndex: 10 },
   header: { paddingTop: 70, paddingBottom: 14, paddingHorizontal: 72, alignItems: 'center' },
   headerTitle: { color: '#000000', fontSize: 25, fontWeight: '600' },
-  headerSubtitle: { color: '#64748B', fontSize: 12, marginTop: 5 },
+  headerSubtitle: { color: '#A38C77', fontSize: 12, marginTop: 5 },
   tabsWrap: {
     marginHorizontal: 16,
     marginBottom: 12,
     padding: 4,
     flexDirection: 'row',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#CFBDAA',
     borderRadius: 15,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8F7F5',
   },
   tabButton: { flex: 1, minHeight: 42, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', borderRadius: 11 },
-  activeTabButton: { backgroundColor: '#002748' },
-  tabText: { color: '#64748B', fontSize: 12, fontWeight: '700' },
-  activeTabText: { color: '#FFFFFF' },
-  tabCount: { minWidth: 18, height: 18, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 9, backgroundColor: '#E2E8F0' },
-  activeTabCount: { backgroundColor: 'rgba(255,255,255,0.20)' },
+  activeTabButton: { backgroundColor: '#72563C' },
+  tabText: { color: '#A38C77', fontSize: 12, fontWeight: '700' },
+  activeTabText: { color: '#F8F7F5' },
+  tabCount: { minWidth: 18, height: 18, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 9, backgroundColor: '#CFBDAA' },
+  activeTabCount: { backgroundColor: 'rgba(248,247,245,0.20)' },
   tabCountText: { color: '#475569', fontSize: 10, fontWeight: '800' },
-  activeTabCountText: { color: '#FFFFFF' },
+  activeTabCountText: { color: '#F8F7F5' },
   list: { paddingHorizontal: 16, paddingTop: 2, gap: 11 },
   swipeShell: { minHeight: 96, overflow: 'hidden', borderRadius: 17 },
   clearUnderlay: { ...StyleSheet.absoluteFillObject, paddingRight: 20, flexDirection: 'row', gap: 5, justifyContent: 'flex-end', alignItems: 'center', backgroundColor: '#DC2626' },
-  clearUnderlayText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  clearUnderlayText: { color: '#F8F7F5', fontSize: 12, fontWeight: '800' },
   cardMotion: { width: '100%' },
-  card: { minHeight: 96, padding: 13, flexDirection: 'row', alignItems: 'flex-start', borderWidth: 1, borderColor: '#E4EBF0', borderRadius: 17, backgroundColor: '#FFFFFF' },
-  unreadCard: { borderColor: 'rgba(7,94,167,0.30)', backgroundColor: '#F8FCFF' },
-  cardIcon: { width: 42, height: 42, marginRight: 11, justifyContent: 'center', alignItems: 'center', borderRadius: 14, backgroundColor: '#075EA7' },
+  card: { minHeight: 96, padding: 13, flexDirection: 'row', alignItems: 'flex-start', borderWidth: 1, borderColor: '#ECDDCE', borderRadius: 17, backgroundColor: '#F8F7F5' },
+  unreadCard: { borderColor: 'rgba(114,86,60,0.30)', backgroundColor: '#FCF7F4' },
+  cardIcon: { width: 42, height: 42, marginRight: 11, justifyContent: 'center', alignItems: 'center', borderRadius: 14, backgroundColor: '#72563C' },
   itemIcon: { backgroundColor: '#15803D' },
   cardContent: { flex: 1, minWidth: 0, paddingRight: 8 },
   cardTopLine: { flexDirection: 'row', alignItems: 'center' },
-  cardTitle: { flex: 1, color: '#002748', fontSize: 14, fontWeight: '800' },
-  unreadDot: { width: 8, height: 8, marginLeft: 7, borderRadius: 4, backgroundColor: '#075EA7' },
+  cardTitle: { flex: 1, color: '#72563C', fontSize: 14, fontWeight: '800' },
+  unreadDot: { width: 8, height: 8, marginLeft: 7, borderRadius: 4, backgroundColor: '#72563C' },
   cardMessage: { color: '#526270', fontSize: 12, lineHeight: 18, marginTop: 3 },
   unavailableNotice: { marginTop: 7, padding: 8, borderRadius: 10, backgroundColor: '#FFF3F1', borderWidth: 1, borderColor: '#F3CDC8' },
   unavailableLabel: { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 6, backgroundColor: '#D85A52' },
-  unavailableLabelText: { color: '#FFFFFF', fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
+  unavailableLabelText: { color: '#F8F7F5', fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
   unavailableLead: { color: '#8E443D', fontSize: 11, lineHeight: 16, fontWeight: '700', marginTop: 6 },
   kdsStatusNotice: { marginTop: 7, padding: 8, borderRadius: 10, borderWidth: 1 },
   processingNotice: { backgroundColor: '#EFF7FD', borderColor: '#C7E2F7' },
   doneNotice: { backgroundColor: '#EDF9F1', borderColor: '#C7EAD3' },
   kdsStatusLabel: { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 6 },
-  processingLabel: { backgroundColor: '#287EC1' },
+  processingLabel: { backgroundColor: '#72563C' },
   doneLabel: { backgroundColor: '#2B9662' },
-  kdsStatusLabelText: { color: '#FFFFFF', fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
+  kdsStatusLabelText: { color: '#F8F7F5', fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
   kdsStatusLead: { color: '#3D6078', fontSize: 11, lineHeight: 16, fontWeight: '700', marginTop: 6 },
   kdsStatusItem: { marginTop: 7, paddingTop: 7, flexDirection: 'row', borderTopWidth: 1, borderTopColor: 'rgba(70,125,160,0.16)' },
-  kdsQtyPill: { minWidth: 28, height: 28, marginRight: 8, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 8, backgroundColor: '#DDEEF9' },
+  kdsQtyPill: { minWidth: 28, height: 28, marginRight: 8, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 8, backgroundColor: '#FBF1E5' },
   kdsQtyText: { color: '#0B639E', fontSize: 11, fontWeight: '900' },
   kdsStatusItemCopy: { flex: 1 },
   kdsStatusItemName: { color: '#18374D', fontSize: 12, fontWeight: '900' },
   kdsStatusItemCode: { color: '#52718A', fontSize: 9, fontWeight: '700', marginTop: 1 },
   kdsStatusItemRemark: { color: '#A26B32', fontSize: 10, fontWeight: '700', marginTop: 3 },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 8 },
-  invoicePill: { color: '#64748B', fontSize: 11, fontWeight: '600' },
-  time: { color: '#94A3B8', fontSize: 11 },
-  tableBadge: { width: 58, minHeight: 63, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: '#E6F2FA' },
-  tableBadgeLabel: { color: '#64748B', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
-  tableBadgeValue: { color: '#002748', fontSize: 22, fontWeight: '900', marginTop: 2 },
+  invoicePill: { color: '#A38C77', fontSize: 11, fontWeight: '600' },
+  time: { color: '#A38C77', fontSize: 11 },
+  tableBadge: { width: 58, minHeight: 63, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: '#FBF1E5' },
+  tableBadgeLabel: { color: '#A38C77', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
+  tableBadgeValue: { color: '#72563C', fontSize: 22, fontWeight: '900', marginTop: 2 },
   itemTabSectionHeader: { marginTop: 2, marginBottom: 9 },
-  itemTabSectionTitle: { color: '#002748', fontSize: 14, fontWeight: '900' },
-  itemTabSectionText: { color: '#64748B', fontSize: 11, lineHeight: 16, marginTop: 2 },
-  noLatestMessage: { minHeight: 55, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#E1E9EE', borderRadius: 14, backgroundColor: '#FFFFFF' },
-  noLatestMessageText: { color: '#64748B', fontSize: 12, fontWeight: '700' },
+  itemTabSectionTitle: { color: '#72563C', fontSize: 14, fontWeight: '900' },
+  itemTabSectionText: { color: '#A38C77', fontSize: 11, lineHeight: 16, marginTop: 2 },
+  noLatestMessage: { minHeight: 55, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#ECDDCE', borderRadius: 14, backgroundColor: '#F8F7F5' },
+  noLatestMessageText: { color: '#A38C77', fontSize: 12, fontWeight: '700' },
   currentUnavailableHeader: { marginTop: 19, padding: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#F1D2CE', borderRadius: 15, backgroundColor: '#FFF8F7' },
   currentUnavailableHeaderIcon: { width: 36, height: 36, marginRight: 9, justifyContent: 'center', alignItems: 'center', borderRadius: 11, backgroundColor: '#FCE4E1' },
   currentUnavailableHeaderCopy: { flex: 1, minWidth: 0 },
   currentUnavailableTitle: { color: '#7F3E37', fontSize: 13, fontWeight: '900' },
   currentUnavailableText: { color: '#9A5E57', fontSize: 10, lineHeight: 14, marginTop: 2 },
-  refreshUnavailableButton: { width: 35, height: 35, marginLeft: 8, justifyContent: 'center', alignItems: 'center', borderRadius: 10, backgroundColor: '#FFFFFF' },
+  refreshUnavailableButton: { width: 35, height: 35, marginLeft: 8, justifyContent: 'center', alignItems: 'center', borderRadius: 10, backgroundColor: '#F8F7F5' },
   unavailableLoader: { marginTop: 20 },
   currentUnavailableEmpty: { marginTop: 9, minHeight: 64, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#CCEBD7', borderRadius: 14, backgroundColor: '#F1FBF5' },
   currentUnavailableEmptyText: { flex: 1, color: '#27754E', fontSize: 12, fontWeight: '800' },
   currentUnavailableList: { marginTop: 9, gap: 7 },
-  currentUnavailableRow: { minHeight: 60, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#F0D4D0', borderRadius: 13, backgroundColor: '#FFFFFF' },
+  currentUnavailableRow: { minHeight: 60, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#F0D4D0', borderRadius: 13, backgroundColor: '#F8F7F5' },
   currentUnavailableDot: { width: 8, height: 8, marginRight: 10, borderRadius: 4, backgroundColor: '#D85A52' },
   currentUnavailableItemCopy: { flex: 1, minWidth: 0 },
   currentUnavailableItemName: { color: '#422825', fontSize: 13, fontWeight: '900' },
   currentUnavailableItemCode: { color: '#A05B54', fontSize: 10, fontWeight: '700', marginTop: 2 },
   currentUnavailableStatus: { marginLeft: 8, color: '#C84A41', fontSize: 8, fontWeight: '900', letterSpacing: 0.25 },
   emptyWrap: { flex: 1, paddingHorizontal: 42, justifyContent: 'center', alignItems: 'center' },
-  emptyIconWrap: { width: 84, height: 84, borderRadius: 28, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E6F2FA' },
-  emptyTitle: { color: '#002748', fontSize: 18, fontWeight: '800', marginTop: 19, textAlign: 'center' },
-  emptyText: { color: '#64748B', fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 8 },
-  swipeHint: { position: 'absolute', bottom: 29, left: 16, color: '#94A3B8', fontSize: 10 },
-  clearButton: { position: 'absolute', right: 18, bottom: 20, minHeight: 42, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', gap: 7, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 14, backgroundColor: '#FFFFFF', shadowColor: '#002748', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 6, elevation: 4 },
-  clearText: { color: '#64748B', fontSize: 12, fontWeight: '700' },
+  emptyIconWrap: { width: 84, height: 84, borderRadius: 28, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FBF1E5' },
+  emptyTitle: { color: '#72563C', fontSize: 18, fontWeight: '800', marginTop: 19, textAlign: 'center' },
+  emptyText: { color: '#A38C77', fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: 8 },
+  swipeHint: { position: 'absolute', bottom: 29, left: 16, color: '#A38C77', fontSize: 10 },
+  clearButton: { position: 'absolute', right: 18, bottom: 20, minHeight: 42, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', gap: 7, borderWidth: 1, borderColor: '#CFBDAA', borderRadius: 14, backgroundColor: '#F8F7F5', shadowColor: '#72563C', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 6, elevation: 4 },
+  clearText: { color: '#A38C77', fontSize: 12, fontWeight: '700' },
 });

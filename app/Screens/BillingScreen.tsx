@@ -198,7 +198,7 @@ export default function BillingScreen() {
   // intent is explicit and matches the requirement terminology.
   const isBillChanged = billingHasChanges;
   const footerButtonLabel = 'Save Changes';
-  const footerButtonBackgroundColor = isBillChanged ? '#1687a3' : '#94A3B8';
+  const footerButtonBackgroundColor = isBillChanged ? '#1687a3' : '#A38C77';
 
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-US', {
@@ -1232,7 +1232,7 @@ const goBack = useCallback(() => {
   // ── JSX ────────────────────────────────────────────────────────────────────
   return (
     <View style={s.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#002748" />
+      <StatusBar barStyle="light-content" backgroundColor="#72563C" />
 
       {/* HEADER */}
       <View style={[s.header, { paddingTop: insets.top }]}>
@@ -1256,7 +1256,7 @@ const goBack = useCallback(() => {
             onPress={handleNewOrder}
             style={s.newOrderButton}
           >
-            <Ionicons name="add" size={14} color="#002748" />
+            <Ionicons name="add" size={14} color="#72563C" />
             <Text style={s.newOrderButtonText}>New Order</Text>
           </TouchableOpacity>
         </View>
@@ -1309,7 +1309,7 @@ const goBack = useCallback(() => {
       >
         {isLoadingBillFromDb ? (
           <View style={s.loadingCard}>
-            <ActivityIndicator size="large" color="#002748" />
+            <ActivityIndicator size="large" color="#72563C" />
             <Text style={s.loadingText}>Loading bill...</Text>
           </View>
         ) : (
@@ -1641,7 +1641,7 @@ const goBack = useCallback(() => {
                           <Ionicons
                             name="checkmark"
                             size={18}
-                            color="#FFF"
+                            color="#F8F7F5"
                           />
                         </View>
                         <Text style={s.confirmButtonLabelInlineText}>
@@ -1692,7 +1692,7 @@ const goBack = useCallback(() => {
                             <Ionicons
                               name="chevron-forward"
                               size={18}
-                              color="#002748"
+                              color="#72563C"
                             />
                           </TouchableOpacity>
                         ))
@@ -1799,7 +1799,7 @@ const goBack = useCallback(() => {
                           <Text style={s.presetToggleButtonText}>
                             Preset
                           </Text>
-                          <Ionicons name="albums" size={14} color="#fff" />
+                          <Ionicons name="albums" size={14} color="#F8F7F5" />
                         </TouchableOpacity>
                       </View>
 
@@ -1837,7 +1837,7 @@ const goBack = useCallback(() => {
                             <Ionicons
                               name="checkmark"
                               size={18}
-                              color="#FFF"
+                              color="#F8F7F5"
                             />
                           </View>
                           <Text style={s.confirmButtonLabelInlineText}>
@@ -1915,7 +1915,7 @@ const goBack = useCallback(() => {
                                 <Ionicons
                                   name="close"
                                   size={14}
-                                  color="#fff"
+                                  color="#F8F7F5"
                                 />
                               </TouchableOpacity>
                             </View>
@@ -1941,7 +1941,7 @@ const goBack = useCallback(() => {
                               <Ionicons
                                 name="chevron-down"
                                 size={20}
-                                color="#0062AA"
+                                color="#72563C"
                               />
                             </TouchableOpacity>
                           </View>
@@ -1992,7 +1992,7 @@ const goBack = useCallback(() => {
                     <View style={s.presetsDivider} />
                     {billingLoadingPresets ? (
                       <View style={s.presetsLoaderWrap}>
-                        <ActivityIndicator size="small" color="#002748" />
+                        <ActivityIndicator size="small" color="#72563C" />
                       </View>
                     ) : (
                       <ScrollView
@@ -2013,7 +2013,7 @@ const goBack = useCallback(() => {
                           <View style={s.presetsLoaderWrap}>
                             <Text
                               style={{
-                                color: 'rgba(0,39,72,0.7)',
+                                color: 'rgba(114,86,60,0.7)',
                                 fontSize: 13,
                               }}
                             >
@@ -2035,7 +2035,7 @@ const goBack = useCallback(() => {
       {isHydratingBill && (
         <View style={s.loadingOverlay} pointerEvents="auto">
           <View style={s.loadingCard}>
-            <ActivityIndicator size="large" color="#002748" />
+            <ActivityIndicator size="large" color="#72563C" />
             <Text style={s.loadingText}>Loading active bill...</Text>
           </View>
         </View>
@@ -2235,7 +2235,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
   const presetsLoaderPadV = isTablet ? 26 : isSmall ? 12 : 18;
 
   return StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#FFF' },
+    container: { flex: 1, backgroundColor: '#F8F7F5' },
 
     header: {
       height: scale(headerH),
@@ -2243,7 +2243,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: '#002748',
+      backgroundColor: '#72563C',
     },
     headerTopRow: {
       flexDirection: 'row',
@@ -2261,11 +2261,11 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     backIcon: {
       width: scale(backIconSize),
       height: scale(backIconSize),
-      tintColor: '#FFF',
+      tintColor: '#F8F7F5',
     },
     headerTitle: {
       fontWeight: '500',
-      color: '#FFF',
+      color: '#F8F7F5',
       textAlign: 'center',
       flex: 1,
       fontSize: scale(titleFs),
@@ -2275,7 +2275,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       height: scale(newOrderBtnH),
       paddingHorizontal: scale(newOrderBtnPadH),
       borderRadius: newOrderBtnR,
-      backgroundColor: 'rgba(255,255,255,0.94)',
+      backgroundColor: 'rgba(248,247,245,0.94)',
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
@@ -2287,7 +2287,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       elevation: 2,
     },
     newOrderButtonText: {
-      color: '#002748',
+      color: '#72563C',
       fontSize: scale(newOrderFs),
       fontWeight: '700',
       letterSpacing: 0.2,
@@ -2302,8 +2302,8 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       alignItems: 'center',
     },
     toastBannerText: {
-      backgroundColor: 'rgba(0, 39, 72, 0.96)',
-      color: '#FFF',
+      backgroundColor: 'rgba(114,86,60, 0.96)',
+      color: '#F8F7F5',
       paddingVertical: scale(toastPadV),
       paddingHorizontal: scale(toastPadH),
       borderRadius: toastRadius,
@@ -2318,7 +2318,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     },
 
     fixedInfo: {
-      backgroundColor: '#FFF',
+      backgroundColor: '#F8F7F5',
       paddingTop: scale(fixedInfoPadT),
       paddingBottom: scale(fixedInfoPadB),
       paddingHorizontal: scale(hPad),
@@ -2400,7 +2400,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       paddingVertical: scale(inlineVoidPadV),
     },
     inlineVoidActionText: {
-      color: '#FFF',
+      color: '#F8F7F5',
       fontSize: scale(inlineVoidFs),
       fontWeight: '600',
     },
@@ -2428,19 +2428,19 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       height: scale(addMoreH),
       borderRadius: scale(addMoreRadius),
       borderWidth: addMoreBW,
-      borderColor: '#002748',
+      borderColor: '#72563C',
       backgroundColor: 'transparent',
       alignItems: 'center',
       justifyContent: 'center',
     },
     addMoreText: {
-      color: '#002748',
+      color: '#72563C',
       fontSize: scale(addMoreFs),
       fontWeight: '700',
     },
 
     footer: {
-      backgroundColor: '#FFF',
+      backgroundColor: '#F8F7F5',
       paddingTop: scale(footerPadT),
       paddingBottom: scale(footerPadB) + bottomInset,
       paddingHorizontal: scale(hPad),
@@ -2458,8 +2458,8 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     },
     totalLabel: { fontWeight: '500', color: '#000', fontSize: scale(totalFs) },
     totalValue: { fontWeight: '500', color: '#000', fontSize: scale(totalFs) },
-    netTotalLabel: { fontWeight: '700', color: '#002748', fontSize: scale(netTotalFs) },
-    netTotalValue: { fontWeight: '700', color: '#002748', fontSize: scale(netTotalFs) },
+    netTotalLabel: { fontWeight: '700', color: '#72563C', fontSize: scale(netTotalFs) },
+    netTotalValue: { fontWeight: '700', color: '#72563C', fontSize: scale(netTotalFs) },
     printBtn: {
       height: scale(printBtnH),
       borderRadius: scale(printBtnRadius),
@@ -2469,7 +2469,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       gap: scale(printBtnGap),
       marginTop: scale(12),
     },
-    printText: { color: '#FFF', fontWeight: '700', fontSize: scale(printFs) },
+    printText: { color: '#F8F7F5', fontWeight: '700', fontSize: scale(printFs) },
 
     loadingOverlay: {
       ...StyleSheet.absoluteFillObject,
@@ -2482,7 +2482,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       paddingVertical: scale(loadingCardPadV),
       paddingHorizontal: scale(loadingCardPadH),
       borderRadius: scale(loadingCardR),
-      backgroundColor: '#FFF',
+      backgroundColor: '#F8F7F5',
       alignItems: 'center',
       gap: scale(loadingCardGap),
       shadowColor: '#000',
@@ -2492,7 +2492,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       elevation: 5,
     },
     loadingText: {
-      color: '#002748',
+      color: '#72563C',
       fontSize: scale(loadingTextFs),
       fontWeight: '600',
       textAlign: 'center',
@@ -2510,7 +2510,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       maxWidth: scale(560),
       height: scale(voidCardH),
       borderRadius: scale(voidCardRadius),
-      backgroundColor: '#FFF',
+      backgroundColor: '#F8F7F5',
       padding: scale(voidCardPad),
       overflow: 'hidden',
       elevation: 18,
@@ -2550,7 +2550,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       height: scale(managerInputH),
       borderRadius: scale(managerInputR),
       borderWidth: managerInputBW,
-      borderColor: '#0062AA',
+      borderColor: '#72563C',
       paddingHorizontal: scale(managerInputPH),
       justifyContent: 'center',
     },
@@ -2587,7 +2587,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       borderRadius: scale(presetBackR),
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'rgba(0, 39, 72, 0.08)',
+      backgroundColor: 'rgba(114,86,60, 0.08)',
     },
     presetBackButtonSpacer: {
       width: scale(presetBackBtnSz),
@@ -2617,7 +2617,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     },
     presetListRowText: {
       flex: 1,
-      color: '#002748',
+      color: '#72563C',
       fontSize: scale(presetRowFs),
       fontWeight: '500',
     },
@@ -2627,7 +2627,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       paddingVertical: scale(presetEmptyPadV),
     },
     presetListEmptyText: {
-      color: 'rgba(0, 39, 72, 0.7)',
+      color: 'rgba(114,86,60, 0.7)',
       fontSize: scale(presetEmptyFs),
       fontWeight: '500',
       textAlign: 'center',
@@ -2679,7 +2679,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       height: scale(textareaH),
       borderRadius: scale(textareaRadius),
       borderWidth: textareaBW,
-      borderColor: '#0062AA',
+      borderColor: '#72563C',
       padding: scale(textareaPad),
       justifyContent: 'flex-start',
     },
@@ -2704,7 +2704,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       justifyContent: 'space-between',
     },
     presetToggleButtonText: {
-      color: '#FFF',
+      color: '#F8F7F5',
       fontSize: scale(presetToggleFs),
       fontWeight: '600',
     },
@@ -2717,7 +2717,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       height: scale(singleInputH),
       borderRadius: scale(singleInputR),
       borderWidth: singleInputBW,
-      borderColor: '#0062AA',
+      borderColor: '#72563C',
       paddingHorizontal: scale(singleInputPH),
       color: 'black',
       fontSize: scale(singleInputFs),
@@ -2778,7 +2778,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       maxWidth: scale(560),
       height: scale(remarkCardH),
       borderRadius: scale(remarkCardRadius),
-      backgroundColor: '#fff',
+      backgroundColor: '#F8F7F5',
       padding: scale(remarkCardPad),
       overflow: 'hidden',
       elevation: 18,
@@ -2811,7 +2811,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     remarkCardContent: { paddingBottom: scale(4) },
     presetsDivider: {
       height: 1,
-      backgroundColor: '#E2E8F0',
+      backgroundColor: '#CFBDAA',
       marginBottom: scale(8),
     },
     presetsLoaderWrap: {
@@ -2836,7 +2836,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       justifyContent: 'center',
     },
     saveRemarkText: {
-      color: '#FFF',
+      color: '#F8F7F5',
       fontSize: scale(saveRemarkFs),
       fontWeight: '600',
     },
@@ -2847,7 +2847,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       marginBottom: scale(tagsWrapMB),
     },
     tagBadge: {
-      backgroundColor: '#0062AA',
+      backgroundColor: '#72563C',
       paddingHorizontal: scale(tagPadH),
       paddingVertical: scale(tagPadV),
       borderRadius: scale(tagRadius),
@@ -2858,7 +2858,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     },
     tagLabelBtn: { paddingRight: scale(4) },
     tagText: {
-      color: '#FFF',
+      color: '#F8F7F5',
       fontSize: scale(tagFs),
       marginRight: scale(6),
     },
@@ -2887,13 +2887,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       justifyContent: 'center',
     },
     addTagBtn: {
-      backgroundColor: '#002748',
+      backgroundColor: '#72563C',
       paddingHorizontal: scale(addTagPH),
       paddingVertical: scale(addTagPV),
       borderRadius: scale(addTagRadius),
     },
     addTagText: {
-      color: '#FFF',
+      color: '#F8F7F5',
       fontWeight: '700',
       fontSize: scale(addTagFs),
     },
@@ -2928,7 +2928,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     billingSectionHeaderLine: {
       flex: 1,
       height: 3,
-      backgroundColor: 'rgba(0,39,72,0.12)',
+      backgroundColor: 'rgba(114,86,60,0.12)',
     },
   });
 }

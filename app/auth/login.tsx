@@ -477,7 +477,7 @@ export default function LoginScreen() {
   // ─── RENDER ───────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
 
       <View
         style={[
@@ -529,7 +529,7 @@ export default function LoginScreen() {
               height:       inputH,
               fontSize:     inputFs,
               borderRadius: inputRadius,
-              borderColor:  usernameError ? '#D32F2F' : '#075EA7',
+              borderColor:  usernameError ? '#D32F2F' : '#72563C',
             },
           ]}
           value={username}
@@ -562,7 +562,7 @@ export default function LoginScreen() {
         />
         {usernameChecking ? (
           <View style={styles.errorRow}>
-            <Text style={[styles.errorText, { color: '#075EA7' }]}>
+            <Text style={[styles.errorText, { color: '#72563C' }]}>
               Checking username…
             </Text>
           </View>
@@ -582,7 +582,7 @@ export default function LoginScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  passwordError ? '#D32F2F' : '#075EA7',
+              borderColor:  passwordError ? '#D32F2F' : '#72563C',
             },
           ]}
         >
@@ -646,13 +646,13 @@ export default function LoginScreen() {
           activeOpacity={0.85}
         >
           {isBiometricChecking ? (
-            <ActivityIndicator size="small" color="#002748" />
+            <ActivityIndicator size="small" color="#72563C" />
           ) : (
             <>
               <Ionicons
                 name={biometricLabel === 'Use Face Unlock' ? 'scan-outline' : 'finger-print-outline'}
                 size={isTablet ? 27 : 22}
-                color="#002748"
+                color="#72563C"
               />
               <Text style={[styles.biometricText, { fontSize: btnFs - 2 }]}>{biometricLabel}</Text>
             </>
@@ -663,7 +663,7 @@ export default function LoginScreen() {
       {/* SIGN UP */}
       <View style={[styles.signupContainer, { marginTop: signupMT }]}>
         <Text style={[styles.signupText, { fontSize: signupFs }]}>
-          Don't have an account?
+          Don&apos;t have an account?
         </Text>
         <TouchableOpacity onPress={() => router.push('/auth/signup')}>
           <Text style={[styles.signupLink, { fontSize: signupFs }]}>{' '}Sign Up</Text>
@@ -706,7 +706,7 @@ export default function LoginScreen() {
         <View style={styles.dailySyncOverlay}>
           <View style={styles.dailySyncCard}>
             <View style={styles.dailySyncIcon}>
-              <ActivityIndicator size="large" color="#FFFFFF" />
+              <ActivityIndicator size="large" color="#F8F7F5" />
             </View>
             <Text style={styles.dailySyncTitle}>Daily Menu Update</Text>
             <Text style={styles.dailySyncSubtitle}>Preparing today’s menu for you</Text>
@@ -730,7 +730,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex:            1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8F7F5',
   },
 
   topCircle: {
@@ -754,7 +754,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 28,
-    backgroundColor: 'rgba(0,39,72,0.60)',
+    backgroundColor: 'rgba(114,86,60,0.60)',
   },
   dailySyncCard: {
     width: '100%',
@@ -763,8 +763,8 @@ const styles = StyleSheet.create({
     paddingVertical: 28,
     alignItems: 'center',
     borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000000',
+    backgroundColor: '#F8F7F5',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.22,
     shadowRadius: 18,
@@ -776,10 +776,10 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#002748',
+    backgroundColor: '#72563C',
   },
-  dailySyncTitle: { color: '#002748', fontSize: 21, fontWeight: '800', marginTop: 16 },
-  dailySyncSubtitle: { color: '#64748B', fontSize: 13, marginTop: 6 },
+  dailySyncTitle: { color: '#72563C', fontSize: 21, fontWeight: '800', marginTop: 16 },
+  dailySyncSubtitle: { color: '#A38C77', fontSize: 13, marginTop: 6 },
   dailySyncProgressHeader: {
     width: '100%',
     flexDirection: 'row',
@@ -788,18 +788,18 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 25,
   },
-  dailySyncStage: { flex: 1, color: '#334155', fontSize: 12, fontWeight: '600' },
-  dailySyncPercent: { color: '#002748', fontSize: 13, fontWeight: '800' },
+  dailySyncStage: { flex: 1, color: '#A38C77', fontSize: 12, fontWeight: '600' },
+  dailySyncPercent: { color: '#72563C', fontSize: 13, fontWeight: '800' },
   dailySyncTrack: {
     width: '100%',
     height: 10,
     marginTop: 9,
     overflow: 'hidden',
     borderRadius: 8,
-    backgroundColor: '#E6EEF3',
+    backgroundColor: '#F8F7F5',
   },
-  dailySyncFill: { height: '100%', borderRadius: 8, backgroundColor: '#075EA7' },
-  dailySyncNote: { color: '#94A3B8', fontSize: 11, textAlign: 'center', lineHeight: 17, marginTop: 13 },
+  dailySyncFill: { height: '100%', borderRadius: 8, backgroundColor: '#72563C' },
+  dailySyncNote: { color: '#A38C77', fontSize: 11, textAlign: 'center', lineHeight: 17, marginTop: 13 },
 
   logoContainer: {
     alignItems: 'center',
@@ -820,7 +820,7 @@ const styles = StyleSheet.create({
     borderWidth:       1.5,
     paddingHorizontal: 16,
     color:             '#000',
-    backgroundColor:   '#fff',
+    backgroundColor:   '#F8F7F5',
   },
 
   inputWrapper: {
@@ -829,7 +829,7 @@ const styles = StyleSheet.create({
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: 16,
-    backgroundColor:   '#fff',
+    backgroundColor:   '#F8F7F5',
   },
 
   inputInner: {
@@ -860,19 +860,19 @@ const styles = StyleSheet.create({
   },
 
   forgotText: {
-    color:      '#075EA7',
+    color:      '#72563C',
     fontWeight: '500',
   },
 
   loginButton: {
     width:           '100%',
-    backgroundColor: '#0062AA',
+    backgroundColor: '#72563C',
     justifyContent:  'center',
     alignItems:      'center',
   },
 
   loginText: {
-    color:      '#fff',
+    color:      '#F8F7F5',
     fontWeight: '700',
   },
 
@@ -883,10 +883,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: '#075EA7',
-    backgroundColor: '#EEF7FD',
+    borderColor: '#72563C',
+    backgroundColor: '#F8F7F5',
   },
-  biometricText: { color: '#002748', fontWeight: '700' },
+  biometricText: { color: '#72563C', fontWeight: '700' },
 
   signupContainer: {
     flexDirection:  'row',
@@ -898,7 +898,7 @@ const styles = StyleSheet.create({
   },
 
   signupLink: {
-    color:      '#075EA7',
+    color:      '#72563C',
     fontWeight: '600',
   },
 
@@ -918,7 +918,7 @@ const styles = StyleSheet.create({
     borderColor:       '#B0BEC5',
     paddingHorizontal: 14,
     color:             '#000',
-    backgroundColor:   '#F8FAFC',
+    backgroundColor:   '#F8F7F5',
     fontSize:          14,
   },
 
@@ -930,7 +930,7 @@ const styles = StyleSheet.create({
   },
 
   devBtnText: {
-    color:      '#fff',
+    color:      '#F8F7F5',
     fontWeight: '600',
     fontSize:   14,
   },

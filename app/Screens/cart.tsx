@@ -21,8 +21,8 @@ import { apiClient, getCachedOrderDescriptions } from '../../services/api';
 import { useAuthStore } from '../../services/authStore';
 import { CartItem, useCartStore } from '../../services/cartStore';
 import useItemStore from '../../services/itemStore';
-import { useMenuSessionStore } from '../../services/menuSessionStore';
 import { useOrderStore } from '../../services/orderStore';
+import { useMenuSessionStore } from '../../services/menuSessionStore';
 
 type CartDisplayItem = CartItem & {
   isExisting?: boolean;
@@ -1021,7 +1021,7 @@ export default function CartScreen() {
                                 <Ionicons
                                   name="close"
                                   size={14}
-                                  color="#fff"
+                                  color="#F8F7F5"
                                 />
                               </TouchableOpacity>
                             </View>
@@ -1045,7 +1045,7 @@ export default function CartScreen() {
                               <Ionicons
                                 name="chevron-down"
                                 size={20}
-                                color="#0062AA"
+                                color="#72563C"
                               />
                             </TouchableOpacity>
                           </View>
@@ -1094,7 +1094,7 @@ export default function CartScreen() {
 
                     {loadingRemarkOptions ? (
                       <View style={styles.presetsLoaderWrap}>
-                        <ActivityIndicator size="small" color="#002748" />
+                        <ActivityIndicator size="small" color="#72563C" />
                       </View>
                     ) : (
                       <ScrollView
@@ -1230,7 +1230,7 @@ export default function CartScreen() {
           disabled={confirming}
         >
           {confirming ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <ActivityIndicator size="small" color="#F8F7F5" />
           ) : (
             <>
               <Text
@@ -1299,7 +1299,7 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
   dropdown: {
     position: 'absolute',
-    backgroundColor: '#FFF',
+    backgroundColor: '#F8F7F5',
     borderRadius: 14,
     paddingVertical: 8,
     elevation: 8,
@@ -1315,7 +1315,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  dropdownTitle: { fontWeight: '700', color: '#002748' },
+  dropdownTitle: { fontWeight: '700', color: '#72563C' },
   dropdownClose: { color: '#888', fontWeight: '600' },
   ddDivider: { height: 1, backgroundColor: '#EEE', marginVertical: 4 },
   dropdownRow: {
@@ -1330,11 +1330,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     marginTop: 4,
     marginBottom: 6,
-    backgroundColor: '#002748',
+    backgroundColor: '#72563C',
     borderRadius: 10,
     alignItems: 'center',
   },
-  changeTableText: { color: '#FFF', fontWeight: '700' },
+  changeTableText: { color: '#F8F7F5', fontWeight: '700' },
 
   actionHeaderRow: {
     flexDirection: 'row',
@@ -1360,32 +1360,32 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: '#002748',
+    borderColor: '#72563C',
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  addMoreText: { color: '#002748', fontSize: 16, fontWeight: '700' },
+  addMoreText: { color: '#72563C', fontSize: 16, fontWeight: '700' },
 
   itemContainer: { marginTop: 24 },
   itemContainerReadOnly: { opacity: 0.55 },
   itemContainerNew: {
     borderWidth: 1.5,
-    borderColor: '#0062AA',
+    borderColor: '#72563C',
     borderRadius: 10,
     padding: 10,
     marginTop: 16,
     backgroundColor: 'rgba(0,98,170,0.04)',
   },
   newBadge: {
-    backgroundColor: '#0062AA',
+    backgroundColor: '#72563C',
     borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 2,
     flexShrink: 0,
   },
   newBadgeText: {
-    color: '#fff',
+    color: '#F8F7F5',
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -1403,9 +1403,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
     marginRight: 8,
   },
-  itemNameReadOnly: { color: '#6B7280' },
+  itemNameReadOnly: { color: '#A38C77' },
   itemPrice: { color: 'black', fontWeight: '400', marginTop: 4 },
-  itemPriceReadOnly: { color: '#6B7280' },
+  itemPriceReadOnly: { color: '#A38C77' },
   itemRemarkBlock: { marginTop: 6, alignSelf: 'stretch' },
   itemFooter: {
     flexDirection: 'row',
@@ -1415,15 +1415,15 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   remarkBtn: { flexShrink: 1 },
-  remarkText: { color: '#64748B', fontWeight: '600' },
-  remarkTextReadOnly: { color: '#9CA3AF' },
+  remarkText: { color: '#A38C77', fontWeight: '600' },
+  remarkTextReadOnly: { color: '#A38C77' },
   remarkPreview: {
-    color: '#64748B',
+    color: '#A38C77',
     fontSize: 12,
     maxWidth: '100%',
     textAlign: 'left',
   },
-  remarkPreviewReadOnly: { color: '#9CA3AF' },
+  remarkPreviewReadOnly: { color: '#A38C77' },
   quantityContainer: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   qtyBtn: {
     borderWidth: 1,
@@ -1431,11 +1431,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  qtyBtnDisabled: { borderColor: '#CBD5E1', backgroundColor: '#F8FAFC' },
+  qtyBtnDisabled: { borderColor: '#CFBDAA', backgroundColor: '#F8F7F5' },
   qtyText: { fontSize: 18, fontWeight: '500' },
-  qtyTextDisabled: { color: '#94A3B8' },
+  qtyTextDisabled: { color: '#A38C77' },
   qtyValue: { fontWeight: '500', minWidth: 20, textAlign: 'center' },
-  qtyValueReadOnly: { color: '#94A3B8' },
+  qtyValueReadOnly: { color: '#A38C77' },
   divider: {
     height: 1,
     backgroundColor: 'rgba(0,0,0,0.1)',
@@ -1475,7 +1475,7 @@ const styles = StyleSheet.create({
     maxWidth: 560,
     height: 320,
     borderRadius: 20,
-    backgroundColor: '#fff',
+    backgroundColor: '#F8F7F5',
     padding: 16,
     overflow: 'hidden',
     elevation: 18,
@@ -1506,7 +1506,7 @@ const styles = StyleSheet.create({
   remarkCardBody: { flex: 1 },
   remarkScrollArea: { flex: 1 },
   remarkCardContent: { paddingBottom: 4 },
-  presetsDivider: { height: 1, backgroundColor: '#E2E8F0', marginBottom: 8 },
+  presetsDivider: { height: 1, backgroundColor: '#CFBDAA', marginBottom: 8 },
   presetsLoaderWrap: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1528,7 +1528,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  saveRemarkText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+  saveRemarkText: { color: '#F8F7F5', fontSize: 16, fontWeight: '600' },
   tagsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1536,7 +1536,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   tagBadge: {
-    backgroundColor: '#0062AA',
+    backgroundColor: '#72563C',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 16,
@@ -1546,7 +1546,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   tagLabelBtn: { paddingRight: 4 },
-  tagText: { color: '#FFF', fontSize: 13, marginRight: 6 },
+  tagText: { color: '#F8F7F5', fontSize: 13, marginRight: 6 },
   tagClose: {
     width: 18,
     height: 18,
@@ -1572,12 +1572,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   addTagBtn: {
-    backgroundColor: '#002748',
+    backgroundColor: '#72563C',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
   },
-  addTagText: { color: '#FFF', fontWeight: '700' },
+  addTagText: { color: '#F8F7F5', fontWeight: '700' },
   presetsListContent: { paddingVertical: 2 },
   presetsRow: {
     paddingVertical: 12,
@@ -1604,6 +1604,6 @@ const styles = StyleSheet.create({
   sectionHeaderLine: {
     flex: 1,
     height: 3,
-    backgroundColor: 'rgba(0,39,72,0.12)',
+    backgroundColor: 'rgba(114,86,60,0.12)',
   },
 });

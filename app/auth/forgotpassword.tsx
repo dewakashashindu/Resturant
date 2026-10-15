@@ -80,7 +80,7 @@ const [message, setMessage] = useState('');
 
   return (
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
 
       {/*  DECORATIVE CIRCLES  */}
       <View style={[styles.topCircle, {
@@ -171,7 +171,7 @@ const [message, setMessage] = useState('');
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8F7F5',
   },
 
   
@@ -221,21 +221,21 @@ const styles = StyleSheet.create({
   input: {
     width: '100%',
     borderWidth: 1.5,
-    borderColor: '#075EA7',
+    borderColor: '#72563C',
     paddingHorizontal: 16,
     color: '#000',
-    backgroundColor: '#fff',
+    backgroundColor: '#F8F7F5',
   },
 
   
   button: {
     width: '100%',
-    backgroundColor: '#0062AA',
+    backgroundColor: '#72563C',
     justifyContent: 'center',
     alignItems: 'center',
   },
   buttonText: {
-    color: '#FFF',
+    color: '#F8F7F5',
     fontWeight: '700',
   },
 
@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
     color: '#3B4054',
   },
   signupLink: {
-    color: '#075EA7',
+    color: '#72563C',
     fontWeight: '600',
   },
 });

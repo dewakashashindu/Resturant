@@ -4,25 +4,26 @@
  */
 
 import { Platform } from 'react-native';
+import { MilaBrand } from './brand';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+const tintColorLight = MilaBrand.primary;
+const tintColorDark = MilaBrand.card;
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
+    text: MilaBrand.primary,
+    background: MilaBrand.canvas,
     tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
+    icon: MilaBrand.muted,
+    tabIconDefault: MilaBrand.muted,
     tabIconSelected: tintColorLight,
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
+    text: MilaBrand.card,
+    background: MilaBrand.primary,
     tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
+    icon: MilaBrand.soft,
+    tabIconDefault: MilaBrand.soft,
     tabIconSelected: tintColorDark,
   },
 };
