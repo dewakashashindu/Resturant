@@ -26,6 +26,7 @@ export default function HomeScreen() {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const userName = useAuthStore((state) => state.user?.userName);
+  const stationType = useAuthStore((state) => state.user?.stationType);
   const savedMenuSession = useMenuSessionStore((state) => state.diningSession);
   const clearMenuSession = useMenuSessionStore((state) => state.clearDiningSession);
   const clearCart = useCartStore((state) => state.clearCart);
@@ -271,7 +272,11 @@ export default function HomeScreen() {
 
         {/* GRID */}
         <View style={[styles.grid, { gap: cardGap }]}>
-          {cards.filter((item) => item.visible).map((item) => (
+          {cards
+            .filter((item) => item.visible)
+            .filter((item) => item.title !== 'KDS' || stationType !== 'B')
+            .filter((item) => item.title !== 'BDS' || stationType !== 'K')
+            .map((item) => (
             <TouchableOpacity
               key={item.title}
               style={[

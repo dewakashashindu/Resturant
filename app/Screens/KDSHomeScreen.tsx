@@ -29,6 +29,11 @@ import { useNotificationStore } from '../../services/notificationStore';
 
 type KdsStatus = 'S' | 'P' | 'D';
 type KdsQueueType = 'K' | 'B';
+type KdsWaitingConfig = {
+  toDoAmberMinutes: number;
+  toDoRedMinutes: number;
+  inProgressAmberMinutes: number;
+};
 
 type KdsItem = {
   id: string;
@@ -158,15 +163,17 @@ const relativeTime = (value: string | null, now = Date.now()) => {
   return hours < 24 ? `${hours}h ${minutes % 60}m` : `${Math.floor(hours / 24)}d`;
 };
 
-const itemAlertLevel = (item: KdsItem, now: number): AlertLevel => {
+const itemAlertLevel = (item: KdsItem, now: number, waitingConfig: KdsWaitingConfig): AlertLevel => {
   if (item.status === 'S') {
     const waiting = elapsedMinutes(item.placedTime, now);
-    if (waiting > 6) return 'red';
-    if (waiting >= 3) return 'amber';
+    if (waitingConfig.toDoRedMinutes > 0 && waiting >= waitingConfig.toDoRedMinutes) return 'red';
+    if (waitingConfig.toDoAmberMinutes > 0 && waiting >= waitingConfig.toDoAmberMinutes) return 'amber';
     return 'normal';
   }
   if (item.status === 'P') {
-    const prepDuration = Math.max(0, Number(item.prepDuration) || 0);
+    const prepDuration = waitingConfig.inProgressAmberMinutes > 0
+      ? waitingConfig.inProgressAmberMinutes
+      : Math.max(0, Number(item.prepDuration) || 0);
     if (prepDuration <= 0) return 'normal';
     const progressing = elapsedMinutes(item.proStarted || item.placedTime, now);
     if (progressing >= prepDuration) return 'red';
@@ -175,8 +182,8 @@ const itemAlertLevel = (item: KdsItem, now: number): AlertLevel => {
   return 'normal';
 };
 
-const orderAlertLevel = (order: KdsOrderGroup, now: number): AlertLevel => order.items.reduce<AlertLevel>((highest, item) => {
-  const next = itemAlertLevel(item, now);
+const orderAlertLevel = (order: KdsOrderGroup, now: number, waitingConfig: KdsWaitingConfig): AlertLevel => order.items.reduce<AlertLevel>((highest, item) => {
+  const next = itemAlertLevel(item, now, waitingConfig);
   return ALERT_RANK[next] > ALERT_RANK[highest] ? next : highest;
 }, 'normal');
 
@@ -308,8 +315,8 @@ const itemStyleForAlertLevel = (level: AlertLevel, styles: any) =>
 
 type AlertSummary = Record<AlertLevel, number>;
 
-const summarizeOrderAlerts = (orders: KdsOrderGroup[], now: number): AlertSummary => orders.reduce<AlertSummary>((summary, order) => {
-  summary[orderAlertLevel(order, now)] += 1;
+const summarizeOrderAlerts = (orders: KdsOrderGroup[], now: number, waitingConfig: KdsWaitingConfig): AlertSummary => orders.reduce<AlertSummary>((summary, order) => {
+  summary[orderAlertLevel(order, now, waitingConfig)] += 1;
   return summary;
 }, { normal: 0, amber: 0, red: 0 });
 
@@ -457,6 +464,7 @@ type OrderGroupProps = {
   order: KdsOrderGroup;
   status: KdsStatus;
   now: number;
+  waitingConfig: KdsWaitingConfig;
   updatingItemId: string | null;
   updatingOrderId: string | null;
   onItemPress: (item: KdsItem) => void;
@@ -469,6 +477,7 @@ function OrderGroup({
   order,
   status,
   now,
+  waitingConfig,
   updatingItemId,
   updatingOrderId,
   onItemPress,
@@ -478,7 +487,7 @@ function OrderGroup({
 }: OrderGroupProps) {
   const { styles, scale } = React.useContext(KdsUiContext);
   const takeAway = order.orderMode.toUpperCase().includes('TAKE') || order.tableNo.toUpperCase().startsWith('TA');
-  const cardAlertLevel = orderAlertLevel(order, now);
+  const cardAlertLevel = orderAlertLevel(order, now, waitingConfig);
   const isTodo = status === 'S';
   return (
     <View style={[styles.orderCard, cardStyleForAlertLevel(cardAlertLevel, styles)]}>
@@ -510,7 +519,7 @@ function OrderGroup({
           <KdsOrderItemRow
             key={item.id}
             item={item}
-            alertLevel={itemAlertLevel(item, now)}
+            alertLevel={itemAlertLevel(item, now, waitingConfig)}
             disabled={Boolean(updatingItemId) || Boolean(updatingOrderId)}
             queueMoreQuantity={isTodo ? queueMoreQuantityForItem(item) : 0}
             onPress={onItemPress}
@@ -547,6 +556,11 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const isKdsScreenFocused = useIsFocused();
   const [appState, setAppState] = useState<AppStateStatus>(() => AppState.currentState);
   const [items, setItems] = useState<KdsItem[]>([]);
+  const [waitingConfig, setWaitingConfig] = useState<KdsWaitingConfig>({
+    toDoAmberMinutes: 0,
+    toDoRedMinutes: 0,
+    inProgressAmberMinutes: 0,
+  });
   const kdsQueueType = stationType;
   const [searchQuery, setSearchQuery] = useState('');
   const [now, setNow] = useState(() => Date.now());
@@ -606,6 +620,14 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         // client guard too, so a mixed/cached proxy response cannot put Bar
         // lines on KDS or Kitchen lines on BDS during a poll.
         .filter((item: KdsItem) => queueTypeFor(item.type) === kdsQueueType);
+      const nextConfig = response.data.waitingConfig;
+      if (nextConfig) {
+        setWaitingConfig({
+          toDoAmberMinutes: Math.max(0, Number(nextConfig.toDoAmberMinutes) || 0),
+          toDoRedMinutes: Math.max(0, Number(nextConfig.toDoRedMinutes) || 0),
+          inProgressAmberMinutes: Math.max(0, Number(nextConfig.inProgressAmberMinutes) || 0),
+        });
+      }
       setItems((current) => mergeKdsItems(current, nextItems));
     } catch (error) {
       if (requestId !== loadRequestRef.current) return;
@@ -630,8 +652,8 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
     return () => clearInterval(timer);
   }, [isKdsAppActive, isKdsScreenFocused, loadOrders]);
 
-  // Timers must repaint independently of queue polling so 3/6 minute and
-  // PrepDuration thresholds turn colour at the correct time.
+  // Timers repaint independently of queue polling so database-configured
+  // waiting thresholds turn colour at the correct time.
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15_000);
     return () => clearInterval(timer);
@@ -647,7 +669,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
       // response is ever returned by a proxy/view.
       .filter((item) => item.status === 'S'
         && queueTypeFor(item.type) === kdsQueueType
-        && itemAlertLevel(item, now) === 'red')
+        && itemAlertLevel(item, now, waitingConfig) === 'red')
       .forEach((delayedItem) => {
         const id = orderKeyFor(delayedItem);
         if (delayedOrders.has(id)) return;
@@ -686,7 +708,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         delayAlertedRef.current.add(key);
         void speakKdsDelayAlert(order, () => voiceAllowedRef.current);
       });
-  }, [isVoiceAllowed, items, kdsQueueType, now, soundEnabled]);
+  }, [isVoiceAllowed, items, kdsQueueType, now, soundEnabled, waitingConfig]);
 
   const moveItemToStatus = async (item: KdsItem, target: KdsStatus) => {
     if (target === item.status || updatingItemId || updatingOrderId) return;
@@ -801,8 +823,8 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
 
   // These summary counters always describe the full queue, not the temporary
   // To-Do search result subset.
-  const todoSummary = summarizeOrderAlerts(groupsFor('S'), now);
-  const inProgressSummary = summarizeOrderAlerts(groupsFor('P'), now);
+  const todoSummary = summarizeOrderAlerts(groupsFor('S'), now, waitingConfig);
+  const inProgressSummary = summarizeOrderAlerts(groupsFor('P'), now, waitingConfig);
 
   const todoQueueQuantityByItem = useMemo(() => {
     const totals = new Map<string, number>();
@@ -1134,6 +1156,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                       order={order}
                       status={column.id}
                       now={now}
+                      waitingConfig={waitingConfig}
                       updatingItemId={updatingItemId}
                       updatingOrderId={updatingOrderId}
                       onItemPress={(item) => openItemAction(item)}

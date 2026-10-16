@@ -194,6 +194,39 @@ export default function LoginScreen() {
     return true;
   };
 
+  const checkInDevice = async (
+    deviceId: string,
+    userId: string | number,
+    locCode: unknown,
+    token: string,
+    forceSwitch = false,
+  ) => {
+    const baseIP = (global as any).backendIP || devIP.trim() || '192.168.8.100';
+    const response = await fetch(`http://${baseIP}:3000/api/devices/check-in`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ deviceId, userId: String(userId), locCode: locCode ?? null, forceSwitch }),
+    });
+    const data = await response.json().catch(() => null);
+    return { response, data };
+  };
+
+  const confirmDeviceSwitch = (): Promise<boolean> =>
+    new Promise<boolean>((resolve) => {
+      Alert.alert(
+        'Already logged in',
+        'You are already logged in from another device. Do you want to log out from the previous device and log in on this device?',
+        [
+          { text: 'NO', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'YES, SWITCH DEVICE', onPress: () => resolve(true) },
+        ],
+        { cancelable: true, onDismiss: () => resolve(false) },
+      );
+    });
+
   // ─── MAIN LOGIN HANDLER ───────────────────────────────────────────────────────
   const handleLogin = async () => {
     if (!(global as any).backendIP) {
@@ -283,6 +316,7 @@ export default function LoginScreen() {
           result.data?.user?.groupId ??
           result.data?.groupId       ??
           '1';
+        let stationType: 'K' | 'B' | null = null;
 
         // ─── STEP 2: DEVICE CHECK (only runs after credentials are confirmed valid) ──
         try {
@@ -315,6 +349,7 @@ export default function LoginScreen() {
                 body:    JSON.stringify({
                   deviceId,
                   userId: String(loggedInUserId),
+                  forceSwitch: false,
                   locCode: (
                     result.data?.user?.locCode ??
                     result.data?.user?.LocCode ??
@@ -326,6 +361,20 @@ export default function LoginScreen() {
             );
             deviceData    = await deviceCheckResponse.json();
             deviceCheckOk = deviceCheckResponse.ok;
+
+            if (deviceData?.status === 'session-conflict') {
+              const shouldSwitch = await confirmDeviceSwitch();
+              if (!shouldSwitch) return;
+              const switched = await checkInDevice(
+                deviceId,
+                loggedInUserId,
+                result.data?.user?.locCode ?? result.data?.user?.LocCode ?? result.data?.locCode ?? null,
+                result.data.token,
+                true,
+              );
+              deviceData = switched.data;
+              deviceCheckOk = switched.response.ok;
+            }
 
             console.log('[Login] Device check-in response:', {
               httpStatus: deviceCheckResponse.status,
@@ -349,6 +398,9 @@ export default function LoginScreen() {
           }
 
           console.log('[Login] Device authorized! Saving session...');
+          stationType = deviceData?.stationType === 'K' || deviceData?.stationType === 'B'
+            ? deviceData.stationType
+            : null;
         } catch (deviceError) {
           console.log('[Login] Device Check Error:', deviceError);
           Alert.alert(
@@ -376,6 +428,7 @@ export default function LoginScreen() {
               [],
             picture:  result.data.user?.picture  || null,
             locCode:  result.data.user?.locCode  || null,
+            stationType,
           },
         };
 
@@ -436,16 +489,40 @@ export default function LoginScreen() {
           deviceId,
           userId: String(unlocked.session.user.userId ?? '').trim(),
           locCode: unlocked.session.user.locCode ?? null,
+          forceSwitch: false,
         }),
       });
       const deviceData = await response.json().catch(() => null);
-      if (!response.ok || deviceData?.allowed !== true || String(deviceData?.status ?? '').toLowerCase() !== 'approved') {
+      let approvedResponse = response;
+      let approvedData = deviceData;
+      if (deviceData?.status === 'session-conflict') {
+        const shouldSwitch = await confirmDeviceSwitch();
+        if (!shouldSwitch) return;
+        const switched = await checkInDevice(
+          deviceId,
+          String(unlocked.session.user.userId ?? '').trim(),
+          unlocked.session.user.locCode,
+          unlocked.session.token,
+          true,
+        );
+        approvedResponse = switched.response;
+        approvedData = switched.data;
+      }
+      if (!approvedResponse.ok || approvedData?.allowed !== true || String(approvedData?.status ?? '').toLowerCase() !== 'approved') {
         setPasswordError('This device is no longer approved. Please sign in with your password.');
         return;
       }
 
       if (!(await prepareMenuForAuthenticatedLogin())) return;
-      setSession(unlocked.session);
+      setSession({
+        ...unlocked.session,
+        user: {
+          ...unlocked.session.user,
+          stationType: approvedData?.stationType === 'K' || approvedData?.stationType === 'B'
+            ? approvedData.stationType
+            : unlocked.session.user.stationType ?? null,
+        },
+      });
       router.replace('/(tabs)');
     } catch (error) {
       console.log('[Login] biometric sign in failed', error);

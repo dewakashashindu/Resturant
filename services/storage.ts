@@ -12,4 +12,5 @@ export const AUTH_SESSION_KEYS = {
 	userName: 'auth-user-name',
 	picture: 'auth-user-picture',
 	locCode: 'auth-loc-code',
+	stationType: 'auth-station-type',
 } as const;

@@ -1834,6 +1834,15 @@ app.get('/api/kds/orders', async (req, res) => {
           ItemCode ASC
       `);
 
+    const configResult = await pool.request().query(`
+      SELECT TOP (1)
+        CAST(ToDoAmberWaitingDuration AS float) AS ToDoAmberWaitingDuration,
+        CAST(ToDoRedWaitingDuration AS float) AS ToDoRedWaitingDuration,
+        CAST(InProAmberWaitingDuration AS float) AS InProAmberWaitingDuration
+      FROM dbo.Tbl_KduBduPhp WITH (NOLOCK)
+    `);
+    const configRow = configResult.recordset?.[0] ?? {};
+
     const items = (result.recordset ?? []).map((row) => ({
       orderNo: String(row.OrderNo ?? '').trim(),
       orderMode: String(row.OrderMode ?? '').trim(),
@@ -1854,7 +1863,15 @@ app.get('/api/kds/orders', async (req, res) => {
       prepDuration: Math.max(0, Number(row.PrepDuration ?? 0) || 0),
     })).filter((item) => item.orderNo && item.itemCode);
 
-    return res.json({ ok: true, items });
+    return res.json({
+      ok: true,
+      items,
+      waitingConfig: {
+        toDoAmberMinutes: Math.max(0, Number(configRow.ToDoAmberWaitingDuration) || 0),
+        toDoRedMinutes: Math.max(0, Number(configRow.ToDoRedWaitingDuration) || 0),
+        inProgressAmberMinutes: Math.max(0, Number(configRow.InProAmberWaitingDuration) || 0),
+      },
+    });
   } catch (error) {
     console.log('[KDS] load KOT/BOT queue error', error?.message ?? error);
     return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
@@ -3652,9 +3669,10 @@ app.post('/api/user-floor-access/save', async (req, res) => {
 
 
 app.post('/api/devices/check-in', async (req, res) => {
-  const { deviceId, locCode, userId: requestedUserId } = req.body;
+  const { deviceId, locCode, userId: requestedUserId, forceSwitch } = req.body;
   const resolvedLocCode = String(locCode || '1').trim();
   const requestedUser = String(requestedUserId ?? '').trim().slice(0, 10);
+  const shouldForceSwitch = forceSwitch === true;
 
   console.log(`[Backend] Received device verification request for ID: ${deviceId}, locCode: ${resolvedLocCode}`);
 
@@ -3678,7 +3696,11 @@ app.post('/api/devices/check-in', async (req, res) => {
 
     const checkResult = await pool.request()
       .input('deviceId', sql.VarChar, deviceId)
-      .query('SELECT Warkstation, IsApproved, LocCode FROM Tbl_Warkstation WHERE Warkstation = @deviceId');
+      .query(`
+        SELECT Warkstation, IsApproved, LocCode, KDUOrBDU, UserID
+        FROM Tbl_Warkstation
+        WHERE Warkstation = @deviceId
+      `);
 
     const rows = checkResult.recordset;
 
@@ -3691,6 +3713,28 @@ app.post('/api/devices/check-in', async (req, res) => {
           const assignmentTransaction = new sql.Transaction(pool);
           await assignmentTransaction.begin();
           try {
+            const currentAssignment = await new sql.Request(assignmentTransaction)
+              .input('UserID', sql.VarChar(10), authenticatedUser)
+              .input('DeviceId', sql.VarChar(50), deviceId)
+              .query(`
+                SELECT TOP (1) LTRIM(RTRIM(Warkstation)) AS DeviceId
+                FROM dbo.Tbl_Warkstation WITH (UPDLOCK, HOLDLOCK)
+                WHERE LTRIM(RTRIM(ISNULL(UserID, ''))) = @UserID
+                  AND LTRIM(RTRIM(Warkstation)) <> @DeviceId
+                  AND ISNULL(IsApproved, 0) = 1
+              `);
+            const previousDeviceId = String(currentAssignment.recordset?.[0]?.DeviceId ?? '').trim();
+            if (previousDeviceId && !shouldForceSwitch) {
+              await assignmentTransaction.rollback();
+              return res.status(409).json({
+                allowed: false,
+                status: 'session-conflict',
+                message: 'This user is already logged in on another device.',
+                previousDeviceId,
+                stationType: String(device.KDUOrBDU ?? '').trim().toUpperCase().slice(0, 1) || null,
+              });
+            }
+
             // A steward is mapped to the one device on which they most recently
             // authenticated. This makes KDS notifications unambiguous.
             await new sql.Request(assignmentTransaction)
@@ -3714,7 +3758,13 @@ app.post('/api/devices/check-in', async (req, res) => {
           }
         }
         console.log(`[Backend] Device ${deviceId} is APPROVED. LocCode: ${deviceLocCode}, UserID: ${authenticatedUser || '(not supplied)'}`);
-        return res.json({ allowed: true, status: "approved", locCode: deviceLocCode, userId: authenticatedUser || null });
+        return res.json({
+          allowed: true,
+          status: "approved",
+          locCode: deviceLocCode,
+          userId: authenticatedUser || null,
+          stationType: String(device.KDUOrBDU ?? '').trim().toUpperCase().slice(0, 1) || null,
+        });
       } else {
         console.log(`[Backend] Device ${deviceId} is PENDING approval.`);
         return res.json({ allowed: false, status: "pending", deviceId: deviceId });

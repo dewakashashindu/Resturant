@@ -15,6 +15,7 @@ type BiometricUser = {
   assignedFloors?: string[];
   picture?: string | null;
   locCode?: string | null;
+  stationType?: 'K' | 'B' | null;
 };
 
 export type BiometricSession = {

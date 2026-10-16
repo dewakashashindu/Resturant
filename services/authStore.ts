@@ -16,6 +16,7 @@ type AuthUser = {
   assignedFloors?: string[];
   picture?: string | null;   // base64 string from DB
   locCode?: string | null;
+  stationType?: 'K' | 'B' | null;
 };
 
 type AuthStore = {
@@ -46,6 +47,7 @@ const clearNormalSessionStorage = () => {
   storage.set('assignedFloors', '');
   storage.set(AUTH_SESSION_KEYS.picture, '');
   storage.set(AUTH_SESSION_KEYS.locCode, '');
+  storage.set(AUTH_SESSION_KEYS.stationType, '');
   storage.set(AUTH_SESSION_KEYS.userName, '');
   storage.set(FRESH_LOGIN_FLAG_KEY, '0');
 };
@@ -67,6 +69,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       const mmkvFloorsStr = storage.getString('assignedFloors');
       const mmkvPicture = storage.getString(AUTH_SESSION_KEYS.picture) || null;
       const mmkvLocCode = storage.getString(AUTH_SESSION_KEYS.locCode) || null;
+      const mmkvStationType = storage.getString(AUTH_SESSION_KEYS.stationType) || null;
       const mmkvUserName = storage.getString(AUTH_SESSION_KEYS.userName) || null;
 
       let token = mmkvToken;
@@ -136,6 +139,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
               assignedFloors: assignedFloors,
               picture: picture || null,
               locCode: locCode || null,
+              stationType: mmkvStationType === 'K' || mmkvStationType === 'B' ? mmkvStationType : null,
             }
           : null,
         isAuthenticated: Boolean(token),
@@ -162,6 +166,9 @@ export const useAuthStore = create<AuthStore>((set) => ({
       assignedFloors: (user as any).assignedFloors || [],
       picture: (user as any).picture || null,
       locCode: (user as any).locCode || null,
+      stationType: (user as any).stationType === 'K' || (user as any).stationType === 'B'
+        ? (user as any).stationType
+        : null,
     };
 
     storage.set(AUTH_SESSION_KEYS.token, nextToken);
@@ -172,6 +179,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
     storage.set(AUTH_SESSION_KEYS.userName, String(nextUser.userName));
     if (nextUser.picture) storage.set(AUTH_SESSION_KEYS.picture, nextUser.picture);
     if (nextUser.locCode) storage.set(AUTH_SESSION_KEYS.locCode, String(nextUser.locCode));
+    storage.set(AUTH_SESSION_KEYS.stationType, nextUser.stationType || '');
 
 storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
 
@@ -225,6 +233,7 @@ storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
         mmkvStorage.delete(AUTH_SESSION_KEYS.userId);
         mmkvStorage.delete(AUTH_SESSION_KEYS.groupId);
         mmkvStorage.delete('assignedFloors');
+        mmkvStorage.delete(AUTH_SESSION_KEYS.stationType);
       } else {
         storage.set(AUTH_SESSION_KEYS.token, '');
         storage.set(AUTH_SESSION_KEYS.isLoggedIn, 'false');
@@ -234,6 +243,7 @@ storage.set('assignedFloors', JSON.stringify(nextUser.assignedFloors));
       }
 
       storage.set('assignedFloors', '');
+      storage.set(AUTH_SESSION_KEYS.stationType, '');
       storage.set(FRESH_LOGIN_FLAG_KEY, '0');
       await clearBiometricLogin();
     } catch (error) {
