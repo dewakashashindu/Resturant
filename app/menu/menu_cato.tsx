@@ -1773,7 +1773,11 @@ const FoodMenuScreen = () => {
   const goBack = useCallback(() => {
     setScreen((previous) => {
       if (previous.name === 'subItems') {
-        const parent = foodItems.find((food) => food.name === previous.parentName);
+        const parent = foodItems.find(
+          (food) =>
+            food.name === previous.parentName &&
+            food.category === previous.parentCategory,
+        );
         return parent ? { name: 'detail', item: parent } : { name: 'home' };
       }
       return { name: 'home' };

@@ -1,8 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as Speech from 'expo-speech';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import Tts from 'react-native-tts';
+import * as Speech from 'expo-speech';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -23,6 +22,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Tts from 'react-native-tts';
 
 import { apiClient } from '../../services/api';
 import { useNotificationStore } from '../../services/notificationStore';
@@ -532,6 +532,212 @@ function OrderGroup({
 }
 
 type KdsLoadMode = 'initial' | 'manual' | 'background';
+
+// To Do column layout: 'order' (default, unchanged) or 'item' (one card per
+// item name; tapping it opens a popup that lists the orders for that item).
+type TodoViewMode = 'order' | 'item';
+
+type TodoItemGroupProps = {
+  name: string;
+  rows: KdsItem[];
+  now: number;
+  waitingConfig: KdsWaitingConfig;
+  disabled: boolean;
+  onOpenItem: () => void;
+  onOpenLine: (item: KdsItem) => void;
+};
+
+/** One item (e.g. Chicken Fried Rice). Display only: no selection on the card. */
+function TodoItemGroup({
+  name,
+  rows,
+  now,
+  waitingConfig,
+  disabled,
+  onOpenItem,
+  onOpenLine,
+}: TodoItemGroupProps) {
+  const { styles, scale } = React.useContext(KdsUiContext);
+  const totalQty = rows.reduce((total, row) => total + row.quantity, 0);
+  return (
+    <View style={styles.orderCard}>
+      <TouchableOpacity
+        style={styles.todoGroupHeader}
+        onPress={onOpenItem}
+        disabled={disabled}
+        activeOpacity={0.75}
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${name} orders`}
+      >
+        <View style={styles.todoGroupCopy}>
+          <Text style={styles.todoGroupName} numberOfLines={2}>{name}</Text>
+          <Text style={styles.todoGroupMeta}>{rows.length} {rows.length === 1 ? 'ORDER' : 'ORDERS'}</Text>
+        </View>
+        <View style={styles.todoGroupTotal}>
+          <Text style={styles.todoGroupTotalText}>{totalQty}×</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={Math.round(16 * scale)} color={COLORS.navy} />
+      </TouchableOpacity>
+      <View style={styles.itemsList}>
+        {rows.map((row) => {
+          const alertLevel = itemAlertLevel(row, now, waitingConfig);
+          return (
+            <TouchableOpacity
+              key={row.id}
+              style={[
+                styles.todoLineRow,
+                itemStyleForAlertLevel(alertLevel, styles),
+                disabled && styles.itemRowUpdating,
+              ]}
+              onPress={() => onOpenLine(row)}
+              disabled={disabled}
+              activeOpacity={0.74}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${row.itemName} for order ${row.orderNo}`}
+            >
+              <View style={styles.itemCopy}>
+                <Text style={styles.itemName} numberOfLines={1}>ORDER {row.orderNo}  ·  TABLE {row.tableNo || '—'}</Text>
+                <Text style={styles.todoLineMeta} numberOfLines={1}>
+                  {row.stewardName || '—'} · {relativeTime(row.placedTime, now)} ago
+                </Text>
+                {row.remarks ? <Text style={styles.itemRemark} numberOfLines={2}>{row.remarks}</Text> : null}
+              </View>
+              <View style={styles.qtyPill}><Text style={styles.qtyText}>{row.quantity}×</Text></View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+type TodoItemSheetProps = {
+  visible: boolean;
+  name: string;
+  code: string;
+  rows: KdsItem[];
+  selectedIds: string[];
+  now: number;
+  busy: boolean;
+  isMoving: boolean;
+  onClose: () => void;
+  onToggleLine: (item: KdsItem) => void;
+  onToggleAll: (rows: KdsItem[]) => void;
+  onMove: (lines: KdsItem[]) => void;
+};
+
+/** Popup for one item: its orders are ticked here and moved to In Progress. */
+function TodoItemSheet({
+  visible,
+  name,
+  code,
+  rows,
+  selectedIds,
+  now,
+  busy,
+  isMoving,
+  onClose,
+  onToggleLine,
+  onToggleAll,
+  onMove,
+}: TodoItemSheetProps) {
+  const { styles, scale } = React.useContext(KdsUiContext);
+  const iconSize = (size: number) => Math.round(size * scale);
+  const selectedLines = rows.filter((row) => selectedIds.includes(row.id));
+  const selectedQty = selectedLines.reduce((total, row) => total + row.quantity, 0);
+  const totalQty = rows.reduce((total, row) => total + row.quantity, 0);
+  const allSelected = rows.length > 0 && rows.every((row) => selectedIds.includes(row.id));
+  const canMove = selectedLines.length > 0 && !busy;
+  return (
+    <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
+      <View style={styles.detailsOverlay}>
+        <View style={styles.detailsSheet}>
+          <View style={styles.detailsHeader}>
+            <View style={styles.detailsHeaderCopy}>
+              <Text style={styles.detailsEyebrow}>TO DO ITEM</Text>
+              <Text style={styles.detailsTitle} numberOfLines={2}>{name || '—'}</Text>
+              <Text style={styles.detailsSubtitle}>Item ID: {code || '—'}  ·  {rows.length} {rows.length === 1 ? 'ORDER' : 'ORDERS'}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.closeDetails}
+              onPress={onClose}
+              disabled={isMoving}
+              accessibilityRole="button"
+              accessibilityLabel="Close item orders"
+            >
+              <Ionicons name="close" size={iconSize(21)} color={COLORS.navy} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.detailsOrderFacts}>
+            <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>ORDERS</Text><Text style={styles.detailsFactValue}>{rows.length}</Text></View>
+            <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>TOTAL QTY</Text><Text style={styles.detailsFactValue}>{totalQty}×</Text></View>
+            <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>SELECTED</Text><Text style={styles.detailsFactValue}>{selectedLines.length} · {selectedQty}×</Text></View>
+          </View>
+
+          <TouchableOpacity
+            style={styles.selectAllButton}
+            onPress={() => onToggleAll(rows)}
+            disabled={busy || rows.length === 0}
+            accessibilityRole="button"
+            accessibilityLabel={allSelected ? 'Clear all orders' : 'Select all orders'}
+          >
+            <Ionicons name={allSelected ? 'checkbox' : 'square-outline'} size={iconSize(16)} color={COLORS.blue} />
+            <Text style={styles.selectAllText}>{allSelected ? 'Clear all' : 'Select all'}</Text>
+          </TouchableOpacity>
+          <Text style={styles.detailsHint}>Tap an order to select it. Only the ticked orders move to In Progress.</Text>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailsList}>
+            {rows.map((row) => {
+              const checked = selectedIds.includes(row.id);
+              return (
+                <TouchableOpacity
+                  key={row.id}
+                  style={[styles.detailsItem, checked && styles.detailsItemSelected]}
+                  onPress={() => onToggleLine(row)}
+                  disabled={busy}
+                  activeOpacity={0.75}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked }}
+                  accessibilityLabel={`Select ${row.itemName} for order ${row.orderNo}`}
+                >
+                  <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={iconSize(22)} color={checked ? COLORS.blue : '#A38C77'} />
+                  <View style={styles.detailsQty}><Text style={styles.detailsQtyText}>{row.quantity}×</Text></View>
+                  <View style={styles.detailsItemCopy}>
+                    <Text style={styles.detailsItemName}>ORDER {row.orderNo}  ·  TABLE {row.tableNo || '—'}</Text>
+                    <Text style={styles.detailsItemCode}>{row.stewardName || '—'}  ·  {relativeTime(row.placedTime, now)} ago</Text>
+                    {row.remarks ? (
+                      <View style={styles.detailsRemarkBanner}>
+                        <Ionicons name="chatbox-ellipses-outline" size={iconSize(14)} color="#8A541F" />
+                        <Text style={styles.detailsRemarkText}>NOTE: {row.remarks}</Text>
+                      </View>
+                    ) : <Text style={styles.detailsNoRemark}>No remark</Text>}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.modalActionButton, styles.nextButton, !canMove && styles.modalActionDisabled]}
+              onPress={() => onMove(selectedLines)}
+              disabled={!canMove}
+              accessibilityRole="button"
+              accessibilityLabel={`Move ${selectedLines.length} selected orders to In Progress`}
+            >
+              {isMoving ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="arrow-forward-outline" size={iconSize(17)} color={COLORS.white} />}
+              <Text style={styles.nextButtonText}>
+                {selectedLines.length > 0 ? `Move ${selectedLines.length} to In Progress` : 'Move to In Progress'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 type KdsDisplayScreenProps = { stationType: KdsQueueType };
 
 /**
@@ -579,6 +785,10 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const [bulkTodoItemName, setBulkTodoItemName] = useState('');
   const [bulkSelectedTodoIds, setBulkSelectedTodoIds] = useState<string[]>([]);
   const [isBulkTodoMoving, setIsBulkTodoMoving] = useState(false);
+  // To Do item view: layout toggle plus the line ids ticked for bulk sending.
+  const [todoViewMode, setTodoViewMode] = useState<TodoViewMode>('order');
+  const [selectedTodoLineIds, setSelectedTodoLineIds] = useState<string[]>([]);
+  const [todoItemKey, setTodoItemKey] = useState<string | null>(null);
   const isKitchenDisplay = kdsQueueType === 'K';
   const displayName = isKitchenDisplay ? 'KDS' : 'BDS';
   const stationName = isKitchenDisplay ? 'Kitchen' : 'Bar';
@@ -849,6 +1059,110 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const bulkTodoAllSelected = bulkTodoItems.length > 0
     && bulkTodoItems.every((item) => bulkSelectedTodoIds.includes(item.id));
 
+  // Item view: every To Do line, grouped by item (oldest line first). In
+  // Progress and Done keep the order layout.
+  const todoItemGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; name: string; rows: KdsItem[] }>();
+    items
+      .filter((item) => item.status === 'S')
+      .sort(sortKdsItemsOldestFirst)
+      .forEach((item) => {
+        const key = todoItemKeyFor(item);
+        const group = groups.get(key);
+        if (group) group.rows.push(item);
+        else groups.set(key, { key, name: item.itemName, rows: [item] });
+      });
+    return [...groups.values()];
+  }, [items]);
+
+  // The popup follows its item. When every To Do line of that item has moved,
+  // the item no longer exists here and the popup closes by itself.
+  const activeTodoItem = useMemo(
+    () => (todoItemKey ? todoItemGroups.find((group) => group.key === todoItemKey) ?? null : null),
+    [todoItemGroups, todoItemKey],
+  );
+
+  // Lines that leave To Do (polling, another device, or a send) drop out of the
+  // selection so the popup never counts stale rows.
+  useEffect(() => {
+    const todoIds = new Set(items.filter((item) => item.status === 'S').map((item) => item.id));
+    setSelectedTodoLineIds((current) => {
+      const next = current.filter((id) => todoIds.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [items]);
+
+  // Tapping an item name opens its order list. Tapping one order line opens the
+  // same list with that order already ticked.
+  const openTodoItem = (key: string, lineId?: string) => {
+    setTodoItemKey(key);
+    setSelectedTodoLineIds(lineId ? [lineId] : []);
+  };
+
+  const closeTodoItem = () => {
+    if (isBulkTodoMoving) return;
+    setTodoItemKey(null);
+    setSelectedTodoLineIds([]);
+  };
+
+  const toggleTodoLine = (item: KdsItem) => {
+    setSelectedTodoLineIds((current) => (current.includes(item.id)
+      ? current.filter((id) => id !== item.id)
+      : [...current, item.id]));
+  };
+
+  const toggleTodoGroupAll = (rows: KdsItem[]) => {
+    const ids = rows.map((row) => row.id);
+    setSelectedTodoLineIds((current) => {
+      const allSelected = ids.every((id) => current.includes(id));
+      return allSelected
+        ? current.filter((id) => !ids.includes(id))
+        : [...new Set([...current, ...ids])];
+    });
+  };
+
+  // Same request shape as the existing bulk To-Do move: one call per physical
+  // KOT/BOT line, optimistic UI, full revert on failure.
+  const sendTodoLinesToInProgress = async (lines: KdsItem[]) => {
+    if (lines.length === 0 || isBulkTodoMoving || updatingItemId || updatingOrderId) return;
+    const before = items;
+    const sentIds = new Set(lines.map((item) => item.id));
+    const startedAt = new Date().toISOString();
+    const uniqueSelections = [...new Map(lines.map((item) => [
+      `${item.orderNo}|${item.itemCode}|${item.type}|${item.tableNo}|${item.invoiceNo}`,
+      item,
+    ])).values()];
+
+    setIsBulkTodoMoving(true);
+    setUpdatingItemId('todo-line-send');
+    setItems((current) => current.map((item) => (
+      sentIds.has(item.id) ? { ...item, status: 'P', proStarted: startedAt } : item
+    )));
+    try {
+      const results = await Promise.all(uniqueSelections.map((item) => apiClient.updateKdsOrderItemStatus({
+        orderNo: item.orderNo,
+        itemCode: item.itemCode,
+        type: item.type,
+        tableNo: item.tableNo,
+        invoiceNo: item.invoiceNo,
+        status: 'P',
+      })));
+      const failed = results.find((response) => !response.ok || !response.data?.ok);
+      if (failed) throw new Error(failed.data?.message || 'One or more items could not be moved.');
+      setSelectedTodoLineIds([]);
+      setTodoItemKey(null);
+      await loadOrders('background');
+    } catch (error) {
+      console.log('[KDS] To-Do line send failed', error);
+      setItems(before);
+      await loadOrders('background');
+      Alert.alert('Items not moved', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setUpdatingItemId(null);
+      setIsBulkTodoMoving(false);
+    }
+  };
+
   const openTodoBulkMove = (item: KdsItem) => {
     setBulkTodoItemKey(todoItemKeyFor(item));
     setBulkTodoItemName(item.itemName);
@@ -1058,7 +1372,8 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
 
       <View style={styles.queueFilter}>
         <View style={styles.searchRow}>
-          <View style={styles.searchBox}>
+          <View style={styles.searchControls}>
+          <View style={[styles.searchBox, styles.searchBoxFlex]}>
             <Ionicons name="search-outline" size={iconSize(18)} color={COLORS.textMuted} />
             <TextInput
               style={styles.searchInput}
@@ -1081,6 +1396,28 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                 <Ionicons name="close-circle" size={iconSize(18)} color={COLORS.textMuted} />
               </TouchableOpacity>
             ) : null}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.todoViewToggle, todoViewMode === 'item' && styles.todoViewToggleActive]}
+            onPress={() => {
+              setTodoViewMode((current) => (current === 'order' ? 'item' : 'order'));
+              setSelectedTodoLineIds([]);
+            }}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityState={{ selected: todoViewMode === 'item' }}
+            accessibilityLabel={todoViewMode === 'item' ? 'Switch To Do to order view' : 'Switch To Do to item view'}
+          >
+            <Ionicons
+              name={todoViewMode === 'item' ? 'list-outline' : 'apps-outline'}
+              size={iconSize(15)}
+              color={todoViewMode === 'item' ? COLORS.white : COLORS.navy}
+            />
+            <Text style={[styles.todoViewToggleText, todoViewMode === 'item' && styles.todoViewToggleTextActive]}>
+              {todoViewMode === 'item' ? 'ORDER VIEW' : 'ITEM VIEW'}
+            </Text>
+          </TouchableOpacity>
           </View>
 
           {hasTodoSearch ? (
@@ -1137,6 +1474,8 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
           // below it: all To-Do, In Progress, and Done cards stay in place.
           const groups = groupsFor(column.id);
           const itemCount = groups.reduce((total, group) => total + group.items.length, 0);
+          // Item view applies to the To Do column only.
+          const useItemLayout = column.id === 'S' && todoViewMode === 'item';
           return (
             <View key={column.id} style={styles.column}>
               <View style={[styles.columnHeader, { borderBottomColor: `${column.color}45` }]}>
@@ -1148,9 +1487,20 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                 <View style={styles.loadingColumn}><ActivityIndicator color={column.color} /><Text style={styles.emptyColumnText}>Loading…</Text></View>
               ) : (
                 <ScrollView style={styles.columnScroll} contentContainerStyle={styles.columnContent} showsVerticalScrollIndicator={false} nestedScrollEnabled>
-                  {groups.length === 0 ? (
+                  {(useItemLayout ? todoItemGroups.length === 0 : groups.length === 0) ? (
                     <View style={styles.emptyColumn}><Ionicons name={isKitchenDisplay ? 'restaurant-outline' : 'wine-outline'} size={iconSize(22)} color="#B9C7D1" /><Text style={styles.emptyColumnText}>No {stationName} items</Text></View>
-                  ) : groups.map((order) => (
+                  ) : useItemLayout ? todoItemGroups.map((group) => (
+                    <TodoItemGroup
+                      key={`todo-item-${group.key}`}
+                      name={group.name}
+                      rows={group.rows}
+                      now={now}
+                      waitingConfig={waitingConfig}
+                      disabled={Boolean(updatingItemId) || Boolean(updatingOrderId)}
+                      onOpenItem={() => openTodoItem(group.key)}
+                      onOpenLine={(item) => openTodoItem(group.key, item.id)}
+                    />
+                  )) : groups.map((order) => (
                     <OrderGroup
                       key={`${column.id}-${order.id}`}
                       order={order}
@@ -1171,6 +1521,22 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
           );
         })}
       </View>
+
+      {/* Item view popup: lists the orders of one item. Ticked orders move to In Progress. */}
+      <TodoItemSheet
+        visible={Boolean(activeTodoItem)}
+        name={activeTodoItem?.name ?? ''}
+        code={activeTodoItem?.rows[0]?.itemCode ?? ''}
+        rows={activeTodoItem?.rows ?? []}
+        selectedIds={selectedTodoLineIds}
+        now={now}
+        busy={isBulkTodoMoving || Boolean(updatingItemId) || Boolean(updatingOrderId)}
+        isMoving={isBulkTodoMoving}
+        onClose={closeTodoItem}
+        onToggleLine={toggleTodoLine}
+        onToggleAll={toggleTodoGroupAll}
+        onMove={(lines) => void sendTodoLinesToInProgress(lines)}
+      />
 
       {/* Hold a To-Do item to select matching items across all To-Do orders. */}
       <Modal
@@ -1382,6 +1748,20 @@ const baseStyles = StyleSheet.create({
   unavailableButtonText: { color: COLORS.white, fontSize: 9, fontWeight: '900' },
   queueFilter: { paddingHorizontal: 11, paddingVertical: 8, gap: 8, zIndex: 20, elevation: 20, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   searchRow: { width: '100%', position: 'relative', zIndex: 30 },
+  searchControls: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  searchBoxFlex: { flex: 1, minWidth: 0 },
+  todoViewToggle: { minHeight: 40, paddingHorizontal: 9, gap: 4, borderRadius: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FBF1E5', borderWidth: 1.5, borderColor: '#72563C' },
+  todoViewToggleActive: { backgroundColor: '#72563C' },
+  todoViewToggleText: { color: '#72563C', fontSize: 9, fontWeight: '900', letterSpacing: 0.3 },
+  todoViewToggleTextActive: { color: '#F8F7F5' },
+  todoGroupHeader: { minHeight: 44, paddingHorizontal: 8, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FCF6EF', borderBottomWidth: 1, borderBottomColor: '#CFBDAA' },
+  todoGroupCopy: { flex: 1, minWidth: 0 },
+  todoGroupName: { color: '#72563C', fontSize: 11, lineHeight: 14, fontWeight: '900' },
+  todoGroupMeta: { color: '#A38C77', fontSize: 8, fontWeight: '800', marginTop: 2, letterSpacing: 0.3 },
+  todoGroupTotal: { minWidth: 36, height: 26, paddingHorizontal: 6, borderRadius: 8, backgroundColor: '#E9963C', justifyContent: 'center', alignItems: 'center' },
+  todoGroupTotalText: { color: '#F8F7F5', fontSize: 11, fontWeight: '900' },
+  todoLineRow: { minHeight: 52, paddingHorizontal: 7, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#F8F7F5', borderBottomWidth: 1, borderBottomColor: '#F8F7F5' },
+  todoLineMeta: { color: '#A38C77', fontSize: 8, fontWeight: '700', marginTop: 2 },
   searchBox: { minHeight: 40, paddingLeft: 10, paddingRight: 5, flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 11, backgroundColor: '#FCF6EF', borderWidth: 1, borderColor: '#CFBDAA' },
   searchInput: { flex: 1, minWidth: 0, paddingVertical: 0, color: COLORS.text, fontSize: 12, fontWeight: '700' },
   clearSearchButton: { width: 30, height: 30, justifyContent: 'center', alignItems: 'center', borderRadius: 15 },
