@@ -1,3 +1,4 @@
+import AuthFormLayout from '../../components/AuthFormLayout';
 import { OperationalColors } from '../../constants/operationalTheme';
 import PasswordUpdatedModal from '@/components/PasswordUpdatedModal';
 import { Ionicons } from '@expo/vector-icons';
@@ -5,7 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
     Image,
-    SafeAreaView,
+
     StatusBar,
     StyleSheet,
     Text,
@@ -35,24 +36,24 @@ export default function ResetPasswordScreen() {
   const isTablet = width  >= 600;
   const isSmall  = height < 700;
 
-  const logoW       = isTablet ? 280 : isSmall ? 160 : Math.min(220, width * 0.7);
-  const logoH       = isTablet ? 90  : isSmall ? 50  : 75;
-  const logoMT      = isTablet ? 80  : isSmall ? 30  : 60;
-  const titleFs     = isTablet ? 48  : isSmall ? 18  : 22;
-  const subtitleFs  = isTablet ? 24  : isSmall ? 12  : 13;
-  const headerMT    = isTablet ? 40  : isSmall ? 20  : 32;
-  const inputH      = isTablet ? 72  : isSmall ? 48  : 54;
-  const inputFs     = isTablet ? 24  : isSmall ? 14  : 16;
-  const inputMT     = isTablet ? 24  : isSmall ? 14  : 20;
-  const inputRadius = isTablet ? 16  : 12;
-  const btnH        = isTablet ? 72  : isSmall ? 48  : 54;
-  const btnFs       = isTablet ? 24  : isSmall ? 17  : 20;
-  const btnMT       = isTablet ? 32  : isSmall ? 20  : 24;
-  const btnRadius   = isTablet ? 16  : 12;
-  const signupFs    = isTablet ? 24  : isSmall ? 13  : 14;
-  const signupMT    = isTablet ? 24  : isSmall ? 14  : 20;
-  const hPad        = isTablet ? 40  : 20;
-  const eyeSize     = isTablet ? 26  : 22;
+  const logoW = Math.min(340, width * 0.78);
+  const logoH = isTablet ? 122 : isSmall ? 82 : 98;
+  const logoMT = isSmall ? 16 : 24;
+  const titleFs = isTablet ? 32 : 27;
+  const subtitleFs = 13;
+  const headerMT = 22;
+  const inputH = 54;
+  const inputFs = 14;
+  const inputMT = 22;
+  const inputRadius = 14;
+  const btnH = 54;
+  const btnFs = 16;
+  const btnMT = 26;
+  const btnRadius = 13;
+  const signupFs = 12;
+  const signupMT = 22;
+  const hPad = width < 360 ? 20 : 26;
+  const eyeSize = 20;
 
   // ─── Patterns ─────────────────────────────────────────────────────────────
   const passwordPattern = /^[A-Za-z0-9!@#]+$/;
@@ -134,18 +135,9 @@ export default function ResetPasswordScreen() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.onPrimary} />
+    <AuthFormLayout padding={hPad}>
+      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.canvas} />
 
-      <View style={[styles.topCircle, {
-        width:  isTablet ? 220 : 160,
-        height: isTablet ? 220 : 160,
-        top:    isTablet ? 120 : 80,
-      }]} />
-      <View style={[styles.bottomCircle, {
-        width:  isTablet ? 240 : 190,
-        height: isTablet ? 240 : 190,
-      }]} />
 
       <View style={[styles.logoContainer, { marginTop: logoMT }]}>
         <Image
@@ -164,18 +156,19 @@ export default function ResetPasswordScreen() {
 
       {/* ── PASSWORD ── */}
       <View style={{ marginTop: inputMT }}>
+        <Text style={styles.fieldLabel}>Password</Text>
         <View
           style={[
             styles.inputWrapper,
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  passwordError ? '#D32F2F' : OperationalColors.primary,
+              borderColor:  passwordError ? '#D32F2F' : OperationalColors.border,
             },
           ]}
         >
           <TextInput
-            placeholder="Password"
+            placeholder="Enter your password"
             placeholderTextColor="rgba(0,0,0,0.4)"
             secureTextEntry={!showPassword}
             style={[styles.inputInner, { fontSize: inputFs }]}
@@ -204,18 +197,19 @@ export default function ResetPasswordScreen() {
 
       {/* ── CONFIRM PASSWORD ── */}
       <View style={{ marginTop: inputMT }}>
+        <Text style={styles.fieldLabel}>Confirm Password</Text>
         <View
           style={[
             styles.inputWrapper,
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  confirmError ? '#D32F2F' : OperationalColors.primary,
+              borderColor:  confirmError ? '#D32F2F' : OperationalColors.border,
             },
           ]}
         >
           <TextInput
-            placeholder="Confirm Password"
+            placeholder="Re-enter your password"
             placeholderTextColor="rgba(0,0,0,0.4)"
             secureTextEntry={!showConfirm}
             style={[styles.inputInner, { fontSize: inputFs }]}
@@ -265,11 +259,12 @@ export default function ResetPasswordScreen() {
           <Text style={[styles.signupLink, { fontSize: signupFs }]}>{' '}Sign Up</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </AuthFormLayout>
   );
 }
 
 const styles = StyleSheet.create({
+  fieldLabel: { color: OperationalColors.primary, fontSize: 12, fontWeight: '600', marginBottom: 8 },
   container:     { flex: 1, backgroundColor: OperationalColors.canvas },
   topCircle:     { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(168,139,98,0.35)', left: -70 },
   bottomCircle:  { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(168,139,98,0.35)', bottom: -60, right: -70 },
@@ -279,11 +274,11 @@ const styles = StyleSheet.create({
 
   inputWrapper: {
     width:             '100%',
-    borderWidth:       1.5,
+    borderWidth: 1,
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: 16,
-    backgroundColor:   OperationalColors.canvas,
+    backgroundColor:   OperationalColors.surface,
   },
 
   inputInner: {

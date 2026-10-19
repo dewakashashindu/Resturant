@@ -204,7 +204,7 @@ export default function SettingsScreen() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <View style={s.container}>
-      <StatusBar backgroundColor={OperationalColors.primary} barStyle="light-content" />
+      <StatusBar backgroundColor={OperationalColors.header} barStyle="dark-content" />
 
       {/* ── HEADER ── */}
       <View style={[s.header, { paddingTop: insets.top, height: s.header.height + insets.top }]}>
@@ -692,7 +692,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
 
     // ── Header ──────────────────────────────────────────────────────────────
     header: {
-      backgroundColor: OperationalColors.primary,
+      backgroundColor: OperationalColors.header,
       height: scale(headerH),
       paddingHorizontal: scale(hPad),
       justifyContent: 'space-between',
@@ -706,7 +706,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       borderRadius: scale(110),
       top: scale(-60),
       right: scale(-60),
-      backgroundColor: 'rgba(163,140,119,0.45)',
+      backgroundColor: 'rgba(255,253,250,0.18)',
     },
     headerTopRow: {
       flexDirection: 'row',
@@ -724,12 +724,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     backIcon: {
       width: scale(backSz * 0.7),
       height: scale(backSz * 0.7),
-      tintColor: OperationalColors.onPrimary,
+      tintColor: OperationalColors.primary,
     },
     headerTitle: {
       flex: 1,
       textAlign: 'center',
-      color: OperationalColors.onPrimary,
+      color: OperationalColors.primary,
       fontSize: scale(titleFs),
       fontWeight: '600',
       fontFamily: 'Roboto',
@@ -763,7 +763,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       color: OperationalColors.primary,
     },
     tabTextInactive: {
-      color: 'rgba(248,247,245,0.75)',
+      color: 'rgba(107,80,56,0.8)',
     },
 
     // ── Scroll Content ───────────────────────────────────────────────────────
@@ -788,7 +788,9 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
 
     // ── Profile Card ─────────────────────────────────────────────────────────
     profileCard: {
-      backgroundColor: OperationalColors.canvas,
+      borderWidth: 1,
+      borderColor: OperationalColors.border,
+      backgroundColor: OperationalColors.surface,
       borderRadius: scale(profileCardBR),
       paddingHorizontal: scale(profileCardPadH),
       paddingTop: scale(profileCardPadT),
@@ -903,9 +905,11 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
 
     // ── Action Card ──────────────────────────────────────────────────────────
     actionCard: {
+      borderWidth: 1,
+      borderColor: OperationalColors.border,
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: OperationalColors.canvas,
+      backgroundColor: OperationalColors.surface,
       borderRadius: scale(actionCardBR),
       padding: scale(actionCardPad),
       gap: scale(actionCardGap),

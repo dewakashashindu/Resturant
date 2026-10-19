@@ -1,3 +1,4 @@
+import AuthFormLayout from '../../components/AuthFormLayout';
 import { OperationalColors } from '../../constants/operationalTheme';
 import PasswordUpdatedModal from '@/components/PasswordUpdatedModal';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,7 +7,7 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
     Image,
-    SafeAreaView,
+
     StatusBar,
     StyleSheet,
     Text,
@@ -38,23 +39,23 @@ export default function ChangePasswordScreen() {
   const isTablet = width  >= 600;
   const isSmall  = height < 700;
 
-  const logoW        = isTablet ? 280 : isSmall ? 160 : Math.min(212, width * 0.7);
-  const logoH        = isTablet ? 90  : isSmall ? 50  : 75;
-  const logoMT       = isTablet ? 80  : isSmall ? 30  : 60;
-  const titleFs      = isTablet ? 28  : isSmall ? 18  : 22;
-  const subtitleFs   = isTablet ? 16  : isSmall ? 12  : 13;
-  const headerMT     = isTablet ? 40  : isSmall ? 20  : 32;
-  const inputH       = isTablet ? 62  : isSmall ? 48  : 54;
-  const inputFs      = isTablet ? 20  : isSmall ? 14  : 16;
-  const inputMT      = isTablet ? 24  : isSmall ? 14  : 20;
-  const inputRadius  = isTablet ? 16  : 12;
-  const eyeSize      = isTablet ? 26  : 22;
-  const btnH         = isTablet ? 62  : isSmall ? 48  : 54;
-  const btnFs        = isTablet ? 22  : isSmall ? 17  : 20;
-  const btnMT        = isTablet ? 32  : isSmall ? 20  : 24;
-  const btnRadius    = isTablet ? 16  : 12;
-  const hPad         = isTablet ? 40  : 16;
-  const backIconSize = isTablet ? 56  : 44;
+  const logoW = Math.min(340, width * 0.78);
+  const logoH = isTablet ? 122 : isSmall ? 82 : 98;
+  const logoMT = isSmall ? 16 : 24;
+  const titleFs = isTablet ? 32 : 27;
+  const subtitleFs = 13;
+  const headerMT = 22;
+  const inputH = 54;
+  const inputFs = 14;
+  const inputMT = 22;
+  const inputRadius = 14;
+  const eyeSize = 20;
+  const btnH = 54;
+  const btnFs = 16;
+  const btnMT = 26;
+  const btnRadius = 13;
+  const hPad = width < 360 ? 20 : 26;
+  const backIconSize = 32;
 
   // ─── Pattern ──────────────────────────────────────────────────────────────
   const passwordPattern = /^[A-Za-z0-9!@#]+$/;
@@ -189,8 +190,8 @@ export default function ChangePasswordScreen() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.onPrimary} />
+    <AuthFormLayout padding={hPad}>
+      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.canvas} />
 
       {/* BACK BUTTON */}
       <TouchableOpacity style={styles.backButtonAbsolute} onPress={() => router.back()}>
@@ -202,15 +203,6 @@ export default function ChangePasswordScreen() {
       </TouchableOpacity>
 
       {/* DECORATIVE CIRCLES */}
-      <View style={[styles.topCircle, {
-        width:  isTablet ? 220 : 146,
-        height: isTablet ? 220 : 146,
-        top:    isTablet ? 120 : 80,
-      }]} />
-      <View style={[styles.bottomCircle, {
-        width:  isTablet ? 240 : 182,
-        height: isTablet ? 240 : 182,
-      }]} />
 
       {/* LOGO */}
       <View style={[styles.logoContainer, { marginTop: logoMT }]}>
@@ -231,18 +223,19 @@ export default function ChangePasswordScreen() {
 
       {/* ── OLD PASSWORD ── */}
       <View style={{ marginTop: inputMT }}>
+        <Text style={styles.fieldLabel}>Old Password</Text>
         <View
           style={[
             styles.inputWrapper,
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  oldPasswordError ? '#D32F2F' : OperationalColors.primary,
+              borderColor:  oldPasswordError ? '#D32F2F' : OperationalColors.border,
             },
           ]}
         >
           <TextInput
-            placeholder="Old Password"
+            placeholder="Enter your current password"
             placeholderTextColor="rgba(0,0,0,0.4)"
             secureTextEntry={!showOld}
             style={[styles.input, { fontSize: inputFs }]}
@@ -266,18 +259,19 @@ export default function ChangePasswordScreen() {
 
       {/* ── NEW PASSWORD ── */}
       <View style={{ marginTop: inputMT }}>
+        <Text style={styles.fieldLabel}>New Password</Text>
         <View
           style={[
             styles.inputWrapper,
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  newPasswordError ? '#D32F2F' : OperationalColors.primary,
+              borderColor:  newPasswordError ? '#D32F2F' : OperationalColors.border,
             },
           ]}
         >
           <TextInput
-            placeholder="New Password"
+            placeholder="Enter your new password"
             placeholderTextColor="rgba(0,0,0,0.4)"
             secureTextEntry={!showNew}
             style={[styles.input, { fontSize: inputFs }]}
@@ -302,18 +296,19 @@ export default function ChangePasswordScreen() {
 
       {/* ── CONFIRM PASSWORD ── */}
       <View style={{ marginTop: inputMT }}>
+        <Text style={styles.fieldLabel}>Confirm Password</Text>
         <View
           style={[
             styles.inputWrapper,
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  confirmError ? '#D32F2F' : OperationalColors.primary,
+              borderColor:  confirmError ? '#D32F2F' : OperationalColors.border,
             },
           ]}
         >
           <TextInput
-            placeholder="Confirm Password"
+            placeholder="Re-enter your password"
             placeholderTextColor="rgba(0,0,0,0.4)"
             secureTextEntry={!showConfirm}
             style={[styles.input, { fontSize: inputFs }]}
@@ -349,14 +344,15 @@ export default function ChangePasswordScreen() {
         onClose={() => setModalVisible(false)}
         onSignIn={() => router.push('/auth/login')}
       />
-    </SafeAreaView>
+    </AuthFormLayout>
   );
 }
 
 const styles = StyleSheet.create({
+  fieldLabel: { color: OperationalColors.primary, fontSize: 12, fontWeight: '600', marginBottom: 8 },
   container:          { flex: 1, backgroundColor: OperationalColors.canvas },
 
-  backButtonAbsolute: { position: 'absolute', top: 50, left: 16, zIndex: 10 },
+  backButtonAbsolute: { position: 'absolute', top: 14, left: 16, zIndex: 10, minWidth: 48, minHeight: 48, justifyContent: 'center', alignItems: 'center' },
 
   topCircle:    { position: 'absolute', borderRadius: 9999, backgroundColor: 'rgba(168,139,98,0.54)', left: -58 },
   bottomCircle: { position: 'absolute', borderRadius: 9999, backgroundColor: 'rgba(168,139,98,0.54)', bottom: -40, right: -50 },
@@ -368,11 +364,11 @@ const styles = StyleSheet.create({
 
   inputWrapper: {
     width:             '100%',
-    borderWidth:       1.5,
+    borderWidth: 1,
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: 16,
-    backgroundColor:   OperationalColors.canvas,
+    backgroundColor:   OperationalColors.surface,
   },
 
   input: {

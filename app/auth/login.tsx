@@ -1,3 +1,5 @@
+import AuthBackground from '../../components/AuthBackground';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { OperationalColors } from '../../constants/operationalTheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -6,7 +8,9 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  SafeAreaView,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -46,6 +50,7 @@ export default function LoginScreen() {
   const [biometricLabel, setBiometricLabel] = useState<'Use Fingerprint' | 'Use Face Unlock' | 'Use Biometrics'>('Use Biometrics');
   const [isBiometricChecking, setIsBiometricChecking] = useState(false);
 
+  const [serverExpanded, setServerExpanded] = useState(false);
   const [devIP, setDevIP] = useState((global as any).backendIP || '192.168.8.100');
 
   const router = useRouter();
@@ -59,26 +64,26 @@ export default function LoginScreen() {
   const isTablet = width >= 600;
   const isSmall  = height < 700;
 
-  const logoW       = isTablet ? 280 : isSmall ? 160 : Math.min(220, width * 0.7);
-  const logoH       = isTablet ? 90  : isSmall ? 55  : 75;
-  const logoMT      = isTablet ? 80  : isSmall ? 40  : 60;
-  const titleFs     = isTablet ? 48  : isSmall ? 20  : 24;
-  const subtitleFs  = isTablet ? 24  : isSmall ? 13  : 14;
-  const headerMT    = isTablet ? 50  : isSmall ? 24  : 36;
-  const inputH      = isTablet ? 72  : isSmall ? 48  : 54;
-  const inputFs     = isTablet ? 24  : isSmall ? 14  : 16;
-  const inputMT     = isTablet ? 24  : isSmall ? 14  : 20;
-  const inputRadius = isTablet ? 16  : 12;
-  const btnH        = isTablet ? 72  : isSmall ? 48  : 54;
-  const btnFs       = isTablet ? 24  : isSmall ? 17  : 20;
-  const btnMT       = isTablet ? 40  : isSmall ? 20  : 32;
-  const btnRadius   = isTablet ? 16  : 12;
-  const forgotFs    = isTablet ? 24  : isSmall ? 13  : 15;
-  const forgotMT    = isTablet ? 16  : isSmall ? 10  : 14;
-  const signupFs    = isTablet ? 24  : isSmall ? 13  : 14;
-  const signupMT    = isTablet ? 28  : isSmall ? 16  : 22;
-  const hPad        = isTablet ? 40  : 20;
-  const eyeSize     = isTablet ? 26  : 22;
+  const logoW = Math.min(340, width * 0.78);
+  const logoH = isTablet ? 122 : isSmall ? 82 : 98;
+  const logoMT = isSmall ? 16 : 24;
+  const titleFs = isTablet ? 32 : 27;
+  const subtitleFs = 13;
+  const headerMT = 22;
+  const inputH = 54;
+  const inputFs = 14;
+  const inputMT = 22;
+  const inputRadius = 14;
+  const btnH = 54;
+  const btnFs = 16;
+  const btnMT = 26;
+  const btnRadius = 13;
+  const forgotFs = 12;
+  const forgotMT = 14;
+  const signupFs = 12;
+  const signupMT = 22;
+  const hPad = width < 360 ? 20 : 26;
+  const eyeSize = 20;
 
   const usernamePattern = /^[A-Za-z0-9]+$/;
   const passwordPattern = /^[A-Za-z0-9!@#]+$/;
@@ -554,28 +559,12 @@ export default function LoginScreen() {
 
   // ─── RENDER ───────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
+      <AuthBackground />
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, paddingBottom: 28 }}>
+      <View style={[styles.form, { paddingHorizontal: hPad }]}>
       <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.onPrimary} />
-
-      <View
-        style={[
-          styles.topCircle,
-          {
-            width:  isTablet ? 220 : 160,
-            height: isTablet ? 220 : 160,
-            top:    isTablet ? 120 : 80,
-          },
-        ]}
-      />
-      <View
-        style={[
-          styles.bottomCircle,
-          {
-            width:  isTablet ? 240 : 190,
-            height: isTablet ? 240 : 190,
-          },
-        ]}
-      />
 
       {/* LOGO */}
       <View style={[styles.logoContainer, { marginTop: logoMT }]}>
@@ -588,16 +577,17 @@ export default function LoginScreen() {
 
       {/* HEADER */}
       <View style={{ marginTop: headerMT }}>
-        <Text style={[styles.title, { fontSize: titleFs }]}>Welcome !</Text>
+        <Text style={[styles.title, { fontSize: titleFs }]}>Welcome back</Text>
         <Text style={[styles.subtitle, { fontSize: subtitleFs }]}>
-          Enter your details to sign in.
+          Sign in to continue to your workspace.
         </Text>
       </View>
 
       {/* USERNAME */}
       <View style={{ marginTop: inputMT }}>
+        <Text style={styles.fieldLabel}>Username</Text>
         <TextInput
-          placeholder="Username"
+          placeholder="Enter your username"
           placeholderTextColor="rgba(0,0,0,0.4)"
           autoCapitalize="none"
           autoCorrect={false}
@@ -607,7 +597,7 @@ export default function LoginScreen() {
               height:       inputH,
               fontSize:     inputFs,
               borderRadius: inputRadius,
-              borderColor:  usernameError ? '#D32F2F' : OperationalColors.primary,
+              borderColor:  usernameError ? '#D32F2F' : OperationalColors.border,
             },
           ]}
           value={username}
@@ -654,18 +644,19 @@ export default function LoginScreen() {
 
       {/* PASSWORD */}
       <View style={{ marginTop: inputMT }}>
+        <Text style={styles.fieldLabel}>Password</Text>
         <View
           style={[
             styles.inputWrapper,
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  passwordError ? '#D32F2F' : OperationalColors.primary,
+              borderColor:  passwordError ? '#D32F2F' : OperationalColors.border,
             },
           ]}
         >
           <TextInput
-            placeholder="Password"
+            placeholder="Enter your password"
             placeholderTextColor="rgba(0,0,0,0.4)"
             secureTextEntry={!showPassword}
             style={[styles.inputInner, { fontSize: inputFs }]}
@@ -697,7 +688,7 @@ export default function LoginScreen() {
         onPress={() => router.push('/auth/forgotpassword')}
       >
         <Text style={[styles.forgotText, { fontSize: forgotFs }]}>
-          Forgot Password?
+          Forgot password?
         </Text>
       </TouchableOpacity>
 
@@ -712,7 +703,7 @@ export default function LoginScreen() {
         disabled={isSyncing}
       >
         <Text style={[styles.loginText, { fontSize: btnFs }]}>
-          {isSyncing ? 'Syncing menu...' : 'Login'}
+          {isSyncing ? 'Syncing menu...' : 'Sign in →'}
         </Text>
       </TouchableOpacity>
 
@@ -748,8 +739,13 @@ export default function LoginScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* DEV IP CONFIG */}
-      <View style={[styles.devContainer, { marginTop: signupMT }]}>
+      {/* Expandable server configuration; existing confirm handler preserved. */}
+      <TouchableOpacity style={[styles.serverRow, { marginTop: signupMT }]} onPress={() => setServerExpanded((v) => !v)} accessibilityRole="button" accessibilityLabel="Configure server connection" accessibilityState={{ expanded: serverExpanded }}>
+        <Ionicons name="settings-outline" size={14} color={OperationalColors.primary} />
+        <Text style={styles.serverLabel}>Server connection</Text>
+        <Text style={styles.serverAction}>{serverExpanded ? 'Close ⌃' : 'Configure ›'}</Text>
+      </TouchableOpacity>
+      {serverExpanded && <View style={styles.devContainer}>
         <TextInput
           placeholder="Dev IP (e.g. 192.168.1.50)"
           placeholderTextColor="rgba(0,0,0,0.3)"
@@ -778,8 +774,11 @@ export default function LoginScreen() {
         >
           <Text style={styles.devBtnText}>Confirm</Text>
         </TouchableOpacity>
-      </View>
+      </View>}
 
+      </View>
+      </ScrollView>
+      </KeyboardAvoidingView>
       {isSyncing && isDailyFirstSync ? (
         <View style={styles.dailySyncOverlay}>
           <View style={styles.dailySyncCard}>
@@ -806,6 +805,11 @@ export default function LoginScreen() {
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
+  form: { width: '100%', maxWidth: 520, alignSelf: 'center' },
+  fieldLabel: { color: OperationalColors.primary, fontSize: 12, fontWeight: '600', marginBottom: 8 },
+  serverRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 13, paddingVertical: 11, borderWidth: 1, borderColor: OperationalColors.border, borderRadius: 13, backgroundColor: OperationalColors.surfaceAlt },
+  serverLabel: { flex: 1, color: OperationalColors.primary, fontSize: 12 },
+  serverAction: { color: OperationalColors.primary, fontSize: 12 },
   container: {
     flex:            1,
     backgroundColor: OperationalColors.canvas,
@@ -895,19 +899,19 @@ const styles = StyleSheet.create({
 
   input: {
     width:             '100%',
-    borderWidth:       1.5,
+    borderWidth:       1,
     paddingHorizontal: 16,
     color:             OperationalColors.text,
-    backgroundColor:   OperationalColors.canvas,
+    backgroundColor:   OperationalColors.surface,
   },
 
   inputWrapper: {
     width:             '100%',
-    borderWidth:       1.5,
+    borderWidth:       1,
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: 16,
-    backgroundColor:   OperationalColors.canvas,
+    backgroundColor:   OperationalColors.surface,
   },
 
   inputInner: {
@@ -985,9 +989,9 @@ const styles = StyleSheet.create({
     width:          '100%',
     gap:            10,
     alignItems:     'center',
-    borderTopWidth: 1,
+    borderTopWidth: 0,
     borderTopColor: OperationalColors.surfaceAlt,
-    paddingTop:     15,
+    paddingTop:     12,
   },
 
   devInput: {

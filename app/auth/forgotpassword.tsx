@@ -1,9 +1,10 @@
+import AuthFormLayout from '../../components/AuthFormLayout';
 import { OperationalColors } from '../../constants/operationalTheme';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     Image,
-    SafeAreaView,
+
     StatusBar,
     StyleSheet,
     Text,
@@ -24,30 +25,30 @@ export default function ForgotPasswordScreen() {
   const isSmall  = height < 700;
 
   // ── RESPONSIVE VALUES (matches login/signup) ───
-  const logoW       = isTablet ? 280 : isSmall ? 160 : Math.min(212, width * 0.7);
-  const logoH       = isTablet ? 90  : isSmall ? 50  : 75;
-  const logoMT      = isTablet ? 80  : isSmall ? 30  : 60;
+  const logoW = Math.min(340, width * 0.78);
+  const logoH = isTablet ? 122 : isSmall ? 82 : 98;
+  const logoMT = isSmall ? 16 : 24;
 
-  const titleFs     = isTablet ? 48 : isSmall ? 18  : 22;
-  const subtitleFs  = isTablet ? 24  : isSmall ? 12  : 13;
-  const headerMT    = isTablet ? 50 : isSmall ? 20  : 32;
+  const titleFs = isTablet ? 32 : 27;
+  const subtitleFs = 13;
+  const headerMT = 22;
 
   const noteFs      = isTablet ? 20  : isSmall ? 12  : 14;
   const noteMT      = isTablet ? 40  : isSmall ? 24  : 36;
 
-  const inputH      = isTablet ? 72  : isSmall ? 48  : 54;
-  const inputFs     = isTablet ? 24  : isSmall ? 14  : 16;
-  const inputMT     = isTablet ? 32  : isSmall ? 20  : 28;
-  const inputRadius = isTablet ? 16  : 12;
+  const inputH = 54;
+  const inputFs = 14;
+  const inputMT = 22;
+  const inputRadius = 14;
 
-  const btnH        = isTablet ? 72  : isSmall ? 48  : 54;
-  const btnFs       = isTablet ? 24  : isSmall ? 17  : 20;
-  const btnMT       = isTablet ? 24  : isSmall ? 14  : 20;
-  const btnRadius   = isTablet ? 16  : 12;
+  const btnH = 54;
+  const btnFs = 16;
+  const btnMT = 26;
+  const btnRadius = 13;
 
-  const signupFs    = isTablet ? 24  : isSmall ? 13  : 14;
-  const signupMT    = isTablet ? 24  : isSmall ? 14  : 18;
-  const hPad        = isTablet ? 40  : 20;
+  const signupFs = 12;
+  const signupMT = 22;
+  const hPad = width < 360 ? 20 : 26;
 
   const [phoneNumber, setPhoneNumber] = useState('');
 const [message, setMessage] = useState('');
@@ -80,19 +81,10 @@ const [message, setMessage] = useState('');
   }, [username]);
 
   return (
-    <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.onPrimary} />
+    <AuthFormLayout padding={hPad}>
+      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.canvas} />
 
       {/*  DECORATIVE CIRCLES  */}
-      <View style={[styles.topCircle, {
-        width:  isTablet ? 220 : 146,
-        height: isTablet ? 220 : 146,
-        top:    isTablet ? 120 : 80,
-      }]} />
-      <View style={[styles.bottomCircle, {
-        width:  isTablet ? 240 : 182,
-        height: isTablet ? 240 : 182,
-      }]} />
 
       {/* LOGO */}
       <View style={[styles.logoContainer, { marginTop: logoMT }]}>
@@ -115,8 +107,9 @@ const [message, setMessage] = useState('');
 
       {/* USERNAME INPUT */}
       <View style={{ marginTop: inputMT }}>
+        <Text style={styles.fieldLabel}>Username</Text>
         <TextInput
-          placeholder="Username"
+          placeholder="Enter your username"
           placeholderTextColor="rgba(0,0,0,0.4)"
           style={[
             styles.input,
@@ -165,11 +158,12 @@ const [message, setMessage] = useState('');
           </Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </AuthFormLayout>
   );
 }
 
 const styles = StyleSheet.create({
+  fieldLabel: { color: OperationalColors.primary, fontSize: 12, fontWeight: '600', marginBottom: 8 },
   container: {
     flex: 1,
     backgroundColor: OperationalColors.canvas,
@@ -221,11 +215,11 @@ const styles = StyleSheet.create({
  
   input: {
     width: '100%',
-    borderWidth: 1.5,
-    borderColor: OperationalColors.primary,
+    borderWidth: 1,
+    borderColor: OperationalColors.border,
     paddingHorizontal: 16,
     color: OperationalColors.text,
-    backgroundColor: OperationalColors.canvas,
+    backgroundColor: OperationalColors.surface,
   },
 
   
