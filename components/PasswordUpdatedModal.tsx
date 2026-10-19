@@ -1,3 +1,4 @@
+import { OperationalColors } from '../constants/operationalTheme';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef } from 'react';
 import {
@@ -98,7 +99,7 @@ export default function PasswordUpdatedModal({ visible, onClose, onSignIn }: Pro
                     },
                   ]}
                 >
-                  <Ionicons name="checkmark" size={isTablet ? 82 : isSmall ? 52 : 64} color="#F8F7F5" />
+                  <Ionicons name="checkmark" size={isTablet ? 82 : isSmall ? 52 : 64} color={OperationalColors.onPrimary} />
                 </Animated.View>
               </View>
 
@@ -133,7 +134,7 @@ const styles = StyleSheet.create({
 
   // ── CARD ────────────────────────────────────────
   card: {
-    backgroundColor: '#F8F7F5',
+    backgroundColor: OperationalColors.canvas,
     borderRadius: 12,
     alignItems: 'center',
     overflow: 'hidden',
@@ -150,14 +151,14 @@ const styles = StyleSheet.create({
     width: 182,
     height: 181,
     borderRadius: 9999,
-    backgroundColor: 'rgba(97,145,185,0.54)',
+    backgroundColor: 'rgba(168,139,98,0.54)',
     bottom: -80,
     right: -60,
   },
 
   // ── IMAGE CARD ──────────────────────────────────
   imageCard: {
-    backgroundColor: '#F8F7F5',
+    backgroundColor: OperationalColors.canvas,
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -182,11 +183,11 @@ const styles = StyleSheet.create({
   // ── TEXT ────────────────────────────────────────
   title: {
     fontWeight: '500',
-    color: '#000',
+    color: OperationalColors.text,
     textAlign: 'center',
   },
   subtitle: {
-    color: '#000',
+    color: OperationalColors.text,
     fontWeight: '400',
     textAlign: 'center',
     lineHeight: 20,
@@ -195,13 +196,13 @@ const styles = StyleSheet.create({
   // ── BUTTON ──────────────────────────────────────
   signInBtn: {
     width: '100%',
-    backgroundColor: '#72563C',
+    backgroundColor: OperationalColors.primary,
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
   signInText: {
-    color: '#F8F7F5',
+    color: OperationalColors.onPrimary,
     fontWeight: '700',
   },
 });

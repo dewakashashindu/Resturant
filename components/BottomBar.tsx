@@ -1,3 +1,4 @@
+import { OperationalColors } from '../constants/operationalTheme';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as NavigationBar from 'expo-navigation-bar';
 import { useRouter, useSegments } from 'expo-router';
@@ -42,7 +43,7 @@ const TABS = [
   },
 ] as const;
 
-const BAR_COLOR = '#72563C';
+const BAR_COLOR = OperationalColors.surface;
 
 export const BOTTOM_BAR_HEIGHT = 72;
 
@@ -123,8 +124,8 @@ export default function BottomBar() {
               accessibilityState={{ selected: isActive }}
               hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
             >
-              <View style={styles.iconWrap}>
-                <Ionicons name={tab.icon} size={iconSize} color="#F8F7F5" />
+              <View style={[styles.iconWrap, isActive && styles.activeIcon]}>
+                <Ionicons name={tab.icon} size={iconSize} color={OperationalColors.primary} />
                 {tab.name === 'notifications' && unreadCount > 0 ? (
                   <View style={styles.unreadBadge}>
                     <Text style={styles.unreadBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
@@ -153,7 +154,7 @@ export default function BottomBar() {
           accessibilityLabel="Logout"
           hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
         >
-          <MaterialCommunityIcons name="logout" size={iconSize} color="#F8F7F5" />
+          <MaterialCommunityIcons name="logout" size={iconSize} color={OperationalColors.primary} />
           <Text
             style={[styles.navText, { fontSize: textSize }]}
             allowFontScaling={false}
@@ -179,8 +180,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopWidth: 1,
+    borderTopColor: OperationalColors.border,
     ...Platform.select({
       android: { elevation: 8 },
       ios: {
@@ -201,10 +202,11 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   navText: {
-    color: '#F8F7F5',
+    color: OperationalColors.primary,
     fontWeight: '600',
     marginTop: 3,
   },
+  activeIcon: { backgroundColor: OperationalColors.header, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 4 },
   iconWrap: { position: 'relative', justifyContent: 'center', alignItems: 'center' },
   unreadBadge: {
     position: 'absolute',
@@ -220,7 +222,7 @@ const styles = StyleSheet.create({
     borderColor: BAR_COLOR,
     backgroundColor: '#E84B4B',
   },
-  unreadBadgeText: { color: '#F8F7F5', fontSize: 9, fontWeight: '800' },
+  unreadBadgeText: { color: OperationalColors.onPrimary, fontSize: 9, fontWeight: '800' },
   divider: {
     width: 1,
     height: '60%',

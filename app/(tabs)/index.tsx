@@ -1,10 +1,12 @@
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { OperationalColors as C } from '../../constants/operationalTheme';
+import { getHomeLayout } from '../../constants/homeLayout';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Image,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -17,7 +19,6 @@ import { useAuthStore } from '../../services/authStore';
 import { useCartStore } from '../../services/cartStore';
 import { useMenuSessionStore } from '../../services/menuSessionStore';
 import { useOrderStore } from '../../services/orderStore';
-import { useNotificationStore } from '../../services/notificationStore';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -31,7 +32,6 @@ export default function HomeScreen() {
   const clearMenuSession = useMenuSessionStore((state) => state.clearDiningSession);
   const clearCart = useCartStore((state) => state.clearCart);
   const clearLastConfirmedOrder = useOrderStore((state) => state.clearLastConfirmedOrder);
-  const unreadCount = useNotificationStore((state) => state.unreadCount());
   const displayName = userName ? `Mr. ${userName}` : 'Mr. Perera';
 
   useEffect(() => {
@@ -88,36 +88,14 @@ export default function HomeScreen() {
     );
   };
 
-  const isTablet = width >= 600;
-  const isSmall  = height < 680;
-
-  // ── RESPONSIVE VALUES ─────────────────────────────────────────────────────
-  const headerH        = isTablet ? height * 0.25 : isSmall ? height * 0.28 : height * 0.25;
-  const logoW          = isTablet ? 260            : isSmall ? 160           : Math.min(200, width * 0.6);
-  const logoH          = isTablet ? 110            : isSmall ? 55            : 65;
-  const greetSize      = isTablet ? 20             : isSmall ? 12            : 16;
-  const nameSize       = isTablet ? 32             : isSmall ? 20            : 28;
-  const dateSize       = isTablet ? 23             : isSmall ? 10            : 12;
-  const sectionSize    = isTablet ? 32             : isSmall ? 18            : 20;
-  const headerPaddingTop = isTablet ? 60           : isSmall ? 30            : 55;
-
-  // ── CARD GRID VALUES ──────────────────────────────────────────────────────
-  const contentOverlap = isTablet ? -18 : isSmall ? -10  : -25;
-  const cardPadding    = isTablet ? 16  : 16;
-  const cardGap        = isTablet ? 10  : 6;
-  const cardWidth      = (width - cardPadding * 2 - cardGap) / 2;
-  const cardHeight     = isTablet ? cardWidth * 0.62 : 160;
-  const iconSize       = isTablet ? 50  : 42;
-  const iconBox        = isTablet ? 74  : 60;
-  const cardTitle      = isTablet ? 24  : 15;
-  const cardSub        = isTablet ? 16  : 12;
+  const { fontScale } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const layout = getHomeLayout(width - insets.left - insets.right, height, fontScale);
 
   const cards: {
     title: string;
     subtitle: string;
     visible: boolean;
-    color: string;
-    iconBg: string;
     route: string;
     ionIcon: React.ComponentProps<typeof Ionicons>['name'];
   }[] = [
@@ -125,8 +103,6 @@ export default function HomeScreen() {
       title: 'Order Taking',
       subtitle: 'Table POS',
       visible: true,
-      color: 'rgba(255,153,142,0.5)',
-      iconBg: 'rgba(255,153,142,0.6)',
       route: '/Screens/operation',
       ionIcon: 'receipt-outline',
     },
@@ -134,8 +110,6 @@ export default function HomeScreen() {
       title: 'Dashboard',
       subtitle: 'Live Overview',
       visible: true,
-      color: 'rgba(151,173,210,0.5)',
-      iconBg: 'rgba(151,173,210,0.6)',
       route: '/Screens/Dashboard',
       ionIcon: 'grid-outline',
     },
@@ -143,8 +117,6 @@ export default function HomeScreen() {
       title: 'Menu Card',
       subtitle: 'Items & Pricing',
       visible: true,
-      color: 'rgba(255,248,131,0.5)',
-      iconBg: 'rgba(255,248,131,0.6)',
       route: '/Screens/menutbl_selection',
       ionIcon: 'restaurant-outline',
     },
@@ -152,8 +124,6 @@ export default function HomeScreen() {
       title: 'Feedback Collector',
       subtitle: 'Guest Feedback',
       visible: false,
-      color: 'rgba(129,113,183,0.5)',
-      iconBg: 'rgba(129,113,183,0.6)',
       route: '/Screens/white',
       ionIcon: 'chatbubble-ellipses-outline',
     },
@@ -161,8 +131,6 @@ export default function HomeScreen() {
       title: 'Sales Report',
       subtitle: 'Revenue Report',
       visible: false,
-      color: 'rgba(144,123,22,0.5)',
-      iconBg: 'rgba(144,123,22,0.6)',
       route: '/Screens/white',
       ionIcon: 'bar-chart-outline',
     },
@@ -170,8 +138,6 @@ export default function HomeScreen() {
       title: 'Settings',
       subtitle: 'System Controls',
       visible: true,
-      color: 'rgba(66,119,164,0.5)',
-      iconBg: 'rgba(66,119,164,0.6)',
       route: '/Screens/settings',
       ionIcon: 'settings-outline',
     },
@@ -179,8 +145,6 @@ export default function HomeScreen() {
       title: 'KDS',
       subtitle: 'Kitchen Display',
       visible: true,
-      color: 'rgba(34,139,87,0.5)',
-      iconBg: 'rgba(34,139,87,0.6)',
       route: '/Screens/KDSHomeScreen',
       ionIcon: 'flame-outline',
     },
@@ -188,137 +152,74 @@ export default function HomeScreen() {
       title: 'BDS',
       subtitle: 'Bar Display',
       visible: true,
-      color: 'rgba(127,91,180,0.5)',
-      iconBg: 'rgba(127,91,180,0.6)',
       route: '/Screens/BDSHomeScreen',
       ionIcon: 'wine-outline',
     },
   ];
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#72563C" />
-
-      {/* HEADER - fixed, not scrollable */}
-      <View
-        style={[
-          styles.header,
-          {
-            height:            headerH,
-            paddingHorizontal: cardPadding,
-            paddingTop:        headerPaddingTop,  // ← updated
-            paddingBottom:     isTablet ? 28 : isSmall ? 20 : 32,
-          },
-        ]}
-      >
-        <View style={styles.circle} />
-
-        {/* Notification inbox — top-right blue header shortcut. */}
-        <TouchableOpacity
-          style={[styles.headerNotificationButton, { top: isTablet ? 20 : isSmall ? 12 : 20 }]}
-          onPress={() => router.push('/Screens/notifications' as any)}
-          accessibilityRole="button"
-          accessibilityLabel={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
-        >
-          <Ionicons name="notifications-outline" size={isTablet ? 27 : 23} color="#F8F7F5" />
-          {unreadCount > 0 ? (
-            <View style={styles.headerUnreadBadge}>
-              <Text style={styles.headerUnreadBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-            </View>
-          ) : null}
-        </TouchableOpacity>
-
-        {/* LOGO */}
-        <View style={styles.logoContainer}>
-          <Image
-            source={require('../../assets/images/millamirissa.png')}
-            style={{ width: logoW, height: logoH }}
-            resizeMode="contain"
-          />
-        </View>
-
-        {/* GREETING ROW */}
-        <View style={styles.headerRow}>
-          <View style={styles.greetingBlock}>
-            <Text style={[styles.greeting, { fontSize: greetSize }]}>{greetingText}</Text>
-            <Text
-              style={[styles.name, { fontSize: nameSize }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.55}
-            >
-              {displayName}
-            </Text>
-          </View>
-
-          <View style={styles.dateContainer}>
-            <Text style={[styles.dateText, { fontSize: dateSize }]}>{formattedDate}</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* CONTENT - only Quick Access + cards scroll */}
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle="dark-content" backgroundColor={C.header} />
       <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingHorizontal: cardPadding, marginTop: contentOverlap },
-        ]}
         style={styles.content}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.sectionTitle, { fontSize: sectionSize }]}>
-          Quick Access
-        </Text>
-
-        {/* GRID */}
-        <View style={[styles.grid, { gap: cardGap }]}>
-          {cards
-            .filter((item) => item.visible)
-            .filter((item) => item.title !== 'KDS' || stationType !== 'B')
-            .filter((item) => item.title !== 'BDS' || stationType !== 'K')
-            .map((item) => (
-            <TouchableOpacity
-              key={item.title}
-              style={[
-                styles.card,
-                {
-                  backgroundColor: item.color,
-                  width:           cardWidth,
-                  height:          cardHeight,
-                },
-              ]}
-              onPress={() => {
-                if (item.title === 'Menu Card') {
-                  openMenuCard();
-                  return;
-                }
-                router.push(item.route as any);
-              }}
-            >
-              <View style={styles.cardCircle} />
-
-              {/* ICON BOX */}
-              <View
-                style={[
-                  styles.iconBox,
-                  {
-                    backgroundColor: item.iconBg,
-                    width:           iconBox,
-                    height:          iconBox,
-                    borderRadius:    Math.round(iconBox * 0.27),
-                  },
-                ]}
-              >
-                <Ionicons name={item.ionIcon} size={iconSize} color="#002748" />
+        <View style={styles.header}>
+          <View style={[styles.headerInner, { paddingHorizontal: layout.padding }]}>
+            <View pointerEvents="none" style={styles.circle} />
+            <View style={styles.logoRow}>
+              <Image
+                source={require('../../assets/images/millamirissa.png')}
+                style={{ width: layout.compact ? 126 : 164, height: layout.compact ? 48 : 64 }}
+                resizeMode="contain"
+                accessible accessibilityLabel="Mila Mirissa"
+              />
+            </View>
+            <View style={[styles.headerRow, { flexDirection: layout.stackGreeting ? 'column' : 'row', alignItems: layout.stackGreeting ? 'flex-start' : 'flex-end' }]}>
+              <View style={styles.greetingBlock}>
+                <Text style={styles.greeting}>{greetingText}</Text>
+                <Text style={[styles.name, { fontSize: layout.nameSize }]}>{displayName}</Text>
               </View>
-
-              {/* TEXT BLOCK */}
-              <View>
-                <Text style={[styles.cardTitle,    { fontSize: cardTitle }]}>{item.title}</Text>
-                <Text style={[styles.cardSubtitle, { fontSize: cardSub   }]}>{item.subtitle}</Text>
+              <View style={styles.dateContainer}>
+                <Ionicons name="calendar-outline" size={13} color={C.primary} />
+                <Text style={styles.dateText}>{formattedDate}</Text>
               </View>
-            </TouchableOpacity>
-          ))}
+            </View>
+          </View>
+        </View>
+        <View style={[styles.main, { paddingHorizontal: layout.padding }]}>
+          <Text style={styles.sectionTitle}>Quick Access</Text>
+          <Text style={styles.sectionSubtitle}>Everything you need, in one place.</Text>
+          <View style={[styles.grid, { gap: layout.gap }]}>
+            {cards
+              .filter((item) => item.visible)
+              .filter((item) => item.title !== 'KDS' || stationType !== 'B')
+              .filter((item) => item.title !== 'BDS' || stationType !== 'K')
+              .map((item) => (
+                <TouchableOpacity
+                  key={item.title}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${item.title}, ${item.subtitle}`}
+                  style={[styles.card, { width: layout.cardWidth, minHeight: layout.cardMinHeight }, item.title === 'Order Taking' && styles.primaryCard]}
+                  onPress={() => {
+                    if (item.title === 'Menu Card') { openMenuCard(); return; }
+                    router.push(item.route as any);
+                  }}
+                >
+                  <View pointerEvents="none" style={styles.cardCircle} />
+                  <View style={styles.cardTop}>
+                    <View style={styles.iconBox}><Ionicons name={item.ionIcon} size={layout.iconSize} color={C.primary} /></View>
+                    <Ionicons name="arrow-forward" size={16} color={C.muted} />
+                  </View>
+                  <View style={styles.cardText}>
+                    <Text style={[styles.cardTitle, { fontSize: layout.titleSize }]}>{item.title}</Text>
+                    <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -326,129 +227,29 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FCF7F4',
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingBottom: 10,
-  },
-
-  // ── HEADER ──────────────────────────────────
-  header: {
-    backgroundColor: '#72563C',
-    justifyContent: 'space-between',
-  },
-  headerNotificationButton: {
-    position: 'absolute',
-    right: 16,
-    zIndex: 5,
-    width: 42,
-    height: 42,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(248,247,245,0.20)',
-    backgroundColor: 'rgba(248,247,245,0.12)',
-  },
-  headerUnreadBadge: {
-    position: 'absolute',
-    top: -5,
-    right: -5,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 3,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 9,
-    borderWidth: 1.5,
-    borderColor: '#72563C',
-    backgroundColor: '#E84B4B',
-  },
-  headerUnreadBadgeText: { color: '#F8F7F5', fontSize: 9, fontWeight: '800' },
-  circle: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    // Visible warm-tone counterpart to the former blue header circle.
-    backgroundColor: 'rgba(163,140,119,0.45)',
-    top: -60,
-    right: -60,
-  },
-  logoContainer: {
-    alignItems: 'center',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-  greetingBlock: {
-    flex: 1,
-    marginRight: 10,
-  },
-  greeting: {
-    color: '#F8F7F5',
-  },
-  name: {
-    color: '#F8F7F5',
-    fontWeight: '700',
-  },
-  dateContainer: {
-    backgroundColor: 'rgba(248,247,245,0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  dateText: {
-    color: '#F8F7F5',
-  },
-
-  // ── CONTENT ─────────────────────────────────
-  content: {
-    backgroundColor: '#F8F7F5',
-  },
-  sectionTitle: {
-    fontWeight: '600',
-    marginTop: 30,
-    marginBottom: 20,
-  },
-
-  // ── GRID ────────────────────────────────────
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingBottom: 30,
-  },
-  card: {
-    borderRadius: 20,
-    padding: 16,
-    overflow: 'hidden',
-    justifyContent: 'space-between',
-  },
-  cardCircle: {
-    position: 'absolute',
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    top: -15,
-    right: -15,
-  },
-  iconBox: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  cardTitle: {
-    fontWeight: '600',
-    color: '#111827',
-  },
-  cardSubtitle: {
-    color: '#6B7280',
-    marginTop: 2,
-  },
+  container: { flex: 1, backgroundColor: C.header },
+  content: { flex: 1, backgroundColor: C.canvas },
+  scrollContent: { flexGrow: 1, paddingBottom: 24 },
+  header: { backgroundColor: C.header, borderBottomWidth: 1, borderBottomColor: C.border },
+  headerInner: { width: '100%', maxWidth: 1120, alignSelf: 'center', paddingTop: 12, paddingBottom: 24, overflow: 'hidden' },
+  logoRow: { width: '100%', alignItems: 'center', justifyContent: 'center', marginBottom: 22 },
+  circle: { position: 'absolute', width: 230, height: 230, borderRadius: 115, backgroundColor: 'rgba(255,253,250,0.18)', right: -70, top: -85 },
+  headerRow: { gap: 12 },
+  greetingBlock: { flexShrink: 1, minWidth: 0 },
+  greeting: { color: C.primary, fontSize: 14, marginBottom: 5 },
+  name: { color: C.text, fontWeight: '700' },
+  dateContainer: { flexDirection: 'row', gap: 6, alignItems: 'center', flexShrink: 1, backgroundColor: 'rgba(255,253,250,0.55)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 9 },
+  dateText: { color: C.primary, fontSize: 11, flexShrink: 1 },
+  main: { width: '100%', maxWidth: 1120, alignSelf: 'center', paddingTop: 24 },
+  sectionTitle: { fontSize: 23, fontWeight: '700', color: C.text },
+  sectionSubtitle: { fontSize: 13, color: C.muted, marginTop: 5, marginBottom: 20 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch' },
+  card: { borderRadius: 20, padding: 18, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface, overflow: 'hidden', justifyContent: 'space-between' },
+  primaryCard: { backgroundColor: C.surfaceAlt, borderColor: C.accent },
+  cardCircle: { position: 'absolute', width: 100, height: 100, borderRadius: 50, backgroundColor: 'rgba(213,192,156,0.10)', top: -30, right: -25 },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  iconBox: { minWidth: 48, minHeight: 48, borderRadius: 14, backgroundColor: C.surfaceAlt, justifyContent: 'center', alignItems: 'center', padding: 10 },
+  cardText: { marginTop: 22 },
+  cardTitle: { fontWeight: '700', color: C.text },
+  cardSubtitle: { color: C.muted, fontSize: 12, marginTop: 5 },
 });

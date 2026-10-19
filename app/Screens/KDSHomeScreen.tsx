@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
@@ -65,17 +66,17 @@ type KdsOrderGroup = {
 };
 
 const COLORS = {
-  background: '#FCF7F4',
-  navy: '#72563C',
-  blue: '#72563C',
-  blueSoft: '#FBF1E5',
-  text: '#72563C',
-  textMuted: '#A38C77',
-  border: '#CFBDAA',
+  background: OperationalColors.canvas,
+  navy: OperationalColors.primary,
+  blue: OperationalColors.primary,
+  blueSoft: OperationalColors.surfaceAlt,
+  text: OperationalColors.primary,
+  textMuted: OperationalColors.muted,
+  border: OperationalColors.border,
   todo: '#E9963C',
-  processing: '#72563C',
+  processing: OperationalColors.primary,
   done: '#2B9662',
-  white: '#F8F7F5',
+  white: OperationalColors.onPrimary,
   danger: '#D85A52',
 };
 
@@ -701,7 +702,7 @@ function TodoItemSheet({
                   accessibilityState={{ checked }}
                   accessibilityLabel={`Select ${row.itemName} for order ${row.orderNo}`}
                 >
-                  <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={iconSize(22)} color={checked ? COLORS.blue : '#A38C77'} />
+                  <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={iconSize(22)} color={checked ? COLORS.blue : OperationalColors.muted} />
                   <View style={styles.detailsQty}><Text style={styles.detailsQtyText}>{row.quantity}×</Text></View>
                   <View style={styles.detailsItemCopy}>
                     <Text style={styles.detailsItemName}>ORDER {row.orderNo}  ·  TABLE {row.tableNo || '—'}</Text>
@@ -1380,7 +1381,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
               value={searchQuery}
               onChangeText={setSearchQuery}
               placeholder="Search To-Do by item name or item ID"
-              placeholderTextColor="#8B9AA8"
+              placeholderTextColor={OperationalColors.muted}
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
@@ -1449,7 +1450,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                 showsVerticalScrollIndicator
                 ListEmptyComponent={(
                   <View style={styles.searchNoResults}>
-                    <Ionicons name="search-outline" size={iconSize(22)} color="#A38C77" />
+                    <Ionicons name="search-outline" size={iconSize(22)} color={OperationalColors.muted} />
                     <Text style={styles.searchNoResultsText}>No To-Do item matches “{searchQuery.trim()}”</Text>
                   </View>
                 )}
@@ -1488,7 +1489,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
               ) : (
                 <ScrollView style={styles.columnScroll} contentContainerStyle={styles.columnContent} showsVerticalScrollIndicator={false} nestedScrollEnabled>
                   {(useItemLayout ? todoItemGroups.length === 0 : groups.length === 0) ? (
-                    <View style={styles.emptyColumn}><Ionicons name={isKitchenDisplay ? 'restaurant-outline' : 'wine-outline'} size={iconSize(22)} color="#B9C7D1" /><Text style={styles.emptyColumnText}>No {stationName} items</Text></View>
+                    <View style={styles.emptyColumn}><Ionicons name={isKitchenDisplay ? 'restaurant-outline' : 'wine-outline'} size={iconSize(22)} color={OperationalColors.border} /><Text style={styles.emptyColumnText}>No {stationName} items</Text></View>
                   ) : useItemLayout ? todoItemGroups.map((group) => (
                     <TodoItemGroup
                       key={`todo-item-${group.key}`}
@@ -1681,7 +1682,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                     accessibilityState={{ checked }}
                     accessibilityLabel={`Select ${item.itemName}`}
                   >
-                    <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={iconSize(22)} color={checked ? COLORS.blue : '#A38C77'} />
+                    <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={iconSize(22)} color={checked ? COLORS.blue : OperationalColors.muted} />
                     <View style={styles.detailsQty}><Text style={styles.detailsQtyText}>{item.quantity}×</Text></View>
                     <View style={styles.detailsItemCopy}>
                       <Text style={styles.detailsItemName}>{item.itemName}</Text>
@@ -1740,7 +1741,7 @@ const baseStyles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
   header: { minHeight: 112, paddingHorizontal: 14, paddingBottom: 17, flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.navy },
   headerCopy: { flex: 1, minWidth: 0, paddingRight: 7 },
-  headerEyebrow: { color: '#CFBDAA', fontSize: 9, fontWeight: '900', letterSpacing: 0.9 },
+  headerEyebrow: { color: OperationalColors.border, fontSize: 9, fontWeight: '900', letterSpacing: 0.9 },
   headerTitle: { color: COLORS.white, fontSize: 22, fontWeight: '900', marginTop: 3 },
   headerSub: { color: 'rgba(248,247,245,0.68)', fontSize: 10, lineHeight: 15, marginTop: 3 },
   refreshButton: { width: 40, height: 40, marginRight: 7, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(248,247,245,0.13)', borderWidth: 1, borderColor: 'rgba(248,247,245,0.16)' },
@@ -1750,25 +1751,25 @@ const baseStyles = StyleSheet.create({
   searchRow: { width: '100%', position: 'relative', zIndex: 30 },
   searchControls: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   searchBoxFlex: { flex: 1, minWidth: 0 },
-  todoViewToggle: { minHeight: 40, paddingHorizontal: 9, gap: 4, borderRadius: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FBF1E5', borderWidth: 1.5, borderColor: '#72563C' },
-  todoViewToggleActive: { backgroundColor: '#72563C' },
-  todoViewToggleText: { color: '#72563C', fontSize: 9, fontWeight: '900', letterSpacing: 0.3 },
-  todoViewToggleTextActive: { color: '#F8F7F5' },
-  todoGroupHeader: { minHeight: 44, paddingHorizontal: 8, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FCF6EF', borderBottomWidth: 1, borderBottomColor: '#CFBDAA' },
+  todoViewToggle: { minHeight: 40, paddingHorizontal: 9, gap: 4, borderRadius: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: OperationalColors.surfaceAlt, borderWidth: 1.5, borderColor: OperationalColors.primary },
+  todoViewToggleActive: { backgroundColor: OperationalColors.primary },
+  todoViewToggleText: { color: OperationalColors.primary, fontSize: 9, fontWeight: '900', letterSpacing: 0.3 },
+  todoViewToggleTextActive: { color: OperationalColors.onPrimary },
+  todoGroupHeader: { minHeight: 44, paddingHorizontal: 8, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: OperationalColors.surface, borderBottomWidth: 1, borderBottomColor: OperationalColors.border },
   todoGroupCopy: { flex: 1, minWidth: 0 },
-  todoGroupName: { color: '#72563C', fontSize: 11, lineHeight: 14, fontWeight: '900' },
-  todoGroupMeta: { color: '#A38C77', fontSize: 8, fontWeight: '800', marginTop: 2, letterSpacing: 0.3 },
+  todoGroupName: { color: OperationalColors.primary, fontSize: 11, lineHeight: 14, fontWeight: '900' },
+  todoGroupMeta: { color: OperationalColors.muted, fontSize: 8, fontWeight: '800', marginTop: 2, letterSpacing: 0.3 },
   todoGroupTotal: { minWidth: 36, height: 26, paddingHorizontal: 6, borderRadius: 8, backgroundColor: '#E9963C', justifyContent: 'center', alignItems: 'center' },
-  todoGroupTotalText: { color: '#F8F7F5', fontSize: 11, fontWeight: '900' },
-  todoLineRow: { minHeight: 52, paddingHorizontal: 7, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#F8F7F5', borderBottomWidth: 1, borderBottomColor: '#F8F7F5' },
-  todoLineMeta: { color: '#A38C77', fontSize: 8, fontWeight: '700', marginTop: 2 },
-  searchBox: { minHeight: 40, paddingLeft: 10, paddingRight: 5, flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 11, backgroundColor: '#FCF6EF', borderWidth: 1, borderColor: '#CFBDAA' },
+  todoGroupTotalText: { color: OperationalColors.onPrimary, fontSize: 11, fontWeight: '900' },
+  todoLineRow: { minHeight: 52, paddingHorizontal: 7, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: OperationalColors.canvas, borderBottomWidth: 1, borderBottomColor: OperationalColors.onPrimary },
+  todoLineMeta: { color: OperationalColors.muted, fontSize: 8, fontWeight: '700', marginTop: 2 },
+  searchBox: { minHeight: 40, paddingLeft: 10, paddingRight: 5, flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 11, backgroundColor: OperationalColors.surface, borderWidth: 1, borderColor: OperationalColors.border },
   searchInput: { flex: 1, minWidth: 0, paddingVertical: 0, color: COLORS.text, fontSize: 12, fontWeight: '700' },
   clearSearchButton: { width: 30, height: 30, justifyContent: 'center', alignItems: 'center', borderRadius: 15 },
   // A tall, scrollable list deliberately has no result-count cap. Every
   // matching To-Do line remains available by scrolling down this dropdown.
-  searchDropdown: { position: 'absolute', top: 46, left: 0, right: 0, zIndex: 40, overflow: 'hidden', borderRadius: 13, backgroundColor: COLORS.white, borderWidth: 1, borderColor: '#CFBDAA', shadowColor: '#72563C', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.22, shadowRadius: 12, elevation: 24 },
-  searchDropdownHeader: { minHeight: 47, paddingHorizontal: 10, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#CFBDAA', backgroundColor: '#FCF6EF' },
+  searchDropdown: { position: 'absolute', top: 46, left: 0, right: 0, zIndex: 40, overflow: 'hidden', borderRadius: 13, backgroundColor: COLORS.white, borderWidth: 1, borderColor: OperationalColors.border, shadowColor: OperationalColors.primary, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.22, shadowRadius: 12, elevation: 24 },
+  searchDropdownHeader: { minHeight: 47, paddingHorizontal: 10, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: OperationalColors.border, backgroundColor: OperationalColors.surface },
   searchDropdownTitle: { color: COLORS.navy, fontSize: 9, fontWeight: '900', letterSpacing: 0.45 },
   searchDropdownHint: { color: COLORS.textMuted, fontSize: 8, fontWeight: '700', marginTop: 2 },
   searchResultCount: { minWidth: 25, height: 25, paddingHorizontal: 5, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: COLORS.blue },
@@ -1784,13 +1785,13 @@ const baseStyles = StyleSheet.create({
   severitySummaryTitle: { color: COLORS.navy, fontSize: 10, fontWeight: '900', letterSpacing: 0.45 },
   severityPills: { marginTop: 5, flexDirection: 'row', gap: 4 },
   severityPill: { flex: 1, minWidth: 0, minHeight: 42, paddingHorizontal: 3, paddingVertical: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 7 },
-  severityPillNormal: { backgroundColor: '#A38C77' },
+  severityPillNormal: { backgroundColor: OperationalColors.muted },
   severityPillAmber: { backgroundColor: '#E8A93F' },
   severityPillRed: { backgroundColor: COLORS.danger },
   severityPillLabel: { color: COLORS.white, fontSize: 6, fontWeight: '900', letterSpacing: 0.2 },
   severityPillCount: { color: COLORS.white, fontSize: 17, lineHeight: 20, fontWeight: '900', marginTop: 1 },
   board: { flex: 1, flexDirection: 'row', gap: 7, paddingHorizontal: 7, paddingBottom: 7 },
-  column: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, backgroundColor: '#F8F7F5' },
+  column: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, backgroundColor: OperationalColors.canvas },
   columnHeader: { minHeight: 49, paddingHorizontal: 7, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1 },
   columnIcon: { width: 27, height: 27, justifyContent: 'center', alignItems: 'center', borderRadius: 9, marginRight: 5 },
   columnTitle: { flex: 1, fontSize: 10, fontWeight: '900', letterSpacing: 0.15 },
@@ -1800,8 +1801,8 @@ const baseStyles = StyleSheet.create({
   columnContent: { padding: 5, gap: 7, paddingBottom: 20 },
   loadingColumn: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 7 },
   emptyColumn: { alignItems: 'center', paddingTop: 28, paddingHorizontal: 4 },
-  emptyColumnText: { color: '#A38C77', fontSize: 10, fontWeight: '700', marginTop: 5, textAlign: 'center' },
-  searchResultRow: { padding: 9, gap: 7, borderRadius: 11, backgroundColor: COLORS.white, borderWidth: 1, borderColor: '#CFBDAA', shadowColor: '#72563C', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3, elevation: 1 },
+  emptyColumnText: { color: OperationalColors.muted, fontSize: 10, fontWeight: '700', marginTop: 5, textAlign: 'center' },
+  searchResultRow: { padding: 9, gap: 7, borderRadius: 11, backgroundColor: COLORS.white, borderWidth: 1, borderColor: OperationalColors.border, shadowColor: OperationalColors.primary, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3, elevation: 1 },
   searchResultDisabled: { opacity: 0.6 },
   searchResultTopLine: { flexDirection: 'row', gap: 6 },
   searchResultOrderBlock: { flex: 1, minWidth: 0 },
@@ -1813,16 +1814,16 @@ const baseStyles = StyleSheet.create({
   searchResultItemCopy: { flex: 1, minWidth: 0 },
   searchResultItemName: { color: COLORS.text, fontSize: 12, fontWeight: '900' },
   searchResultItemId: { color: COLORS.textMuted, fontSize: 8, fontWeight: '800', marginTop: 2 },
-  searchResultQuantity: { minWidth: 38, paddingVertical: 4, alignItems: 'center', borderRadius: 7, backgroundColor: '#FBF1E5' },
+  searchResultQuantity: { minWidth: 38, paddingVertical: 4, alignItems: 'center', borderRadius: 7, backgroundColor: OperationalColors.surfaceAlt },
   searchResultQuantityText: { color: COLORS.blue, fontSize: 14, fontWeight: '900', marginTop: 1 },
   searchResultNote: { minHeight: 26, paddingHorizontal: 6, paddingVertical: 5, flexDirection: 'row', alignItems: 'flex-start', gap: 4, borderRadius: 6, backgroundColor: '#FFF0CF', borderLeftWidth: 3, borderLeftColor: '#E39A2D' },
   searchResultNoteText: { flex: 1, color: '#7A4615', fontSize: 9, lineHeight: 12, fontWeight: '800' },
   searchQuickAction: { minHeight: 28, paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4, borderRadius: 7, backgroundColor: COLORS.blue },
   searchQuickActionText: { color: COLORS.white, fontSize: 9, fontWeight: '900', letterSpacing: 0.2 },
-  orderCard: { borderRadius: 11, backgroundColor: COLORS.white, borderWidth: 1, borderColor: '#CFBDAA', shadowColor: '#72563C', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 4, elevation: 2 },
+  orderCard: { borderRadius: 11, backgroundColor: COLORS.white, borderWidth: 1, borderColor: OperationalColors.border, shadowColor: OperationalColors.primary, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 4, elevation: 2 },
   orderCardAmber: { borderColor: '#E4A13A', backgroundColor: '#FFF8E7' },
   orderCardRed: { borderColor: '#D85A52', backgroundColor: '#FFF2F1' },
-  orderHeader: { minHeight: 51, paddingVertical: 7, paddingLeft: 8, paddingRight: 5, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#FBF1E5' },
+  orderHeader: { minHeight: 51, paddingVertical: 7, paddingLeft: 8, paddingRight: 5, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: OperationalColors.surfaceAlt },
   orderCopy: { flex: 1, minWidth: 0 },
   orderNo: { color: COLORS.navy, fontSize: 11, fontWeight: '900' },
   stewardName: { color: COLORS.textMuted, fontSize: 8, fontWeight: '800', marginTop: 2 },
@@ -1833,21 +1834,21 @@ const baseStyles = StyleSheet.create({
   tableNumber: { maxWidth: 55, color: COLORS.navy, fontSize: 15, fontWeight: '900', marginTop: 1 },
   orderMeta: { paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
   orderMetaText: { color: COLORS.textMuted, fontSize: 8, fontWeight: '600' },
-  orderDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#A38C77', marginHorizontal: 2 },
-  itemsList: { borderTopWidth: 1, borderTopColor: '#FBF1E5' },
-  itemRow: { minHeight: 55, paddingHorizontal: 7, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: '#F8F7F5' },
+  orderDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: OperationalColors.muted, marginHorizontal: 2 },
+  itemsList: { borderTopWidth: 1, borderTopColor: OperationalColors.surfaceAlt },
+  itemRow: { minHeight: 55, paddingHorizontal: 7, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: OperationalColors.onPrimary },
   itemRowAmber: { backgroundColor: '#FFF4D9' },
   itemRowRed: { backgroundColor: '#FFE8E6' },
   itemRowUpdating: { opacity: 0.58 },
-  qtyPill: { minWidth: 27, height: 27, paddingHorizontal: 3, justifyContent: 'center', alignItems: 'center', borderRadius: 8, backgroundColor: '#FBF1E5' },
+  qtyPill: { minWidth: 27, height: 27, paddingHorizontal: 3, justifyContent: 'center', alignItems: 'center', borderRadius: 8, backgroundColor: OperationalColors.surfaceAlt },
   qtyText: { color: COLORS.blue, fontSize: 11, fontWeight: '900' },
   itemCopy: { flex: 1, minWidth: 0 },
   itemName: { color: COLORS.text, fontSize: 10, lineHeight: 13, fontWeight: '800' },
   itemRemark: { color: '#A26B32', fontSize: 8, lineHeight: 11, fontWeight: '600', marginTop: 2 },
-  queueAggregateBadge: { alignSelf: 'flex-start', marginTop: 5, paddingHorizontal: 6, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 6, backgroundColor: '#FBF1E5', borderWidth: 1, borderColor: '#CFBDAA' },
+  queueAggregateBadge: { alignSelf: 'flex-start', marginTop: 5, paddingHorizontal: 6, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 6, backgroundColor: OperationalColors.surfaceAlt, borderWidth: 1, borderColor: OperationalColors.border },
   queueAggregateText: { color: COLORS.blue, fontSize: 8, fontWeight: '900' },
   bulkTodoOverlay: { flex: 1, padding: 16, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
-  bulkTodoSheet: { width: '100%', maxWidth: 650, maxHeight: '86%', padding: 16, borderRadius: 22, backgroundColor: COLORS.white, shadowColor: '#72563C', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.24, shadowRadius: 18, elevation: 10 },
+  bulkTodoSheet: { width: '100%', maxWidth: 650, maxHeight: '86%', padding: 16, borderRadius: 22, backgroundColor: COLORS.white, shadowColor: OperationalColors.primary, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.24, shadowRadius: 18, elevation: 10 },
   bulkTodoHeader: { flexDirection: 'row', alignItems: 'flex-start' },
   bulkTodoHeaderCopy: { flex: 1, minWidth: 0 },
   bulkTodoEyebrow: { color: COLORS.blue, fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
@@ -1857,8 +1858,8 @@ const baseStyles = StyleSheet.create({
   bulkSelectAllText: { color: COLORS.blue, fontSize: 10, fontWeight: '900' },
   bulkTodoList: { marginTop: 10, flexGrow: 0 },
   bulkTodoListContent: { gap: 7, paddingBottom: 8 },
-  bulkTodoRow: { minHeight: 70, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: '#CFBDAA', borderRadius: 12, backgroundColor: '#F8F7F5' },
-  bulkTodoRowSelected: { borderColor: COLORS.blue, backgroundColor: '#FBF1E5' },
+  bulkTodoRow: { minHeight: 70, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: OperationalColors.border, borderRadius: 12, backgroundColor: OperationalColors.canvas },
+  bulkTodoRowSelected: { borderColor: COLORS.blue, backgroundColor: OperationalColors.surfaceAlt },
   bulkTodoOrderCopy: { flex: 1, minWidth: 0 },
   bulkTodoOrderTopLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   bulkTodoOrderNo: { flex: 1, color: COLORS.navy, fontSize: 12, fontWeight: '900' },
@@ -1868,7 +1869,7 @@ const baseStyles = StyleSheet.create({
   bulkMoveButton: { minHeight: 44, marginTop: 7, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, borderRadius: 12, backgroundColor: COLORS.blue },
   bulkMoveButtonText: { color: COLORS.white, fontSize: 12, fontWeight: '900' },
   detailsOverlay: { flex: 1, padding: 18, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
-  detailsSheet: { width: '100%', maxWidth: 680, maxHeight: '88%', padding: 18, borderRadius: 24, backgroundColor: COLORS.white, shadowColor: '#72563C', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.24, shadowRadius: 18, elevation: 10 },
+  detailsSheet: { width: '100%', maxWidth: 680, maxHeight: '88%', padding: 18, borderRadius: 24, backgroundColor: COLORS.white, shadowColor: OperationalColors.primary, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.24, shadowRadius: 18, elevation: 10 },
   detailsHeader: { flexDirection: 'row', alignItems: 'flex-start' },
   detailsHeaderCopy: { flex: 1, minWidth: 0 },
   detailsEyebrow: { color: COLORS.blue, fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
@@ -1876,11 +1877,11 @@ const baseStyles = StyleSheet.create({
   detailsIdentityBlock: { flex: 1, minWidth: 0, paddingVertical: 6 },
   detailsIdentityLabel: { color: COLORS.textMuted, fontSize: 8, fontWeight: '900', letterSpacing: 0.4 },
   detailsTitle: { color: COLORS.navy, fontSize: 24, fontWeight: '900', marginTop: 2 },
-  detailsTableHero: { minWidth: 98, paddingHorizontal: 9, paddingVertical: 6, alignItems: 'center', borderRadius: 11, backgroundColor: COLORS.blueSoft, borderWidth: 1, borderColor: '#ECDDCE' },
+  detailsTableHero: { minWidth: 98, paddingHorizontal: 9, paddingVertical: 6, alignItems: 'center', borderRadius: 11, backgroundColor: COLORS.blueSoft, borderWidth: 1, borderColor: OperationalColors.header },
   detailsTableNumber: { color: COLORS.navy, fontSize: 24, fontWeight: '900', marginTop: 2 },
   detailsSubtitle: { color: COLORS.textMuted, fontSize: 11, fontWeight: '700', marginTop: 3 },
-  closeDetails: { width: 36, height: 36, marginLeft: 10, justifyContent: 'center', alignItems: 'center', borderRadius: 12, backgroundColor: '#FCF7F4' },
-  detailsOrderFacts: { marginTop: 13, padding: 10, flexDirection: 'row', gap: 7, borderRadius: 12, backgroundColor: '#FCF6EF' },
+  closeDetails: { width: 36, height: 36, marginLeft: 10, justifyContent: 'center', alignItems: 'center', borderRadius: 12, backgroundColor: OperationalColors.canvas },
+  detailsOrderFacts: { marginTop: 13, padding: 10, flexDirection: 'row', gap: 7, borderRadius: 12, backgroundColor: OperationalColors.surface },
   detailsFact: { flex: 1, minWidth: 0 },
   detailsFactLabel: { color: COLORS.textMuted, fontSize: 7, fontWeight: '900', letterSpacing: 0.3 },
   detailsFactValue: { color: COLORS.navy, fontSize: 10, fontWeight: '900', marginTop: 3 },
@@ -1890,19 +1891,19 @@ const baseStyles = StyleSheet.create({
   selectAllText: { color: COLORS.blue, fontSize: 10, fontWeight: '900' },
   detailsHint: { color: COLORS.textMuted, fontSize: 10, lineHeight: 14, marginTop: 8, marginBottom: 8 },
   detailsList: { gap: 8, paddingBottom: 12 },
-  detailsItem: { minHeight: 72, padding: 10, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#CFBDAA', borderRadius: 13, backgroundColor: '#F8F7F5' },
-  detailsItemSelected: { borderColor: '#CFBDAA', backgroundColor: '#FBF1E5' },
-  detailsQty: { width: 38, height: 38, marginLeft: 8, marginRight: 10, justifyContent: 'center', alignItems: 'center', borderRadius: 11, backgroundColor: '#FBF1E5' },
+  detailsItem: { minHeight: 72, padding: 10, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: OperationalColors.border, borderRadius: 13, backgroundColor: OperationalColors.canvas },
+  detailsItemSelected: { borderColor: OperationalColors.border, backgroundColor: OperationalColors.surfaceAlt },
+  detailsQty: { width: 38, height: 38, marginLeft: 8, marginRight: 10, justifyContent: 'center', alignItems: 'center', borderRadius: 11, backgroundColor: OperationalColors.surfaceAlt },
   detailsQtyText: { color: COLORS.blue, fontSize: 13, fontWeight: '900' },
   detailsItemCopy: { flex: 1, minWidth: 0, paddingRight: 5 },
   detailsItemName: { color: COLORS.text, fontSize: 13, fontWeight: '900' },
   detailsItemCode: { color: COLORS.textMuted, fontSize: 10, fontWeight: '700', marginTop: 2 },
   detailsRemarkBanner: { marginTop: 6, paddingHorizontal: 6, paddingVertical: 5, flexDirection: 'row', alignItems: 'flex-start', gap: 4, borderRadius: 6, backgroundColor: '#FFF0CF', borderLeftWidth: 3, borderLeftColor: '#E39A2D' },
   detailsRemarkText: { flex: 1, color: '#7A4615', fontSize: 10, lineHeight: 13, fontWeight: '900' },
-  detailsNoRemark: { color: '#A38C77', fontSize: 10, marginTop: 4 },
+  detailsNoRemark: { color: OperationalColors.muted, fontSize: 10, marginTop: 4 },
   detailsStatus: { maxWidth: 70, paddingHorizontal: 6, paddingVertical: 5, borderRadius: 7 },
   detailsStatusText: { fontSize: 8, fontWeight: '900', textAlign: 'center' },
-  modalActions: { paddingTop: 11, flexDirection: 'row', gap: 8, borderTopWidth: 1, borderTopColor: '#F8F7F5' },
+  modalActions: { paddingTop: 11, flexDirection: 'row', gap: 8, borderTopWidth: 1, borderTopColor: OperationalColors.onPrimary },
   modalActionButton: { minHeight: 42, flex: 1, paddingHorizontal: 7, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 5, borderRadius: 11 },
   revertButton: { backgroundColor: '#FCECCF', borderWidth: 1, borderColor: '#F1CE93' },
   nextButton: { backgroundColor: COLORS.blue },

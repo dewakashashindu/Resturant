@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -28,13 +29,13 @@ type MenuAvailabilityItem = {
 type PendingAvailability = Record<string, boolean>;
 
 const COLORS = {
-  navy: '#72563C',
-  blue: '#72563C',
-  background: '#FCF7F4',
-  white: '#F8F7F5',
-  text: '#72563C',
-  muted: '#A38C77',
-  border: '#CFBDAA',
+  navy: OperationalColors.primary,
+  blue: OperationalColors.primary,
+  background: OperationalColors.canvas,
+  white: OperationalColors.onPrimary,
+  text: OperationalColors.primary,
+  muted: OperationalColors.muted,
+  border: OperationalColors.border,
   available: '#2B9662',
   unavailable: '#D85A52',
   unavailableSoft: '#FCE4E1',
@@ -198,7 +199,7 @@ export default function KdsUnavailableScreen() {
           value={searchText}
           onChangeText={setSearchText}
           placeholder="Search by item name or code"
-          placeholderTextColor="#8C9BA8"
+          placeholderTextColor={OperationalColors.muted}
           autoCapitalize="none"
           autoCorrect={false}
           style={styles.searchInput}
@@ -208,7 +209,7 @@ export default function KdsUnavailableScreen() {
         />
         {searchText ? (
           <TouchableOpacity onPress={() => setSearchText('')} style={styles.clearSearch} accessibilityLabel="Clear search">
-            <Ionicons name="close-circle" size={19} color="#94A6B5" />
+            <Ionicons name="close-circle" size={19} color={OperationalColors.muted} />
           </TouchableOpacity>
         ) : null}
       </View>
@@ -260,7 +261,7 @@ export default function KdsUnavailableScreen() {
         }}
         ListEmptyComponent={!isLoading ? (
           <View style={styles.emptyState}>
-            <Ionicons name="search-outline" size={34} color="#A6B5C0" />
+            <Ionicons name="search-outline" size={34} color={OperationalColors.muted} />
             <Text style={styles.emptyTitle}>No menu items found</Text>
             <Text style={styles.emptyText}>Try a different item name or code.</Text>
           </View>
@@ -293,9 +294,9 @@ const styles = StyleSheet.create({
   header: { minHeight: 82, paddingHorizontal: 16, paddingBottom: 13, flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.navy },
   backButton: { width: 42, height: 42, marginRight: 11, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(248,247,245,0.13)' },
   headerText: { flex: 1 },
-  eyebrow: { color: '#8FB8D7', fontSize: 10, fontWeight: '900', letterSpacing: 1.1 },
+  eyebrow: { color: OperationalColors.accentSoft, fontSize: 10, fontWeight: '900', letterSpacing: 1.1 },
   title: { color: COLORS.white, fontSize: 23, lineHeight: 28, fontWeight: '900', marginTop: 2 },
-  introCard: { marginHorizontal: 14, marginTop: 15, padding: 13, flexDirection: 'row', alignItems: 'flex-start', borderRadius: 15, backgroundColor: COLORS.white, borderWidth: 1, borderColor: '#E0E9EE' },
+  introCard: { marginHorizontal: 14, marginTop: 15, padding: 13, flexDirection: 'row', alignItems: 'flex-start', borderRadius: 15, backgroundColor: COLORS.white, borderWidth: 1, borderColor: OperationalColors.surfaceAlt },
   introIcon: { width: 37, height: 37, marginRight: 10, justifyContent: 'center', alignItems: 'center', borderRadius: 11, backgroundColor: COLORS.unavailableSoft },
   introCopy: { flex: 1 },
   introTitle: { color: COLORS.text, fontSize: 13, fontWeight: '900' },
@@ -308,17 +309,17 @@ const styles = StyleSheet.create({
   unavailableCount: { marginLeft: 'auto', color: COLORS.unavailable, fontSize: 11, fontWeight: '900' },
   listContent: { paddingHorizontal: 14, paddingBottom: 122, gap: 8 },
   emptyList: { flexGrow: 1, justifyContent: 'center', paddingBottom: 130 },
-  itemRow: { minHeight: 69, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#DFE8EE', borderRadius: 14, backgroundColor: COLORS.white },
+  itemRow: { minHeight: 69, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: OperationalColors.border, borderRadius: 14, backgroundColor: COLORS.white },
   itemRowUnavailable: { borderColor: '#F0C9C4', backgroundColor: '#FFF8F7' },
   itemRowPending: { borderColor: '#E7B978', borderWidth: 1.5 },
-  checkbox: { width: 28, height: 28, marginRight: 11, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#A5B6C2', borderRadius: 8, backgroundColor: COLORS.white },
+  checkbox: { width: 28, height: 28, marginRight: 11, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: OperationalColors.border, borderRadius: 8, backgroundColor: COLORS.white },
   checkboxChecked: { borderColor: COLORS.unavailable, backgroundColor: COLORS.unavailable },
   itemInfo: { flex: 1, minWidth: 0, paddingRight: 8 },
   itemName: { color: COLORS.text, fontSize: 14, fontWeight: '800' },
   itemNameUnavailable: { color: '#974A44' },
   itemDetailRow: { marginTop: 4, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7 },
   itemCode: { color: COLORS.muted, fontSize: 10, fontWeight: '700' },
-  itemCategory: { color: '#52718A', fontSize: 9, fontWeight: '900', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: '#EAF3F8' },
+  itemCategory: { color: OperationalColors.muted, fontSize: 9, fontWeight: '900', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: OperationalColors.surfaceAlt },
   pendingText: { color: '#A86518', fontSize: 8, fontWeight: '900', letterSpacing: 0.25 },
   statusPill: { paddingHorizontal: 7, paddingVertical: 5, borderRadius: 7 },
   statusPillAvailable: { backgroundColor: '#EBF8F0' },
@@ -330,7 +331,7 @@ const styles = StyleSheet.create({
   emptyTitle: { color: COLORS.text, fontSize: 15, fontWeight: '800', marginTop: 10 },
   emptyText: { color: COLORS.muted, fontSize: 12, marginTop: 4 },
   loader: { marginTop: 28 },
-  saveBar: { minHeight: 78, paddingTop: 10, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#CFBDAA', backgroundColor: COLORS.white },
+  saveBar: { minHeight: 78, paddingTop: 10, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: OperationalColors.border, backgroundColor: COLORS.white },
   saveCopy: { flex: 1, paddingRight: 10 },
   saveCount: { color: COLORS.text, fontSize: 12, fontWeight: '900' },
   saveDescription: { color: COLORS.muted, fontSize: 10, marginTop: 3 },

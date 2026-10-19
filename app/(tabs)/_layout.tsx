@@ -1,3 +1,4 @@
+import { OperationalColors as C } from '../../constants/operationalTheme';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Tabs, useRouter } from 'expo-router';
@@ -82,9 +83,10 @@ function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
         onPress={() => navigation.navigate(state.routeNames[0])}
         accessibilityRole="button"
         accessibilityLabel="Home"
+        accessibilityState={{ selected: true }}
         hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
       >
-        <Ionicons name="home" size={iconSize} color="#F8F7F5" />
+        <View style={styles.activeIcon}><Ionicons name="home" size={iconSize} color={C.primary} /></View>
         <Text
           style={[styles.navText, { fontSize: textSize }]}
           allowFontScaling={false}
@@ -102,7 +104,7 @@ function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
         accessibilityLabel="Order Taking"
         hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
       >
-        <Ionicons name="receipt-outline" size={iconSize} color="#F8F7F5" />
+        <Ionicons name="receipt-outline" size={iconSize} color={C.primary} />
         <Text style={[styles.navText, { fontSize: textSize }]} allowFontScaling={false} numberOfLines={1}>
           Order Taking
         </Text>
@@ -117,7 +119,7 @@ function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
         hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
       >
         <View style={styles.notificationIconWrap}>
-          <Ionicons name="notifications" size={iconSize} color="#F8F7F5" />
+          <Ionicons name="notifications" size={iconSize} color={C.primary} />
           {unreadCount > 0 ? (
             <View style={styles.unreadBadge}>
               <Text style={styles.unreadBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
@@ -137,7 +139,7 @@ function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
         accessibilityLabel="Logout"
         hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
       >
-        <MaterialCommunityIcons name="logout" size={iconSize} color="#F8F7F5" />
+        <MaterialCommunityIcons name="logout" size={iconSize} color={C.primary} />
         <Text
           style={[styles.navText, { fontSize: textSize }]}
           allowFontScaling={false}
@@ -166,7 +168,7 @@ export default function TabLayout() {
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
-const BAR_COLOR = '#72563C';
+const BAR_COLOR = C.surface;
 
 const styles = StyleSheet.create({
   // Wrapper fills the gap behind the rounded corners with the same colour,
@@ -185,8 +187,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
     // Elevation keeps the bar above content on Android without z-index hacks.
     ...Platform.select({
       android: { elevation: 8 },
@@ -211,11 +213,12 @@ const styles = StyleSheet.create({
   },
 
   navText: {
-    color: '#F8F7F5',
+    color: C.primary,
     fontWeight: '500',
     marginTop: 3,
   },
 
+  activeIcon: { backgroundColor: C.header, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 4 },
   notificationIconWrap: { position: 'relative', justifyContent: 'center', alignItems: 'center' },
   unreadBadge: {
     position: 'absolute',

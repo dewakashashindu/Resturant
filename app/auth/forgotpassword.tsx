@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -80,7 +81,7 @@ const [message, setMessage] = useState('');
 
   return (
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
+      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.onPrimary} />
 
       {/*  DECORATIVE CIRCLES  */}
       <View style={[styles.topCircle, {
@@ -171,20 +172,20 @@ const [message, setMessage] = useState('');
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F7F5',
+    backgroundColor: OperationalColors.canvas,
   },
 
   
   topCircle: {
     position: 'absolute',
     borderRadius: 999,
-    backgroundColor: 'rgba(97,145,185,0.54)',
+    backgroundColor: 'rgba(168,139,98,0.54)',
     left: -58,
   },
   bottomCircle: {
     position: 'absolute',
     borderRadius: 999,
-    backgroundColor: 'rgba(97,145,185,0.54)',
+    backgroundColor: 'rgba(168,139,98,0.54)',
     bottom: -40,
     right: -50,
   },
@@ -197,11 +198,11 @@ const styles = StyleSheet.create({
   
   title: {
     fontWeight: '600',
-    color: '#000',
+    color: OperationalColors.text,
     marginBottom: 8,
   },
   subtitle: {
-    color: '#555',
+    color: OperationalColors.muted,
   },
 
   
@@ -209,7 +210,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   noteText: {
-    color: '#000',
+    color: OperationalColors.text,
     textAlign: 'center',
     lineHeight: 24,
   },
@@ -221,21 +222,21 @@ const styles = StyleSheet.create({
   input: {
     width: '100%',
     borderWidth: 1.5,
-    borderColor: '#72563C',
+    borderColor: OperationalColors.primary,
     paddingHorizontal: 16,
-    color: '#000',
-    backgroundColor: '#F8F7F5',
+    color: OperationalColors.text,
+    backgroundColor: OperationalColors.canvas,
   },
 
   
   button: {
     width: '100%',
-    backgroundColor: '#72563C',
+    backgroundColor: OperationalColors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   buttonText: {
-    color: '#F8F7F5',
+    color: OperationalColors.onPrimary,
     fontWeight: '700',
   },
 
@@ -245,10 +246,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   signupText: {
-    color: '#3B4054',
+    color: OperationalColors.text,
   },
   signupLink: {
-    color: '#72563C',
+    color: OperationalColors.primary,
     fontWeight: '600',
   },
 });

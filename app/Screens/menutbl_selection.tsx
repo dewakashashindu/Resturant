@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../services/api';
@@ -422,7 +423,7 @@ const TableSelectionScreen = () => {
               </TouchableOpacity>
             </View>
             {loadingGroups ? (
-              <View style={styles.dropdownState}><ActivityIndicator color="#6291B9" /></View>
+              <View style={styles.dropdownState}><ActivityIndicator color={OperationalColors.accent} /></View>
             ) : groupError ? (
               <Text style={styles.dropdownStateText}>{groupError}</Text>
             ) : (
@@ -474,7 +475,7 @@ const TableSelectionScreen = () => {
               </TouchableOpacity>
             </View>
             {loadingTables ? (
-              <View style={styles.dropdownState}><ActivityIndicator color="#6291B9" /></View>
+              <View style={styles.dropdownState}><ActivityIndicator color={OperationalColors.accent} /></View>
             ) : tableError ? (
               <Text style={styles.dropdownStateText}>{tableError}</Text>
             ) : (
@@ -508,7 +509,7 @@ const styles = StyleSheet.create({
   // ── Decorative Circles ──
   circle: {
     position: 'absolute',
-    backgroundColor: 'rgba(98, 145, 185, 0.38)',
+    backgroundColor: 'rgba(168,139,98, 0.38)',
     borderRadius: 9999,
   },
   circleTopLeft: {},
@@ -521,7 +522,7 @@ const styles = StyleSheet.create({
     paddingVertical: scaleH(40),
   },
   descriptionText: {
-    color: '#1D3444',
+    color: OperationalColors.text,
     fontSize: scaleFont(14),
     fontWeight: '500',
     lineHeight: scaleH(22),
@@ -547,7 +548,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: scaleW(12),
     borderWidth: 1,
-    borderColor: '#EDF1F3',
+    borderColor: OperationalColors.surfaceAlt,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -570,7 +571,7 @@ const styles = StyleSheet.create({
     fontSize: scaleFont(14),
   },
   arrowText: {
-    color: '#6291B9',
+    color: OperationalColors.accent,
     fontSize: scaleFont(28),
     fontWeight: '300',
   },
@@ -581,7 +582,7 @@ const styles = StyleSheet.create({
     maxWidth: scaleW(240),
     height: scaleH(52),
     alignSelf: 'center',
-    backgroundColor: '#6291B9',
+    backgroundColor: OperationalColors.accent,
     borderRadius: scaleW(12),
     justifyContent: 'center',
     alignItems: 'center',
@@ -625,7 +626,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: scaleW(20),
     paddingVertical: scaleH(14),
-    backgroundColor: '#6291B9',
+    backgroundColor: OperationalColors.accent,
   },
   modalTitle: {
     fontSize: scaleFont(16),
@@ -655,19 +656,19 @@ const styles = StyleSheet.create({
   },
   dropdownItemText: {
     fontSize: scaleFont(15),
-    color: '#333',
+    color: OperationalColors.text,
     fontWeight: '400',
   },
-  selectedItem: { backgroundColor: 'rgba(98, 145, 185, 0.15)' },
-  selectedItemText: { color: '#6291B9', fontWeight: '700' },
+  selectedItem: { backgroundColor: 'rgba(168,139,98, 0.15)' },
+  selectedItemText: { color: OperationalColors.accent, fontWeight: '700' },
   checkmark: {
-    color: '#6291B9',
+    color: OperationalColors.accent,
     fontSize: scaleFont(16),
     fontWeight: '700',
   },
   separator: {
     height: 1,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: OperationalColors.surfaceAlt,
     marginHorizontal: scaleW(16),
   },
 
@@ -700,15 +701,15 @@ const styles = StyleSheet.create({
   tableStatusOccupiedText: { color: '#B46220' },
   tableStatusReservedText: { color: '#3977AD' },
   selectedTableItem: {
-    backgroundColor: 'rgba(98, 145, 185, 0.15)',
+    backgroundColor: 'rgba(168,139,98, 0.15)',
   },
   tableItemText: {
     fontSize: scaleFont(15),
-    color: '#333',
+    color: OperationalColors.text,
     fontWeight: '500',
   },
   selectedTableItemText: {
-    color: '#6291B9',
+    color: OperationalColors.accent,
     fontWeight: '700',
   },
   dropdownState: {

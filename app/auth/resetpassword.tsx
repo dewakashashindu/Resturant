@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import PasswordUpdatedModal from '@/components/PasswordUpdatedModal';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -134,7 +135,7 @@ export default function ResetPasswordScreen() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
+      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.onPrimary} />
 
       <View style={[styles.topCircle, {
         width:  isTablet ? 220 : 160,
@@ -169,7 +170,7 @@ export default function ResetPasswordScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  passwordError ? '#D32F2F' : '#72563C',
+              borderColor:  passwordError ? '#D32F2F' : OperationalColors.primary,
             },
           ]}
         >
@@ -209,7 +210,7 @@ export default function ResetPasswordScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  confirmError ? '#D32F2F' : '#72563C',
+              borderColor:  confirmError ? '#D32F2F' : OperationalColors.primary,
             },
           ]}
         >
@@ -269,12 +270,12 @@ export default function ResetPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  container:     { flex: 1, backgroundColor: '#F8F7F5' },
-  topCircle:     { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(98,145,185,0.35)', left: -70 },
-  bottomCircle:  { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(98,145,185,0.35)', bottom: -60, right: -70 },
+  container:     { flex: 1, backgroundColor: OperationalColors.canvas },
+  topCircle:     { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(168,139,98,0.35)', left: -70 },
+  bottomCircle:  { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(168,139,98,0.35)', bottom: -60, right: -70 },
   logoContainer: { alignItems: 'center' },
-  title:         { fontWeight: '600', color: '#000', marginBottom: 8 },
-  subtitle:      { color: '#555' },
+  title:         { fontWeight: '600', color: OperationalColors.text, marginBottom: 8 },
+  subtitle:      { color: OperationalColors.muted },
 
   inputWrapper: {
     width:             '100%',
@@ -282,12 +283,12 @@ const styles = StyleSheet.create({
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: 16,
-    backgroundColor:   '#F8F7F5',
+    backgroundColor:   OperationalColors.canvas,
   },
 
   inputInner: {
     flex:   1,
-    color:  '#000',
+    color:  OperationalColors.text,
     height: '100%',
   },
 
@@ -312,9 +313,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
 
-  button:         { width: '100%', backgroundColor: '#72563C', justifyContent: 'center', alignItems: 'center' },
-  buttonText:     { color: '#F8F7F5', fontWeight: '700' },
+  button:         { width: '100%', backgroundColor: OperationalColors.primary, justifyContent: 'center', alignItems: 'center' },
+  buttonText:     { color: OperationalColors.onPrimary, fontWeight: '700' },
   signupContainer:{ flexDirection: 'row', justifyContent: 'center' },
-  signupText:     { color: '#3B4054' },
-  signupLink:     { color: '#72563C', fontWeight: '600' },
+  signupText:     { color: OperationalColors.text },
+  signupLink:     { color: OperationalColors.primary, fontWeight: '600' },
 });

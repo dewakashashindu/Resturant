@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -250,7 +251,7 @@ const buildCategoriesFromItems = (
         type: 'C',
         price: Number(item.SalesPrice ?? 0) || 0,
         listingOrder: Number(item.L1LitingOrder ?? item.listingOrder ?? 0) || 0,
-        color: String(item.color ?? '#E3F2FD'),
+        color: String(item.color ?? OperationalColors.surfaceAlt),
         icon: undefined,
       });
     }
@@ -340,7 +341,7 @@ const ColorCard = ({ label, color, icon, onPress, cardWidth }: ColorCardProps) =
       onPress={onPress}
       style={[
         cs.colorCard,
-        { backgroundColor: color || '#E3F2FD', width: cardWidth, height: cardH },
+        { backgroundColor: color || OperationalColors.surfaceAlt, width: cardWidth, height: cardH },
       ]}
     >
       <View style={cs.colorCardDeco} />
@@ -697,7 +698,7 @@ export default function ItemSelection() {
             type: String(cat.type ?? cat.Type ?? 'C'),
             price: Number(cat.price ?? cat.SalesPrice ?? 0),
             listingOrder: Number(cat.listingOrder ?? cat.L1LitingOrder ?? 0),
-            color: String(cat.color ?? '#E3F2FD'),
+            color: String(cat.color ?? OperationalColors.surfaceAlt),
             icon: undefined,
           }))
           .filter((cat) => Boolean(cat.id));
@@ -1080,7 +1081,7 @@ export default function ItemSelection() {
           },
         ]}
       >
-        <ActivityIndicator size="large" color="#72563C" />
+        <ActivityIndicator size="large" color={OperationalColors.primary} />
       </View>
     );
   }
@@ -1089,7 +1090,7 @@ export default function ItemSelection() {
 
   return (
     <View style={s.container}>
-      <StatusBar backgroundColor="#72563C" barStyle="light-content" />
+      <StatusBar backgroundColor={OperationalColors.header} barStyle="dark-content" />
 
       {/* Navy notch fill */}
       <View
@@ -1099,7 +1100,7 @@ export default function ItemSelection() {
           left: 0,
           right: 0,
           height: insets.top,
-          backgroundColor: '#72563C',
+          backgroundColor: OperationalColors.primary,
           zIndex: 0,
         }}
       />
@@ -1201,7 +1202,7 @@ export default function ItemSelection() {
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 placeholder="Search by item name or code..."
-                placeholderTextColor="rgba(248,247,245,0.55)"
+                placeholderTextColor={OperationalColors.muted}
                 style={s.searchExpandInput}
                 returnKeyType="search"
               />
@@ -1210,7 +1211,7 @@ export default function ItemSelection() {
                 activeOpacity={0.7}
                 style={s.searchCloseBtn}
               >
-                <Ionicons name="close-circle" size={20} color="rgba(248,247,245,0.9)" />
+                <Ionicons name="close-circle" size={20} color={OperationalColors.primary} />
               </TouchableOpacity>
             </View>
           </Animated.View>
@@ -1221,7 +1222,7 @@ export default function ItemSelection() {
             activeOpacity={0.8}
             onPress={openSearchBar}
           >
-            <Ionicons name="search" size={20} color="#F8F7F5" />
+            <Ionicons name="search" size={20} color={OperationalColors.primary} />
           </TouchableOpacity>
         </View>
 
@@ -1411,7 +1412,7 @@ export default function ItemSelection() {
                   <ColorCard
                     key={`${row.Level}-cat-${i}`}
                     label={row.LDes}
-                    color="#E3F2FD"
+                    color={OperationalColors.surfaceAlt}
                     cardWidth={cardWidth}
                     onPress={() => openMenuRow(row)}
                   />
@@ -1511,7 +1512,7 @@ export default function ItemSelection() {
                     <View style={s.centerDetailsHeader}>
                       <Text style={s.centerDetailsHeaderText}>Item Details</Text>
                       <TouchableOpacity onPress={closeItemDetails} activeOpacity={0.8}>
-                        <Ionicons name="close" size={22} color="#0F172A" />
+                        <Ionicons name="close" size={22} color={OperationalColors.text} />
                       </TouchableOpacity>
                     </View>
 
@@ -1570,7 +1571,7 @@ export default function ItemSelection() {
                                     activeOpacity={0.85}
                                     style={s.tagChipRemoveBtn}
                                   >
-                                    <Ionicons name="close" size={13} color="#F8F7F5" />
+                                    <Ionicons name="close" size={13} color={OperationalColors.onPrimary} />
                                   </TouchableOpacity>
                                 </View>
                               ))}
@@ -1602,7 +1603,7 @@ export default function ItemSelection() {
                               <Ionicons
                                 name="chevron-down"
                                 size={18}
-                                color="#72563C"
+                                color={OperationalColors.primary}
                               />
                             </TouchableOpacity>
                           </View>
@@ -1633,7 +1634,7 @@ export default function ItemSelection() {
                         activeOpacity={0.8}
                         style={s.presetsBackBtn}
                       >
-                        <Ionicons name="arrow-back" size={20} color="#0F172A" />
+                        <Ionicons name="arrow-back" size={20} color={OperationalColors.text} />
                       </TouchableOpacity>
                       <Text style={s.presetsHeaderText}>Select Preset Remark</Text>
                       <TouchableOpacity
@@ -1641,7 +1642,7 @@ export default function ItemSelection() {
                         activeOpacity={0.8}
                         style={s.presetsCloseBtn}
                       >
-                        <Ionicons name="close" size={20} color="#0F172A" />
+                        <Ionicons name="close" size={20} color={OperationalColors.text} />
                       </TouchableOpacity>
                     </View>
 
@@ -1649,7 +1650,7 @@ export default function ItemSelection() {
 
                     {loadingRemarkOptions ? (
                       <View style={s.centerModalLoaderWrap}>
-                        <ActivityIndicator size="small" color="#72563C" />
+                        <ActivityIndicator size="small" color={OperationalColors.primary} />
                       </View>
                     ) : (
                       <ScrollView
@@ -1771,11 +1772,11 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
 
       container: {
         flex: 1,
-        backgroundColor: '#F4F6F8',
+        backgroundColor: OperationalColors.canvas,
       },
 
       header: {
-        backgroundColor: '#72563C',
+        backgroundColor: OperationalColors.header,
         justifyContent: 'center',
         overflow: 'hidden',
       },
@@ -1787,7 +1788,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         borderRadius: 110,
         top: -60,
         right: -60,
-        backgroundColor: 'rgba(163,140,119,0.45)',
+        backgroundColor: 'rgba(255,253,250,0.18)',
       },
       headerTopRow: {
         flexDirection: 'row',
@@ -1802,12 +1803,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       backIcon: {
         width: scale(backBtnSize),
         height: scale(backBtnSize),
-        tintColor: '#F8F7F5',
+        tintColor: OperationalColors.primary,
       },
       headerTitle: {
         fontSize: scale(titleFs),
         fontWeight: '700',
-        color: '#F8F7F5',
+        color: OperationalColors.primary,
         flex: 1,
         textAlign: 'center',
         marginHorizontal: scale(8),
@@ -1822,7 +1823,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingVertical: scale(badgePadV),
       },
       tableBadgeText: {
-        color: '#F8F7F5',
+        color: OperationalColors.primary,
         fontWeight: '600',
         fontSize: scale(badgeFs),
       },
@@ -1836,7 +1837,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         backgroundColor: 'transparent',
         borderLeftColor: 'transparent',
         borderRightColor: 'transparent',
-        borderTopColor: '#F8F7F5',
+        borderTopColor: OperationalColors.primary,
       },
 
       searchTabsRow: {
@@ -1869,23 +1870,23 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingVertical: scale(scrollTabPadV),
         borderRadius: scale(scrollTabBr),
         borderWidth: 1.5,
-        borderColor: 'rgba(248,247,245,0.35)',
+        borderColor: 'rgba(107,80,56,0.22)',
         backgroundColor: 'transparent',
         justifyContent: 'center',
         alignItems: 'center',
       },
       headerTabActive: {
-        backgroundColor: '#F8F7F5',
-        borderColor: '#F8F7F5',
+        backgroundColor: OperationalColors.canvas,
+        borderColor: OperationalColors.primary,
       },
       headerTabLabel: {
         fontSize: scale(13),
         fontWeight: '700',
-        color: 'rgba(248,247,245,0.75)',
+        color: 'rgba(107,80,56,0.8)',
         textAlign: 'center',
       },
       headerTabLabelActive: {
-        color: '#72563C',
+        color: OperationalColors.primary,
       },
       searchExpandWrap: {
         flex: 1,
@@ -1897,13 +1898,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         backgroundColor: 'rgba(248,247,245,0.16)',
         borderRadius: scale(searchBr),
         borderWidth: 1,
-        borderColor: 'rgba(248,247,245,0.28)',
+        borderColor: 'rgba(107,80,56,0.22)',
         height: scale(searchH),
         paddingHorizontal: scale(searchPadH),
       },
       searchExpandInput: {
         flex: 1,
-        color: '#F8F7F5',
+        color: OperationalColors.primary,
         fontSize: scale(searchFs),
         paddingRight: scale(8),
         height: '100%',
@@ -1921,7 +1922,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       sectionTitleInHeader: {
         fontSize: scale(sectionFont),
         fontWeight: '700',
-        color: 'rgba(248,247,245,0.75)',
+        color: 'rgba(107,80,56,0.8)',
         letterSpacing: 0.4,
       },
 
@@ -1929,12 +1930,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingHorizontal: scale(hPad),
         paddingTop: scale(10),
         paddingBottom: scale(2),
-        backgroundColor: '#F4F6F8',
+        backgroundColor: OperationalColors.canvas,
       },
       sectionTitle: {
         fontSize: scale(sectionFont),
         fontWeight: '700',
-        color: '#666',
+        color: OperationalColors.muted,
         marginBottom: scale(4),
       },
 
@@ -1944,7 +1945,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       },
       dropdown: {
         position: 'absolute',
-        backgroundColor: '#F8F7F5',
+        backgroundColor: OperationalColors.canvas,
         borderRadius: scale(dropdownBr),
         paddingVertical: scale(8),
         minWidth: scale(dropdownMinW),
@@ -1963,17 +1964,17 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       },
       dropdownTitle: {
         fontWeight: '700',
-        color: '#72563C',
+        color: OperationalColors.primary,
         fontSize: scale(dropdownTitleFs),
       },
       dropdownClose: {
-        color: '#888',
+        color: OperationalColors.muted,
         fontWeight: '600',
         fontSize: scale(dropdownTitleFs),
       },
       divider: {
         height: 1,
-        backgroundColor: '#EEE',
+        backgroundColor: OperationalColors.surfaceAlt,
         marginVertical: scale(4),
       },
       dropdownRow: {
@@ -1983,12 +1984,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingVertical: scale(10),
       },
       dropdownLabel: {
-        color: '#666',
+        color: OperationalColors.muted,
         fontWeight: '500',
         fontSize: scale(dropdownRowFs),
       },
       dropdownValue: {
-        color: '#000',
+        color: OperationalColors.text,
         fontWeight: '700',
         fontSize: scale(dropdownRowFs),
       },
@@ -1996,13 +1997,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         marginHorizontal: scale(12),
         marginTop: scale(4),
         marginBottom: scale(6),
-        backgroundColor: '#72563C',
+        backgroundColor: OperationalColors.primary,
         borderRadius: scale(10),
         alignItems: 'center',
         paddingVertical: scale(changeTablePadV),
       },
       changeTableText: {
-        color: '#F8F7F5',
+        color: OperationalColors.onPrimary,
         fontWeight: '700',
         fontSize: scale(dropdownRowFs),
       },
@@ -2018,21 +2019,21 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         flexWrap: 'wrap',
       },
       breadLink: {
-        color: '#72563C',
+        color: OperationalColors.primary,
         fontWeight: '500',
         fontSize: scale(breadFs),
       },
       breadSep: {
-        color: '#999',
+        color: OperationalColors.disabled,
         fontSize: scale(breadFs),
       },
       breadActive: {
-        color: '#72563C',
+        color: OperationalColors.primary,
         fontWeight: '700',
         fontSize: scale(breadFs),
       },
       searchScopeText: {
-        color: '#A38C77',
+        color: OperationalColors.muted,
         fontSize: scale(12),
         marginBottom: scale(12),
       },
@@ -2042,7 +2043,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingVertical: scale(32),
       },
       emptySearchText: {
-        color: '#A38C77',
+        color: OperationalColors.muted,
         fontSize: scale(14),
       },
 
@@ -2077,12 +2078,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         fontSize: scale(colorCardLabelFs),
         fontWeight: '600',
         textAlign: 'center',
-        color: '#000',
+        color: OperationalColors.text,
         marginTop: scale(4),
       },
 
       itemCard: {
-        backgroundColor: '#F8F7F5',
+        backgroundColor: OperationalColors.canvas,
         borderRadius: scale(itemCardBr),
         marginBottom: scale(itemCardMb),
         overflow: 'hidden',
@@ -2102,7 +2103,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         borderRadius: scale(12),
         overflow: 'hidden',
         borderWidth: 1,
-        borderColor: '#EEE',
+        borderColor: OperationalColors.surfaceAlt,
       },
       fillImage: {
         width: '100%',
@@ -2111,20 +2112,20 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       itemLabel: {
         fontSize: scale(itemLabelFs),
         fontWeight: '600',
-        color: '#000',
+        color: OperationalColors.text,
         marginTop: scale(8),
         paddingHorizontal: scale(6),
         textAlign: 'center',
       },
       itemPrice: {
         fontSize: scale(itemPriceFs),
-        color: '#666',
+        color: OperationalColors.muted,
         fontWeight: '500',
         marginTop: scale(2),
       },
       pathText: {
         fontSize: scale(pathTextFs),
-        color: '#A38C77',
+        color: OperationalColors.muted,
         marginTop: scale(2),
         textAlign: 'center',
         paddingHorizontal: scale(8),
@@ -2138,14 +2139,14 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         justifyContent: 'center',
       },
       cardRemarkChip: {
-        backgroundColor: '#F8F7F5',
+        backgroundColor: OperationalColors.canvas,
         borderRadius: scale(5),
         paddingHorizontal: scale(6),
         paddingVertical: scale(3),
         maxWidth: '100%',
       },
       cardRemarkText: {
-        color: '#475569',
+        color: OperationalColors.muted,
         fontSize: scale(10),
         fontWeight: '600',
       },
@@ -2156,19 +2157,19 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         marginTop: scale(8),
       },
       qtyBtn: {
-        backgroundColor: '#EEE',
+        backgroundColor: OperationalColors.surfaceAlt,
         borderRadius: scale(6),
         paddingHorizontal: scale(10),
         paddingVertical: scale(6),
       },
       qtyBtnText: {
         fontWeight: '700',
-        color: '#222',
+        color: OperationalColors.text,
       },
       qtyNumber: {
         fontSize: scale(qtyNumberFs),
         fontWeight: '700',
-        color: '#222',
+        color: OperationalColors.text,
         minWidth: scale(28),
         textAlign: 'center',
       },
@@ -2184,12 +2185,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       },
       addBtnText: {
         fontSize: scale(addBtnFs),
-        color: '#333',
+        color: OperationalColors.text,
         fontWeight: '700',
       },
 
       existingQtyBadge: {
-        backgroundColor: '#F8F7F5',
+        backgroundColor: OperationalColors.canvas,
         borderRadius: scale(5),
         paddingHorizontal: scale(8),
         paddingVertical: scale(2),
@@ -2198,7 +2199,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       },
       existingQtyText: {
         fontSize: scale(10),
-        color: '#A38C77',
+        color: OperationalColors.muted,
         fontWeight: '600',
       },
 
@@ -2207,7 +2208,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: '#F8F7F5',
+        backgroundColor: OperationalColors.canvas,
         paddingTop: scale(10),
         elevation: 8,
         shadowColor: '#000',
@@ -2227,13 +2228,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#72563C',
+        backgroundColor: OperationalColors.primary,
         borderRadius: scale(goToCartBtnBr),
         paddingVertical: scale(goToCartBtnPadV),
         paddingHorizontal: scale(goToCartBtnPadH),
       },
       goToCartText: {
-        color: '#F8F7F5',
+        color: OperationalColors.onPrimary,
         fontSize: scale(goToCartTextFs),
         fontWeight: '700',
       },
@@ -2242,13 +2243,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         minWidth: scale(goToCartBadgeSize),
         height: scale(goToCartBadgeSize),
         borderRadius: scale(goToCartBadgeBr),
-        backgroundColor: '#8D9ED4',
+        backgroundColor: OperationalColors.accent,
         alignItems: 'center',
         justifyContent: 'center',
         paddingHorizontal: scale(8),
       },
       goToCartBadgeText: {
-        color: '#F8F7F5',
+        color: OperationalColors.onPrimary,
         fontSize: scale(goToCartBadgeFs),
         fontWeight: '700',
       },
@@ -2264,7 +2265,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         width: '100%',
         maxWidth: scale(centerCardW),
         height: scale(centerCardH),
-        backgroundColor: '#F8F7F5',
+        backgroundColor: OperationalColors.canvas,
         borderRadius: scale(centerCardBr),
         overflow: 'hidden',
         padding: scale(centerCardPad),
@@ -2283,7 +2284,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       centerDetailsHeaderText: {
         fontSize: scale(detailsHeaderFs),
         fontWeight: '800',
-        color: '#0F172A',
+        color: OperationalColors.text,
       },
       centerDetailsBody: {
         flex: 1,
@@ -2305,12 +2306,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         marginHorizontal: scale(sheetBodyPadH),
         borderRadius: scale(sheetImageBr),
         overflow: 'hidden',
-        backgroundColor: '#D9D9D9',
+        backgroundColor: OperationalColors.border,
       },
       sheetImage: {
         width: '100%',
         height: scale(sheetImageH),
-        backgroundColor: '#D9D9D9',
+        backgroundColor: OperationalColors.border,
       },
       sheetBodyWrap: {
         flex: 1,
@@ -2320,7 +2321,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       sheetTitle: {
         fontSize: scale(sheetTitleFs),
         fontWeight: '800',
-        color: '#000',
+        color: OperationalColors.text,
         letterSpacing: 0.8,
         textTransform: 'uppercase',
       },
@@ -2334,7 +2335,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       tagChip: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#72563C',
+        backgroundColor: OperationalColors.primary,
         borderRadius: scale(999),
         paddingLeft: scale(tagChipPadL),
         paddingRight: scale(tagChipPadR),
@@ -2346,7 +2347,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         marginRight: scale(6),
       },
       tagChipText: {
-        color: '#F8F7F5',
+        color: OperationalColors.onPrimary,
         fontSize: scale(tagChipFs),
         fontWeight: '700',
         marginRight: scale(6),
@@ -2377,13 +2378,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         width: '100%',
         height: scale(remarkInputH),
         borderWidth: 1.5,
-        borderColor: 'rgba(0,98,170,0.35)',
+        borderColor: 'rgba(168,139,98,0.35)',
         borderRadius: scale(remarkInputBr),
         paddingLeft: scale(12),
         paddingRight: scale(44),
-        color: '#000',
+        color: OperationalColors.text,
         fontSize: scale(remarkInputFs),
-        backgroundColor: '#F8F7F5',
+        backgroundColor: OperationalColors.canvas,
         textAlignVertical: 'center',
       },
       remarkDropdownIconBtn: {
@@ -2399,12 +2400,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingHorizontal: scale(addTagBtnPadH),
         paddingVertical: scale(addTagBtnPadV),
         borderRadius: scale(999),
-        backgroundColor: 'rgba(141,158,212,0.12)',
+        backgroundColor: 'rgba(168,139,98,0.12)',
         borderWidth: 1,
-        borderColor: 'rgba(141,158,212,0.35)',
+        borderColor: 'rgba(168,139,98,0.35)',
       },
       addTagBtnText: {
-        color: '#72563C',
+        color: OperationalColors.primary,
         fontSize: scale(addTagBtnFs),
         fontWeight: '800',
         letterSpacing: 0.8,
@@ -2414,12 +2415,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         marginTop: scale(saveBtnMt),
         height: scale(saveBtnH),
         borderRadius: scale(saveBtnBr),
-        backgroundColor: '#8D9ED4',
+        backgroundColor: OperationalColors.accent,
         alignItems: 'center',
         justifyContent: 'center',
       },
       saveBtnText: {
-        color: '#F8F7F5',
+        color: OperationalColors.onPrimary,
         fontSize: scale(saveBtnFs),
         fontWeight: '800',
         letterSpacing: 0.4,
@@ -2447,11 +2448,11 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         textAlign: 'center',
         fontSize: scale(presetsHeaderFs),
         fontWeight: '800',
-        color: '#0F172A',
+        color: OperationalColors.text,
       },
       presetsDivider: {
         height: 1,
-        backgroundColor: '#CFBDAA',
+        backgroundColor: OperationalColors.border,
         marginTop: scale(10),
         marginBottom: scale(8),
       },
@@ -2462,10 +2463,10 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
         paddingHorizontal: scale(12),
         paddingVertical: scale(13),
         borderBottomWidth: 1,
-        borderBottomColor: '#EEF2F7',
+        borderBottomColor: OperationalColors.surfaceAlt,
       },
       presetsRowText: {
-        color: '#0F172A',
+        color: OperationalColors.text,
         fontSize: scale(presetsRowFs),
         fontWeight: '600',
       },

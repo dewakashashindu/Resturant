@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -141,8 +142,8 @@ const PCT_TAKE_AWAY   = Math.round((TOTAL_TAKE_AWAY / GRAND_TOTAL) * 100);
 const PCT_PICK_UP     = Math.round((TOTAL_PICK_UP   / GRAND_TOTAL) * 100);
 const PCT_DELIVERY    = 100 - PCT_DINE_IN - PCT_TAKE_AWAY - PCT_PICK_UP;
 
-const COLOR_DINE_IN   = '#72563C';
-const COLOR_TAKE_AWAY = 'rgba(98,145,185,0.9)';
+const COLOR_DINE_IN   = OperationalColors.primary;
+const COLOR_TAKE_AWAY = 'rgba(168,139,98,0.9)';
 const COLOR_PICK_UP   = '#703DDE';
 const COLOR_DELIVERY  = '#3C3C41';
 
@@ -317,8 +318,8 @@ const drumStyles = StyleSheet.create({
     borderRadius: BR.xs,
     zIndex: 10,
   },
-  drumText:         { fontSize: sc(18, 14, 22), color: '#888', fontWeight: '400' },
-  drumTextSelected: { fontSize: sc(20, 16, 24), color: '#000', fontWeight: '600' },
+  drumText:         { fontSize: sc(18, 14, 22), color: OperationalColors.muted, fontWeight: '400' },
+  drumTextSelected: { fontSize: sc(20, 16, 24), color: OperationalColors.text, fontWeight: '600' },
 });
 
 // ── Date Range Modal ───────────────────────────────────────────────────────────
@@ -462,17 +463,17 @@ const DateRangeModal = ({
 };
 
 const drStyles = StyleSheet.create({
-  card:           { backgroundColor: '#F2F2F7', borderRadius: BR.xl, overflow: 'hidden', alignSelf: 'center' },
-  title:          { textAlign: 'center', fontSize: FS.md, fontWeight: '500', color: '#000', paddingTop: SP.lg, paddingBottom: SP.md, paddingHorizontal: SP.xl },
+  card:           { backgroundColor: OperationalColors.surfaceAlt, borderRadius: BR.xl, overflow: 'hidden', alignSelf: 'center' },
+  title:          { textAlign: 'center', fontSize: FS.md, fontWeight: '500', color: OperationalColors.text, paddingTop: SP.lg, paddingBottom: SP.md, paddingHorizontal: SP.xl },
   divider:        { height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(0,0,0,0.22)' },
-  tabRow:         { flexDirection: 'row', margin: SP.md, backgroundColor: 'rgba(120,120,128,0.12)', borderRadius: BR.md, padding: sw(2) },
+  tabRow:         { flexDirection: 'row', margin: SP.md, backgroundColor: 'rgba(168,139,98,0.12)', borderRadius: BR.md, padding: sw(2) },
   tab:            { flex: 1, paddingVertical: sw(7), borderRadius: BR.sm, alignItems: 'center' },
-  tabActive:      { backgroundColor: '#F8F7F5', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: sw(4), shadowOffset: { width: 0, height: sw(1) }, elevation: 2 },
+  tabActive:      { backgroundColor: OperationalColors.canvas, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: sw(4), shadowOffset: { width: 0, height: sw(1) }, elevation: 2 },
   tabText:        { fontSize: FS.xs, color: 'rgba(0,0,0,0.40)', fontWeight: '500' },
-  tabTextActive:  { color: '#000' },
-  drumsRow:       { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: SP.xxs, paddingHorizontal: SP.lg, paddingVertical: SP.sm, backgroundColor: '#F8F7F5' },
+  tabTextActive:  { color: OperationalColors.text },
+  drumsRow:       { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: SP.xxs, paddingHorizontal: SP.lg, paddingVertical: SP.sm, backgroundColor: OperationalColors.canvas },
   confirmBtn:     { paddingVertical: SP.lg, alignItems: 'center' },
-  confirmBtnText: { fontSize: FS.lg, color: '#72563C', fontWeight: '400' },
+  confirmBtnText: { fontSize: FS.lg, color: OperationalColors.primary, fontWeight: '400' },
 });
 
 // ── Side Drawer ────────────────────────────────────────────────────────────────
@@ -546,7 +547,7 @@ const SideDrawer = ({
           </View>
           <TouchableOpacity onPress={onClose} style={drawerStyles.closeBtn}>
             <Svg width={SZ.icon} height={SZ.icon} viewBox="0 0 24 24">
-              <Path d="M6 6l12 12M18 6L6 18" stroke="#333" strokeWidth={2} strokeLinecap="round" />
+              <Path d="M6 6l12 12M18 6L6 18" stroke={OperationalColors.text} strokeWidth={2} strokeLinecap="round" />
             </Svg>
           </TouchableOpacity>
         </View>
@@ -572,14 +573,14 @@ const SideDrawer = ({
                     <View
                       style={[
                         drawerStyles.tabIconBox,
-                        { backgroundColor: activeTab === tab ? '#72563C' : 'rgba(47,111,228,0.10)' },
+                        { backgroundColor: activeTab === tab ? OperationalColors.primary : 'rgba(168,139,98,0.10)' },
                       ]}
                     >
                       <Svg width={sw(16)} height={sw(16)} viewBox="0 0 24 24">
                         {tab === 'Overview' && (
                           <Path
                             d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"
-                            stroke={activeTab === tab ? '#F8F7F5' : '#72563C'}
+                            stroke={activeTab === tab ? OperationalColors.onPrimary : OperationalColors.primary}
                             strokeWidth={1.8}
                             fill="none"
                             strokeLinejoin="round"
@@ -587,18 +588,18 @@ const SideDrawer = ({
                         )}
                         {tab === 'Customers' && (
                           <>
-                            <Circle cx={12} cy={8} r={4} stroke={activeTab === tab ? '#F8F7F5' : '#72563C'} strokeWidth={1.8} fill="none" />
-                            <Path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={activeTab === tab ? '#F8F7F5' : '#72563C'} strokeWidth={1.8} fill="none" />
+                            <Circle cx={12} cy={8} r={4} stroke={activeTab === tab ? OperationalColors.onPrimary : OperationalColors.primary} strokeWidth={1.8} fill="none" />
+                            <Path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke={activeTab === tab ? OperationalColors.onPrimary : OperationalColors.primary} strokeWidth={1.8} fill="none" />
                           </>
                         )}
                         {tab === 'Food' && (
                           <>
-                            <Path d="M6 2h12v6a6 6 0 01-12 0V2z" stroke={activeTab === tab ? '#F8F7F5' : '#72563C'} strokeWidth={1.8} fill="none" />
-                            <Path d="M8 22h8M12 14v8" stroke={activeTab === tab ? '#F8F7F5' : '#72563C'} strokeWidth={1.8} fill="none" strokeLinecap="round" />
+                            <Path d="M6 2h12v6a6 6 0 01-12 0V2z" stroke={activeTab === tab ? OperationalColors.onPrimary : OperationalColors.primary} strokeWidth={1.8} fill="none" />
+                            <Path d="M8 22h8M12 14v8" stroke={activeTab === tab ? OperationalColors.onPrimary : OperationalColors.primary} strokeWidth={1.8} fill="none" strokeLinecap="round" />
                           </>
                         )}
                         {tab === 'Performance' && (
-                          <Path d="M3 17l5-5 4 4 9-9" stroke={activeTab === tab ? '#F8F7F5' : '#72563C'} strokeWidth={1.8} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                          <Path d="M3 17l5-5 4 4 9-9" stroke={activeTab === tab ? OperationalColors.onPrimary : OperationalColors.primary} strokeWidth={1.8} fill="none" strokeLinecap="round" strokeLinejoin="round" />
                         )}
                       </Svg>
                     </View>
@@ -615,7 +616,7 @@ const SideDrawer = ({
                     <Svg width={sw(16)} height={sw(16)} viewBox="0 0 24 24">
                       <Path
                         d={isExpanded ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}
-                        stroke="#999"
+                        stroke={OperationalColors.disabled}
                         strokeWidth={2}
                         fill="none"
                         strokeLinecap="round"
@@ -633,7 +634,7 @@ const SideDrawer = ({
                       activeOpacity={0.7}
                     >
                       <Svg width={sw(13)} height={sw(13)} viewBox="0 0 24 24">
-                        <Path d="M5 12h14M13 6l6 6-6 6" stroke="#72563C" strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                        <Path d="M5 12h14M13 6l6 6-6 6" stroke={OperationalColors.primary} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
                       </Svg>
                       <Text style={drawerStyles.goToTabText}>Go to {tab}</Text>
                     </TouchableOpacity>
@@ -654,7 +655,7 @@ const SideDrawer = ({
                             <View style={[drawerStyles.chartCheckbox, isSelected && drawerStyles.chartCheckboxChecked]}>
                               {isSelected && (
                                 <Svg width={sw(11)} height={sw(11)} viewBox="0 0 24 24">
-                                  <Path d="M5 13l4 4L19 7" stroke="#F8F7F5" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                                  <Path d="M5 13l4 4L19 7" stroke={OperationalColors.onPrimary} strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
                                 </Svg>
                               )}
                             </View>
@@ -690,33 +691,33 @@ const SideDrawer = ({
 };
 
 const drawerStyles = StyleSheet.create({
-  panel:                { position: 'absolute', top: 0, left: 0, bottom: 0, width: DRAWER_WIDTH, backgroundColor: '#F8F7F5', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: sw(16), shadowOffset: { width: sw(4), height: 0 }, elevation: 10 },
-  drawerHeader:         { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.lg, paddingTop: isTablet ? SP.xl : sh(48), paddingBottom: SP.lg, backgroundColor: '#F7F9FF' },
-  drawerAvatarRing:     { width: SZ.drawerAvatar, height: SZ.drawerAvatar, borderRadius: SZ.drawerAvatar / 2, borderWidth: sw(2), borderColor: '#72563C', padding: sw(2) },
+  panel:                { position: 'absolute', top: 0, left: 0, bottom: 0, width: DRAWER_WIDTH, backgroundColor: OperationalColors.canvas, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: sw(16), shadowOffset: { width: sw(4), height: 0 }, elevation: 10 },
+  drawerHeader:         { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.lg, paddingTop: isTablet ? SP.xl : sh(48), paddingBottom: SP.lg, backgroundColor: OperationalColors.surfaceAlt },
+  drawerAvatarRing:     { width: SZ.drawerAvatar, height: SZ.drawerAvatar, borderRadius: SZ.drawerAvatar / 2, borderWidth: sw(2), borderColor: OperationalColors.primary, padding: sw(2) },
   drawerAvatar:         { width: '100%', height: '100%', borderRadius: BR.pill },
-  drawerUserName:       { fontSize: FS.md, fontWeight: '700', color: '#000' },
-  drawerUserRole:       { fontSize: FS.sm, color: '#666', marginTop: sw(2) },
+  drawerUserName:       { fontSize: FS.md, fontWeight: '700', color: OperationalColors.text },
+  drawerUserRole:       { fontSize: FS.sm, color: OperationalColors.muted, marginTop: sw(2) },
   closeBtn:             { width: SZ.closeBtn, height: SZ.closeBtn, justifyContent: 'center', alignItems: 'center' },
   divider:              { height: 1, backgroundColor: 'rgba(0,0,0,0.08)' },
-  sectionHeading:       { fontSize: FS.xs, fontWeight: '700', color: '#999', letterSpacing: 1, marginTop: SP.lg, marginBottom: SP.sm, marginHorizontal: SP.lg, textTransform: 'uppercase' },
+  sectionHeading:       { fontSize: FS.xs, fontWeight: '700', color: OperationalColors.disabled, letterSpacing: 1, marginTop: SP.lg, marginBottom: SP.sm, marginHorizontal: SP.lg, textTransform: 'uppercase' },
   tabRow:               { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingVertical: SP.md },
   tabLeft:              { flexDirection: 'row', alignItems: 'center', gap: SP.md },
   tabIconBox:           { width: SZ.tabIconBox, height: SZ.tabIconBox, borderRadius: BR.md, justifyContent: 'center', alignItems: 'center' },
-  tabLabel:             { fontSize: FS.md, fontWeight: '600', color: '#333' },
-  tabLabelActive:       { color: '#72563C' },
-  selBadge:             { backgroundColor: '#72563C', borderRadius: sw(10), paddingHorizontal: sw(7), paddingVertical: sw(2) },
-  selBadgeText:         { fontSize: FS.xs, color: '#F8F7F5', fontWeight: '700' },
-  chartList:            { backgroundColor: 'rgba(47,111,228,0.03)', paddingHorizontal: SP.lg, paddingBottom: SP.sm },
+  tabLabel:             { fontSize: FS.md, fontWeight: '600', color: OperationalColors.text },
+  tabLabelActive:       { color: OperationalColors.primary },
+  selBadge:             { backgroundColor: OperationalColors.primary, borderRadius: sw(10), paddingHorizontal: sw(7), paddingVertical: sw(2) },
+  selBadgeText:         { fontSize: FS.xs, color: OperationalColors.onPrimary, fontWeight: '700' },
+  chartList:            { backgroundColor: 'rgba(168,139,98,0.03)', paddingHorizontal: SP.lg, paddingBottom: SP.sm },
   goToTabBtn:           { flexDirection: 'row', alignItems: 'center', gap: SP.xs, paddingVertical: sw(10), marginBottom: SP.xs },
-  goToTabText:          { fontSize: FS.sm, color: '#72563C', fontWeight: '600' },
-  chartListHeading:     { fontSize: FS.xs, color: '#999', fontWeight: '600', marginBottom: SP.sm, letterSpacing: 0.5 },
+  goToTabText:          { fontSize: FS.sm, color: OperationalColors.primary, fontWeight: '600' },
+  chartListHeading:     { fontSize: FS.xs, color: OperationalColors.disabled, fontWeight: '600', marginBottom: SP.sm, letterSpacing: 0.5 },
   chartRow:             { flexDirection: 'row', alignItems: 'center', gap: SP.md, paddingVertical: sw(9), borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)' },
-  chartCheckbox:        { width: SZ.checkboxSm, height: SZ.checkboxSm, borderRadius: BR.xs, borderWidth: sw(1.5), borderColor: '#ccc', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-  chartCheckboxChecked: { backgroundColor: '#72563C', borderColor: '#72563C' },
-  chartLabel:           { fontSize: FS.sm, color: '#555', fontWeight: '400' },
-  chartLabelSelected:   { color: '#000', fontWeight: '600' },
-  selectedTag:          { backgroundColor: 'rgba(47,111,228,0.12)', borderRadius: BR.xs, paddingHorizontal: SP.sm, paddingVertical: sw(3) },
-  selectedTagText:      { fontSize: FS.xxs, color: '#72563C', fontWeight: '600' },
+  chartCheckbox:        { width: SZ.checkboxSm, height: SZ.checkboxSm, borderRadius: BR.xs, borderWidth: sw(1.5), borderColor: OperationalColors.border, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
+  chartCheckboxChecked: { backgroundColor: OperationalColors.primary, borderColor: OperationalColors.primary },
+  chartLabel:           { fontSize: FS.sm, color: OperationalColors.muted, fontWeight: '400' },
+  chartLabelSelected:   { color: OperationalColors.text, fontWeight: '600' },
+  selectedTag:          { backgroundColor: 'rgba(168,139,98,0.12)', borderRadius: BR.xs, paddingHorizontal: SP.sm, paddingVertical: sw(3) },
+  selectedTagText:      { fontSize: FS.xxs, color: OperationalColors.primary, fontWeight: '600' },
 });
 
 // ── Header ─────────────────────────────────────────────────────────────────────
@@ -746,7 +747,7 @@ const Checkbox = ({ checked }: CheckboxProps) => (
   <View style={[styles.checkboxBox, checked && styles.checkboxBoxChecked]}>
     {checked && (
       <Svg width={sw(14)} height={sw(14)} viewBox="0 0 24 24">
-        <Path d="M5 13l4 4L19 7" stroke="#F8F7F5" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M5 13l4 4L19 7" stroke={OperationalColors.onPrimary} strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
     )}
   </View>
@@ -830,7 +831,7 @@ const SalesVolumeModal = ({ visible, onClose }: SalesVolumeModalProps) => {
                 <Text style={styles.modalTitle}>Sales Volume by Location</Text>
                 <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
                   <Svg width={sw(16)} height={sw(16)} viewBox="0 0 24 24">
-                    <Path d="M6 6l12 12M18 6L6 18" stroke="#333" strokeWidth={2} strokeLinecap="round" />
+                    <Path d="M6 6l12 12M18 6L6 18" stroke={OperationalColors.text} strokeWidth={2} strokeLinecap="round" />
                   </Svg>
                 </TouchableOpacity>
               </View>
@@ -873,12 +874,12 @@ const SalesDistributionExpanded = ({
   tableData: { color: string; mode: string; pct: string; volume: string }[];
 }) => (
   <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-    <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
-    <View style={{ flex: 1, backgroundColor: '#F8F7F5' }}>
+    <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.onPrimary} />
+    <View style={{ flex: 1, backgroundColor: OperationalColors.canvas }}>
       <View style={expStyles.header}>
         <TouchableOpacity onPress={onClose} style={expStyles.backBtn} activeOpacity={0.7}>
           <Svg width={sw(28)} height={sw(28)} viewBox="0 0 24 24">
-            <Path d="M15 18l-6-6 6-6" stroke="#000" strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M15 18l-6-6 6-6" stroke={OperationalColors.text} strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
         </TouchableOpacity>
         <Text style={expStyles.title}>{'Sales Distribution\nBy Order Modes'}</Text>
@@ -891,7 +892,7 @@ const SalesDistributionExpanded = ({
             data={pieData}
             radius={sc(120, 80, 150)}
             innerRadius={sc(74, 48, 90)}
-            innerCircleColor="#F8F7F5"
+            innerCircleColor={OperationalColors.onPrimary}
             showText
             textBackgroundRadius={0}
             isAnimated
@@ -899,7 +900,7 @@ const SalesDistributionExpanded = ({
             sectionAutoFocus
             focusOnPress
             strokeWidth={2}
-            strokeColor="#F8F7F5"
+            strokeColor={OperationalColors.onPrimary}
           />
         </View>
         <View style={expStyles.divider} />
@@ -926,16 +927,16 @@ const SalesDistributionExpanded = ({
 const expStyles = StyleSheet.create({
   header:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingTop: isTablet ? SP.xl : sh(44), paddingBottom: SP.md },
   backBtn:       { width: sw(44), height: sw(44), justifyContent: 'center', alignItems: 'flex-start' },
-  title:         { fontSize: FS.xl, fontWeight: '500', color: '#000', textAlign: 'center', lineHeight: sc(28, 22, 36) },
+  title:         { fontSize: FS.xl, fontWeight: '500', color: OperationalColors.text, textAlign: 'center', lineHeight: sc(28, 22, 36) },
   scrollContent: { paddingBottom: sh(40), alignItems: 'center' },
   chartWrapper:  { marginTop: SP.xl, marginBottom: SP.xxl, alignItems: 'center' },
   divider:       { width: SW - sw(32), height: 1, backgroundColor: 'rgba(0,0,0,0.15)', marginBottom: SP.xl },
   tableHeader:   { flexDirection: 'row', paddingHorizontal: SP.xl, marginBottom: SP.lg, width: '100%' },
-  tableHeadText: { fontSize: FS.lg, fontWeight: '700', color: '#000' },
+  tableHeadText: { fontSize: FS.lg, fontWeight: '700', color: OperationalColors.text },
   tableRow:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.xl, paddingVertical: sw(14), width: '100%', borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.06)' },
   modeCell:      { flexDirection: 'row', alignItems: 'center', gap: SP.md },
   modeDot:       { width: sw(14), height: sw(14), borderRadius: BR.xs },
-  tableText:     { fontSize: FS.md, fontWeight: '500', color: '#000' },
+  tableText:     { fontSize: FS.md, fontWeight: '500', color: OperationalColors.text },
 });
 
 // ── Top Performance Expanded ───────────────────────────────────────────────────
@@ -964,12 +965,12 @@ const TopPerformanceExpanded = ({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
-      <View style={{ flex: 1, backgroundColor: '#F8F7F5' }}>
+      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.onPrimary} />
+      <View style={{ flex: 1, backgroundColor: OperationalColors.canvas }}>
         <View style={topExpStyles.header}>
           <TouchableOpacity onPress={onClose} style={topExpStyles.backBtn} activeOpacity={0.7}>
             <Svg width={sw(28)} height={sw(28)} viewBox="0 0 24 24">
-              <Path d="M15 18l-6-6 6-6" stroke="#000" strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              <Path d="M15 18l-6-6 6-6" stroke={OperationalColors.text} strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
             </Svg>
           </TouchableOpacity>
           <Text style={topExpStyles.title}>Top Performance</Text>
@@ -1003,7 +1004,7 @@ const TopPerformanceExpanded = ({
                     {axisVals.slice(1).map((v) => (
                       <View
                         key={v}
-                        style={{ position: 'absolute', left: (v / MAX_TOTAL) * TRACK_W, top: 0, bottom: 0, width: 1, backgroundColor: '#E0E0E0' }}
+                        style={{ position: 'absolute', left: (v / MAX_TOTAL) * TRACK_W, top: 0, bottom: 0, width: 1, backgroundColor: OperationalColors.border }}
                       />
                     ))}
                     <View style={[topExpStyles.perfFill, { width: fillW }]}>
@@ -1043,7 +1044,7 @@ const TopPerformanceExpanded = ({
                       {yLabels.map((_, i) => (
                         <View
                           key={i}
-                          style={{ position: 'absolute', top: (BAR_CHART_H / noOfSec) * i, left: 0, right: 0, height: 1, backgroundColor: i === noOfSec ? '#E0E0E0' : '#F0F0F0' }}
+                          style={{ position: 'absolute', top: (BAR_CHART_H / noOfSec) * i, left: 0, right: 0, height: 1, backgroundColor: i === noOfSec ? OperationalColors.border : OperationalColors.surfaceAlt }}
                         />
                       ))}
                       <View style={{ flexDirection: 'row', height: '100%', alignItems: 'flex-end', paddingHorizontal: SP.xxs, gap: SP.sm }}>
@@ -1052,7 +1053,7 @@ const TopPerformanceExpanded = ({
                           return (
                             <View key={vi} style={{ flex: 1, alignItems: 'center' }}>
                               <Text style={topExpStyles.barTopVal}>{val}</Text>
-                              <View style={{ width: '80%', height: barH, backgroundColor: '#69A0C8', borderRadius: BR.xs }} />
+                              <View style={{ width: '80%', height: barH, backgroundColor: OperationalColors.accent, borderRadius: BR.xs }} />
                             </View>
                           );
                         })}
@@ -1077,23 +1078,23 @@ const TopPerformanceExpanded = ({
 };
 
 const topExpStyles = StyleSheet.create({
-  header:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingTop: isTablet ? SP.xl : sh(44), paddingBottom: SP.md, backgroundColor: '#F8F7F5' },
+  header:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingTop: isTablet ? SP.xl : sh(44), paddingBottom: SP.md, backgroundColor: OperationalColors.canvas },
   backBtn:        { width: sw(44), height: sw(44), justifyContent: 'center', alignItems: 'flex-start' },
-  title:          { fontSize: FS.xl, fontWeight: '500', color: '#000', textAlign: 'center' },
-  sectionCard:    { backgroundColor: '#F8F7F5', borderRadius: BR.lg, paddingVertical: SP.md, marginBottom: SP.xxs },
-  sectionLabel:   { fontSize: FS.sm, fontWeight: '600', color: '#54555A', marginBottom: SP.md },
-  axisLabel:      { fontSize: FS.xxs, color: '#54555A', textAlign: 'center' },
+  title:          { fontSize: FS.xl, fontWeight: '500', color: OperationalColors.text, textAlign: 'center' },
+  sectionCard:    { backgroundColor: OperationalColors.canvas, borderRadius: BR.lg, paddingVertical: SP.md, marginBottom: SP.xxs },
+  sectionLabel:   { fontSize: FS.sm, fontWeight: '600', color: OperationalColors.muted, marginBottom: SP.md },
+  axisLabel:      { fontSize: FS.xxs, color: OperationalColors.muted, textAlign: 'center' },
   perfRow:        { flexDirection: 'row', alignItems: 'center' },
-  perfName:       { fontSize: FS.xs, color: '#54555A', textAlign: 'right' },
+  perfName:       { fontSize: FS.xs, color: OperationalColors.muted, textAlign: 'right' },
   perfTrack:      { height: sc(28, 22, 36), backgroundColor: 'rgba(180,180,180,0.15)', borderRadius: BR.xs, overflow: 'hidden' },
-  perfFill:       { height: '100%', backgroundColor: 'rgba(0,98,170,0.60)', justifyContent: 'center', alignItems: 'flex-end', paddingRight: SP.xs, borderRadius: BR.xs },
-  perfFillVal:    { fontSize: FS.xs, color: '#F8F7F5', fontWeight: '600' },
-  perfAxisLine:   { height: 1, backgroundColor: '#E0E0E0', marginTop: SP.xxs },
+  perfFill:       { height: '100%', backgroundColor: 'rgba(168,139,98,0.60)', justifyContent: 'center', alignItems: 'flex-end', paddingRight: SP.xs, borderRadius: BR.xs },
+  perfFillVal:    { fontSize: FS.xs, color: OperationalColors.onPrimary, fontWeight: '600' },
+  perfAxisLine:   { height: 1, backgroundColor: OperationalColors.border, marginTop: SP.xxs },
   divider:        { height: 1, backgroundColor: 'rgba(0,0,0,0.15)', marginVertical: SP.lg },
-  restaurantName: { fontSize: FS.md, fontWeight: '600', color: '#000', marginBottom: SP.md },
-  yLabel:         { fontSize: FS.xxs, color: '#54555A', textAlign: 'right' },
-  barTopVal:      { fontSize: FS.xxs, color: '#333', fontWeight: '500', marginBottom: sw(2), textAlign: 'center' },
-  xLabel:         { fontSize: FS.xxs, color: '#54555A', textAlign: 'center', lineHeight: sw(13) },
+  restaurantName: { fontSize: FS.md, fontWeight: '600', color: OperationalColors.text, marginBottom: SP.md },
+  yLabel:         { fontSize: FS.xxs, color: OperationalColors.muted, textAlign: 'right' },
+  barTopVal:      { fontSize: FS.xxs, color: OperationalColors.text, fontWeight: '500', marginBottom: sw(2), textAlign: 'center' },
+  xLabel:         { fontSize: FS.xxs, color: OperationalColors.muted, textAlign: 'center', lineHeight: sw(13) },
 });
 
 // ── Performance Tab ────────────────────────────────────────────────────────────
@@ -1122,7 +1123,7 @@ const PerformanceTab = ({
   return (
     <ScrollView
       ref={scrollRef}
-      style={{ flex: 1, backgroundColor: '#F8F7F5' }}
+      style={{ flex: 1, backgroundColor: OperationalColors.canvas }}
       contentContainerStyle={{ padding: SP.lg, gap: SP.lg, paddingBottom: sh(40) }}
       showsVerticalScrollIndicator={false}
     >
@@ -1144,9 +1145,9 @@ const PerformanceTab = ({
             <View style={perfStyles.liveOpLeft}>
               <View style={perfStyles.liveOpIconBox}>
                 <Svg width={SZ.icon} height={SZ.icon} viewBox="0 0 24 24">
-                  <Path d="M6 2h12v6a6 6 0 01-12 0V2z" stroke="#000" strokeWidth={1.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                  <Path d="M6 8H4a2 2 0 000 4h2M18 8h2a2 2 0 010 4h-2" stroke="#000" strokeWidth={1.5} fill="none" strokeLinecap="round" />
-                  <Path d="M8 22h8M12 14v8" stroke="#000" strokeWidth={1.5} fill="none" strokeLinecap="round" />
+                  <Path d="M6 2h12v6a6 6 0 01-12 0V2z" stroke={OperationalColors.text} strokeWidth={1.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  <Path d="M6 8H4a2 2 0 000 4h2M18 8h2a2 2 0 010 4h-2" stroke={OperationalColors.text} strokeWidth={1.5} fill="none" strokeLinecap="round" />
+                  <Path d="M8 22h8M12 14v8" stroke={OperationalColors.text} strokeWidth={1.5} fill="none" strokeLinecap="round" />
                 </Svg>
               </View>
               <Text style={perfStyles.liveOpLabel}>In Kitchen Preparing</Text>
@@ -1157,10 +1158,10 @@ const PerformanceTab = ({
             <View style={perfStyles.liveOpLeft}>
               <View style={perfStyles.liveOpIconBox}>
                 <Svg width={SZ.icon} height={SZ.icon} viewBox="0 0 24 24">
-                  <Rect x={2} y={7} width={20} height={3} rx={1} stroke="#000" strokeWidth={1.5} fill="none" />
-                  <Line x1={5}  y1={10} x2={5}  y2={19} stroke="#000" strokeWidth={1.5} strokeLinecap="round" />
-                  <Line x1={19} y1={10} x2={19} y2={19} stroke="#000" strokeWidth={1.5} strokeLinecap="round" />
-                  <Line x1={5}  y1={14} x2={19} y2={14} stroke="#000" strokeWidth={1.5} strokeLinecap="round" />
+                  <Rect x={2} y={7} width={20} height={3} rx={1} stroke={OperationalColors.text} strokeWidth={1.5} fill="none" />
+                  <Line x1={5}  y1={10} x2={5}  y2={19} stroke={OperationalColors.text} strokeWidth={1.5} strokeLinecap="round" />
+                  <Line x1={19} y1={10} x2={19} y2={19} stroke={OperationalColors.text} strokeWidth={1.5} strokeLinecap="round" />
+                  <Line x1={5}  y1={14} x2={19} y2={14} stroke={OperationalColors.text} strokeWidth={1.5} strokeLinecap="round" />
                 </Svg>
               </View>
               <Text style={perfStyles.liveOpLabel}>Tables Busy (65%)</Text>
@@ -1202,24 +1203,24 @@ const perfStyles = StyleSheet.create({
   warningBanner:  { backgroundColor: 'rgba(250,167,158,0.60)', borderRadius: BR.sm, paddingHorizontal: SP.md, paddingVertical: SP.sm },
   warningText:    { fontSize: FS.sm, lineHeight: sh(20) },
   warningLabel:   { color: '#FF0202', fontWeight: '700', fontSize: FS.sm },
-  warningBody:    { color: '#000', fontWeight: '500', fontSize: FS.sm },
-  card:           { backgroundColor: '#F8F7F5', borderRadius: BR.xxl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4 },
-  cardTitle:      { fontSize: FS.md, fontWeight: '500', color: '#000', marginBottom: sw(14) },
-  liveOpRow:      { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(97,145,185,0.22)', borderRadius: BR.md, paddingHorizontal: sw(14), paddingVertical: SP.md, marginBottom: SP.md, minHeight: sh(80), shadowColor: '#F8F7F5', shadowOpacity: 0.08, shadowRadius: SP.xs, shadowOffset: { width: 0, height: sw(2) }, elevation: 2 },
+  warningBody:    { color: OperationalColors.text, fontWeight: '500', fontSize: FS.sm },
+  card:           { backgroundColor: OperationalColors.canvas, borderRadius: BR.xxl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4 },
+  cardTitle:      { fontSize: FS.md, fontWeight: '500', color: OperationalColors.text, marginBottom: sw(14) },
+  liveOpRow:      { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(168,139,98,0.22)', borderRadius: BR.md, paddingHorizontal: sw(14), paddingVertical: SP.md, marginBottom: SP.md, minHeight: sh(80), shadowColor: OperationalColors.onPrimary, shadowOpacity: 0.08, shadowRadius: SP.xs, shadowOffset: { width: 0, height: sw(2) }, elevation: 2 },
   liveOpLeft:     { flex: 1, justifyContent: 'space-between', alignSelf: 'stretch' },
-  liveOpIconBox:  { width: sc(36, 28, 44), height: sc(36, 28, 44), backgroundColor: '#F8F7F5', borderRadius: BR.md, justifyContent: 'center', alignItems: 'center', marginBottom: SP.xxs },
-  liveOpLabel:    { fontSize: FS.sm, fontWeight: '500', color: '#000' },
-  liveOpValue:    { fontSize: sc(26, 20, 34), fontWeight: '500', color: '#000', textAlign: 'right', alignSelf: 'center', marginLeft: SP.sm },
+  liveOpIconBox:  { width: sc(36, 28, 44), height: sc(36, 28, 44), backgroundColor: OperationalColors.canvas, borderRadius: BR.md, justifyContent: 'center', alignItems: 'center', marginBottom: SP.xxs },
+  liveOpLabel:    { fontSize: FS.sm, fontWeight: '500', color: OperationalColors.text },
+  liveOpValue:    { fontSize: sc(26, 20, 34), fontWeight: '500', color: OperationalColors.text, textAlign: 'right', alignSelf: 'center', marginLeft: SP.sm },
   rowDivider:     { height: 1, backgroundColor: 'rgba(0,0,0,0.12)', marginVertical: SP.xs },
   stockRow:       { flexDirection: 'row', alignItems: 'center', paddingVertical: SP.sm },
-  stockImgBox:    { width: sc(42, 32, 52), height: sc(42, 32, 52), backgroundColor: '#D9D9D9', borderRadius: sw(10) },
+  stockImgBox:    { width: sc(42, 32, 52), height: sc(42, 32, 52), backgroundColor: OperationalColors.border, borderRadius: sw(10) },
   stockInfo:      { flex: 1, marginLeft: sw(14) },
-  stockName:      { fontSize: FS.md, fontWeight: '400', color: '#000' },
-  stockRemaining: { fontSize: FS.sm, fontWeight: '400', color: '#555', marginTop: sw(2) },
+  stockName:      { fontSize: FS.md, fontWeight: '400', color: OperationalColors.text },
+  stockRemaining: { fontSize: FS.sm, fontWeight: '400', color: OperationalColors.muted, marginTop: sw(2) },
   badge:          { paddingHorizontal: SP.md, paddingVertical: sw(3), borderRadius: BR.xs, minWidth: sw(62), alignItems: 'center' },
   badgeCritical:  { backgroundColor: '#F69B9B' },
   badgeLow:       { backgroundColor: 'rgba(230,164,107,0.53)' },
-  badgeText:      { fontSize: FS.sm, fontWeight: '400', color: '#000' },
+  badgeText:      { fontSize: FS.sm, fontWeight: '400', color: OperationalColors.text },
 });
 
 // ── Food Item Expanded ─────────────────────────────────────────────────────────
@@ -1243,9 +1244,9 @@ const FoodItemExpanded = ({
   const barData = chartData.map((d) => ({
     value: d.value,
     label: d.day,
-    frontColor: '#AAC3D9',
+    frontColor: OperationalColors.accentSoft,
     topLabelComponent: () => (
-      <Text style={{ fontSize: FS.xs, color: '#333', marginBottom: sw(4) }}>{d.value}</Text>
+      <Text style={{ fontSize: FS.xs, color: OperationalColors.text, marginBottom: sw(4) }}>{d.value}</Text>
     ),
   }));
 
@@ -1261,12 +1262,12 @@ const FoodItemExpanded = ({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
-      <View style={{ flex: 1, backgroundColor: '#F8F7F5' }}>
+      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.onPrimary} />
+      <View style={{ flex: 1, backgroundColor: OperationalColors.canvas }}>
         <View style={foodExpStyles.header}>
           <TouchableOpacity onPress={onClose} style={foodExpStyles.backBtn} activeOpacity={0.7}>
             <Svg width={sw(28)} height={sw(28)} viewBox="0 0 24 24">
-              <Path d="M15 18l-6-6 6-6" stroke="#000" strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              <Path d="M15 18l-6-6 6-6" stroke={OperationalColors.text} strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
             </Svg>
           </TouchableOpacity>
           <Text style={foodExpStyles.title} numberOfLines={2}>{selectedItem}</Text>
@@ -1293,7 +1294,7 @@ const FoodItemExpanded = ({
             <View style={{ width: yLabelW, marginRight: SP.xxs, alignItems: 'flex-end' }}>
               <View style={{ height: chartHeight, justifyContent: 'space-between' }}>
                 {yAxisLabels.map((val, i) => (
-                  <Text key={i} style={{ fontSize: FS.xxs, color: '#54555A', lineHeight: FS.xxs + 2 }}>{val}</Text>
+                  <Text key={i} style={{ fontSize: FS.xxs, color: OperationalColors.muted, lineHeight: FS.xxs + 2 }}>{val}</Text>
                 ))}
               </View>
               <View style={{ height: xLabelAreaH }} />
@@ -1310,12 +1311,12 @@ const FoodItemExpanded = ({
                 yAxisTextStyle={{ color: 'transparent', fontSize: 1 }}
                 yAxisLabelWidth={0}
                 xAxisThickness={1}
-                xAxisColor="#E0E0E0"
-                xAxisLabelTextStyle={{ color: '#54555A', fontSize: FS.xs, textAlign: 'center' }}
+                xAxisColor={OperationalColors.border}
+                xAxisLabelTextStyle={{ color: OperationalColors.muted, fontSize: FS.xs, textAlign: 'center' }}
                 isAnimated
                 animationDuration={800}
                 rulesType="solid"
-                rulesColor="#F0F0F0"
+                rulesColor={OperationalColors.surfaceAlt}
                 height={chartHeight}
                 width={chartWidth}
                 initialSpacing={sw(12)}
@@ -1343,18 +1344,18 @@ const FoodItemExpanded = ({
 };
 
 const foodExpStyles = StyleSheet.create({
-  header:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingTop: isTablet ? SP.xl : sh(44), paddingBottom: SP.md, backgroundColor: '#F8F7F5' },
+  header:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingTop: isTablet ? SP.xl : sh(44), paddingBottom: SP.md, backgroundColor: OperationalColors.canvas },
   backBtn:       { width: sw(44), height: sw(44), justifyContent: 'center', alignItems: 'flex-start' },
-  title:         { flex: 1, fontSize: FS.xl, fontWeight: '500', color: '#000', textAlign: 'center' },
+  title:         { flex: 1, fontSize: FS.xl, fontWeight: '500', color: OperationalColors.text, textAlign: 'center' },
   summaryRow:    { flexDirection: 'row', gap: SP.md, marginTop: SP.sm },
-  summaryCard:   { flex: 1, backgroundColor: 'rgba(97,145,185,0.18)', borderRadius: BR.lg, padding: sw(14), alignItems: 'center' },
-  summaryLabel:  { fontSize: FS.xs, color: '#54555A', fontWeight: '500', marginBottom: SP.xs },
-  summaryValue:  { fontSize: sc(17, 14, 22), color: '#000', fontWeight: '700' },
+  summaryCard:   { flex: 1, backgroundColor: 'rgba(168,139,98,0.18)', borderRadius: BR.lg, padding: sw(14), alignItems: 'center' },
+  summaryLabel:  { fontSize: FS.xs, color: OperationalColors.muted, fontWeight: '500', marginBottom: SP.xs },
+  summaryValue:  { fontSize: sc(17, 14, 22), color: OperationalColors.text, fontWeight: '700' },
   divider:       { height: 1, backgroundColor: 'rgba(0,0,0,0.15)', marginVertical: SP.xl },
   tableHeader:   { flexDirection: 'row', marginBottom: SP.md },
-  tableHeadText: { fontSize: FS.md, fontWeight: '700', color: '#000' },
+  tableHeadText: { fontSize: FS.md, fontWeight: '700', color: OperationalColors.text },
   tableRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: SP.md, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.06)' },
-  tableText:     { fontSize: FS.sm, fontWeight: '500', color: '#000' },
+  tableText:     { fontSize: FS.sm, fontWeight: '500', color: OperationalColors.text },
 });
 
 // ── Food Tab ───────────────────────────────────────────────────────────────────
@@ -1395,9 +1396,9 @@ const FoodTab = ({
   const barData = chartData.map((d) => ({
     value: d.value,
     label: d.day,
-    frontColor: '#AAC3D9',
+    frontColor: OperationalColors.accentSoft,
     topLabelComponent: () => (
-      <Text style={{ fontSize: FS.xs, color: '#333', marginBottom: sw(4) }}>{d.value}</Text>
+      <Text style={{ fontSize: FS.xs, color: OperationalColors.text, marginBottom: sw(4) }}>{d.value}</Text>
     ),
   }));
 
@@ -1416,7 +1417,7 @@ const FoodTab = ({
   return (
     <ScrollView
       ref={scrollRef}
-      style={{ flex: 1, backgroundColor: '#F8F7F5' }}
+      style={{ flex: 1, backgroundColor: OperationalColors.canvas }}
       contentContainerStyle={{ padding: SP.lg, gap: SP.lg, paddingBottom: sh(40) }}
       showsVerticalScrollIndicator={false}
     >
@@ -1442,7 +1443,7 @@ const FoodTab = ({
                   onPress={() => setSelectedItem(item.name)}
                   style={[
                     foodStyles.chip,
-                    { backgroundColor: isSel ? 'rgba(0,98,170,0.56)' : 'rgba(97,145,185,0.54)' },
+                    { backgroundColor: isSel ? 'rgba(168,139,98,0.56)' : 'rgba(168,139,98,0.54)' },
                   ]}
                   activeOpacity={0.7}
                 >
@@ -1456,7 +1457,7 @@ const FoodTab = ({
             <View style={{ width: yLabelW, marginRight: SP.xxs, alignItems: 'flex-end' }}>
               <View style={{ height: chartHeight, justifyContent: 'space-between' }}>
                 {yAxisLabels.map((val, i) => (
-                  <Text key={i} style={{ fontSize: FS.xxs, color: '#54555A', lineHeight: FS.xxs + 2 }}>{val}</Text>
+                  <Text key={i} style={{ fontSize: FS.xxs, color: OperationalColors.muted, lineHeight: FS.xxs + 2 }}>{val}</Text>
                 ))}
               </View>
               <View style={{ height: xLabelAreaH }} />
@@ -1473,12 +1474,12 @@ const FoodTab = ({
                 yAxisTextStyle={{ color: 'transparent', fontSize: 1 }}
                 yAxisLabelWidth={0}
                 xAxisThickness={1}
-                xAxisColor="#E0E0E0"
-                xAxisLabelTextStyle={{ color: '#54555A', fontSize: FS.xs, textAlign: 'center' }}
+                xAxisColor={OperationalColors.border}
+                xAxisLabelTextStyle={{ color: OperationalColors.muted, fontSize: FS.xs, textAlign: 'center' }}
                 isAnimated
                 animationDuration={800}
                 rulesType="solid"
-                rulesColor="#F0F0F0"
+                rulesColor={OperationalColors.surfaceAlt}
                 height={chartHeight}
                 width={chartWidth}
                 initialSpacing={sw(12)}
@@ -1491,7 +1492,7 @@ const FoodTab = ({
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: SP.sm }}>
             <TouchableOpacity style={foodStyles.expandIconBtn} onPress={() => setExpandedVisible(true)}>
               <Svg width={sw(14)} height={sw(14)} viewBox="0 0 24 24">
-                <Path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="#333" strokeWidth={2} fill="none" strokeLinecap="round" />
+                <Path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke={OperationalColors.text} strokeWidth={2} fill="none" strokeLinecap="round" />
               </Svg>
             </TouchableOpacity>
           </View>
@@ -1509,11 +1510,11 @@ const FoodTab = ({
 };
 
 const foodStyles = StyleSheet.create({
-  card:          { backgroundColor: '#F8F7F5', borderRadius: sw(30), padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4 },
-  cardTitle:     { fontSize: FS.lg, fontWeight: '500', color: '#000', marginBottom: sw(14), marginLeft: SP.xxs },
+  card:          { backgroundColor: OperationalColors.canvas, borderRadius: sw(30), padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4 },
+  cardTitle:     { fontSize: FS.lg, fontWeight: '500', color: OperationalColors.text, marginBottom: sw(14), marginLeft: SP.xxs },
   chip:          { borderRadius: BR.xs, paddingHorizontal: sw(14), paddingVertical: SP.md, minWidth: sc(123, 90, 150), alignItems: 'center', justifyContent: 'center' },
-  chipText:      { fontSize: FS.sm, fontWeight: '500', color: '#000' },
-  expandIconBtn: { width: sc(26, 20, 32), height: sc(26, 20, 32), justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F7F5', borderRadius: BR.xs, borderWidth: 1, borderColor: 'rgba(0,0,0,0.20)', shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.xs, shadowOffset: { width: 0, height: sw(2) }, elevation: 2 },
+  chipText:      { fontSize: FS.sm, fontWeight: '500', color: OperationalColors.text },
+  expandIconBtn: { width: sc(26, 20, 32), height: sc(26, 20, 32), justifyContent: 'center', alignItems: 'center', backgroundColor: OperationalColors.canvas, borderRadius: BR.xs, borderWidth: 1, borderColor: 'rgba(0,0,0,0.20)', shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.xs, shadowOffset: { width: 0, height: sw(2) }, elevation: 2 },
 });
 
 // ── Filter Row ─────────────────────────────────────────────────────────────────
@@ -1526,22 +1527,22 @@ const FilterRow = ({
   <View style={styles.filterRow}>
     <TouchableOpacity style={styles.filterPill} onPress={onDatePress}>
       <Svg width={sw(13)} height={sw(13)} viewBox="0 0 24 24">
-        <Rect x={3} y={4} width={18} height={18} rx={2} stroke="#333" strokeWidth={1.5} fill="none" />
-        <Line x1={3}  y1={9}  x2={21} y2={9}  stroke="#333" strokeWidth={1.5} />
-        <Line x1={8}  y1={2}  x2={8}  y2={6}  stroke="#333" strokeWidth={1.5} />
-        <Line x1={16} y1={2}  x2={16} y2={6}  stroke="#333" strokeWidth={1.5} />
+        <Rect x={3} y={4} width={18} height={18} rx={2} stroke={OperationalColors.text} strokeWidth={1.5} fill="none" />
+        <Line x1={3}  y1={9}  x2={21} y2={9}  stroke={OperationalColors.text} strokeWidth={1.5} />
+        <Line x1={8}  y1={2}  x2={8}  y2={6}  stroke={OperationalColors.text} strokeWidth={1.5} />
+        <Line x1={16} y1={2}  x2={16} y2={6}  stroke={OperationalColors.text} strokeWidth={1.5} />
       </Svg>
       <Text style={styles.filterText} numberOfLines={1}>{dateLabel}</Text>
     </TouchableOpacity>
 
     <TouchableOpacity style={styles.filterPill} onPress={onLocationPress}>
       <Svg width={sw(13)} height={sw(13)} viewBox="0 0 24 24">
-        <Circle cx={12} cy={10} r={3} stroke="#333" strokeWidth={1.5} fill="none" />
-        <Path d="M12 2C8 2 5 5.5 5 10c0 5.25 7 12 7 12s7-6.75 7-12c0-4.5-3-8-7-8z" stroke="#333" strokeWidth={1.5} fill="none" />
+        <Circle cx={12} cy={10} r={3} stroke={OperationalColors.text} strokeWidth={1.5} fill="none" />
+        <Path d="M12 2C8 2 5 5.5 5 10c0 5.25 7 12 7 12s7-6.75 7-12c0-4.5-3-8-7-8z" stroke={OperationalColors.text} strokeWidth={1.5} fill="none" />
       </Svg>
       <Text style={styles.filterText} numberOfLines={1}>{locationLabel}</Text>
       <Svg width={sw(12)} height={sw(12)} viewBox="0 0 24 24">
-        <Path d="M6 9l6 6 6-6" stroke="#333" strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M6 9l6 6 6-6" stroke={OperationalColors.text} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
     </TouchableOpacity>
   </View>
@@ -1554,14 +1555,14 @@ const KPICards = ({ onSalesVolumePress }: KPICardsProps) => {
 
   const ArrowUp = () => (
     <Svg width={sw(13)} height={sw(13)} viewBox="0 0 24 24">
-      <Path d="M7 17L17 7M17 7H7M17 7v10" stroke="#333" strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M7 17L17 7M17 7H7M17 7v10" stroke={OperationalColors.text} strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
   );
   const BillingIcon = () => (
     <Svg width={SZ.icon} height={SZ.icon} viewBox="0 0 24 24">
-      <Rect x={2} y={5} width={20} height={14} rx={2} stroke="#333" strokeWidth={1.5} fill="none" />
-      <Line x1={2} y1={10} x2={22} y2={10} stroke="#333" strokeWidth={1.5} />
-      <Rect x={5} y={14} width={4} height={2} rx={0.5} fill="#333" />
+      <Rect x={2} y={5} width={20} height={14} rx={2} stroke={OperationalColors.text} strokeWidth={1.5} fill="none" />
+      <Line x1={2} y1={10} x2={22} y2={10} stroke={OperationalColors.text} strokeWidth={1.5} />
+      <Rect x={5} y={14} width={4} height={2} rx={0.5} fill={OperationalColors.text} />
     </Svg>
   );
 
@@ -1570,9 +1571,9 @@ const KPICards = ({ onSalesVolumePress }: KPICardsProps) => {
       bg: 'rgba(114,86,60,0.22)',
       icon: (
         <Svg width={SZ.icon} height={SZ.icon} viewBox="0 0 24 24">
-          <Path d="M3 3h18v4H3zM3 9h8v4H3zM3 15h8v4H3z" stroke="#333" strokeWidth={1.5} fill="none" />
-          <Path d="M14 12l4 4 4-4" stroke="#333" strokeWidth={1.5} fill="none" />
-          <Line x1={18} y1={8} x2={18} y2={16} stroke="#333" strokeWidth={1.5} />
+          <Path d="M3 3h18v4H3zM3 9h8v4H3zM3 15h8v4H3z" stroke={OperationalColors.text} strokeWidth={1.5} fill="none" />
+          <Path d="M14 12l4 4 4-4" stroke={OperationalColors.text} strokeWidth={1.5} fill="none" />
+          <Line x1={18} y1={8} x2={18} y2={16} stroke={OperationalColors.text} strokeWidth={1.5} />
         </Svg>
       ),
       label: 'Sales Volume',       rawValue: 456784, suffix: '.00',
@@ -1580,13 +1581,13 @@ const KPICards = ({ onSalesVolumePress }: KPICardsProps) => {
       showArrow: true, pressable: true, animated: true,
     },
     {
-      bg: 'rgba(98,145,185,0.18)',
+      bg: 'rgba(168,139,98,0.18)',
       icon: (
         <Svg width={SZ.icon} height={SZ.icon} viewBox="0 0 24 24">
-          <Rect x={5} y={2} width={14} height={20} rx={2} stroke="#333" strokeWidth={1.5} fill="none" />
-          <Line x1={9} y1={7}  x2={15} y2={7}  stroke="#333" strokeWidth={1.5} />
-          <Line x1={9} y1={11} x2={15} y2={11} stroke="#333" strokeWidth={1.5} />
-          <Line x1={9} y1={15} x2={12} y2={15} stroke="#333" strokeWidth={1.5} />
+          <Rect x={5} y={2} width={14} height={20} rx={2} stroke={OperationalColors.text} strokeWidth={1.5} fill="none" />
+          <Line x1={9} y1={7}  x2={15} y2={7}  stroke={OperationalColors.text} strokeWidth={1.5} />
+          <Line x1={9} y1={11} x2={15} y2={11} stroke={OperationalColors.text} strokeWidth={1.5} />
+          <Line x1={9} y1={15} x2={12} y2={15} stroke={OperationalColors.text} strokeWidth={1.5} />
         </Svg>
       ),
       label: 'Total Orders',       rawValue: 734,    suffix: '',
@@ -1594,13 +1595,13 @@ const KPICards = ({ onSalesVolumePress }: KPICardsProps) => {
       showArrow: true, pressable: false, animated: true,
     },
     {
-      bg: 'rgba(98,145,185,0.18)',
+      bg: 'rgba(168,139,98,0.18)',
       icon: (
         <Svg width={SZ.icon} height={SZ.icon} viewBox="0 0 24 24">
-          <Circle cx={12} cy={12} r={9} stroke="#333" strokeWidth={1.5} fill="none" />
-          <Line x1={8} y1={16} x2={16} y2={8} stroke="#333" strokeWidth={1.5} />
-          <Circle cx={9}  cy={9}  r={1} fill="#333" />
-          <Circle cx={15} cy={15} r={1} fill="#333" />
+          <Circle cx={12} cy={12} r={9} stroke={OperationalColors.text} strokeWidth={1.5} fill="none" />
+          <Line x1={8} y1={16} x2={16} y2={8} stroke={OperationalColors.text} strokeWidth={1.5} />
+          <Circle cx={9}  cy={9}  r={1} fill={OperationalColors.text} />
+          <Circle cx={15} cy={15} r={1} fill={OperationalColors.text} />
         </Svg>
       ),
       label: 'Discount Volume',    rawValue: 46784,  suffix: '.00',
@@ -1608,7 +1609,7 @@ const KPICards = ({ onSalesVolumePress }: KPICardsProps) => {
       showArrow: true, pressable: false, animated: true,
     },
     {
-      bg: 'rgba(98,145,185,0.18)',
+      bg: 'rgba(168,139,98,0.18)',
       icon: <BillingIcon />,
       label: 'Billing - STANDARD', rawValue: 452217, suffix: '.00',
       sub: null as string | null,   badge: null as string | null,
@@ -1617,10 +1618,10 @@ const KPICards = ({ onSalesVolumePress }: KPICardsProps) => {
   ];
 
   const extraCards = [
-    { bg: 'rgba(98,145,185,0.18)', icon: <BillingIcon />, label: 'Billing - COST',         rawValue: 4567,   suffix: '.00', sub: null as string | null, badge: null as string | null, showArrow: false, pressable: false, animated: false },
-    { bg: 'rgba(98,145,185,0.18)', icon: <BillingIcon />, label: 'Billing - Complementry',  rawValue: 5784,   suffix: '.00', sub: null as string | null, badge: null as string | null, showArrow: false, pressable: false, animated: false },
-    { bg: 'rgba(98,145,185,0.18)', icon: <BillingIcon />, label: 'Service Charge',           rawValue: 456784, suffix: '.00', sub: null as string | null, badge: null as string | null, showArrow: false, pressable: false, animated: false },
-    { bg: 'rgba(98,145,185,0.18)', icon: <BillingIcon />, label: 'VAT TDL And NBT',          rawValue: 456784, suffix: '.00', sub: null as string | null, badge: null as string | null, showArrow: false, pressable: false, animated: false },
+    { bg: 'rgba(168,139,98,0.18)', icon: <BillingIcon />, label: 'Billing - COST',         rawValue: 4567,   suffix: '.00', sub: null as string | null, badge: null as string | null, showArrow: false, pressable: false, animated: false },
+    { bg: 'rgba(168,139,98,0.18)', icon: <BillingIcon />, label: 'Billing - Complementry',  rawValue: 5784,   suffix: '.00', sub: null as string | null, badge: null as string | null, showArrow: false, pressable: false, animated: false },
+    { bg: 'rgba(168,139,98,0.18)', icon: <BillingIcon />, label: 'Service Charge',           rawValue: 456784, suffix: '.00', sub: null as string | null, badge: null as string | null, showArrow: false, pressable: false, animated: false },
+    { bg: 'rgba(168,139,98,0.18)', icon: <BillingIcon />, label: 'VAT TDL And NBT',          rawValue: 456784, suffix: '.00', sub: null as string | null, badge: null as string | null, showArrow: false, pressable: false, animated: false },
   ];
 
   const visibleCards = showMore ? [...mainCards, ...extraCards] : mainCards;
@@ -1668,7 +1669,7 @@ const KPICards = ({ onSalesVolumePress }: KPICardsProps) => {
           <Svg width={sw(14)} height={sw(14)} viewBox="0 0 24 24">
             <Path
               d={showMore ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}
-              stroke="#333"
+              stroke={OperationalColors.text}
               strokeWidth={2}
               fill="none"
               strokeLinecap="round"
@@ -1736,7 +1737,7 @@ const SalesVolumeChart = () => {
         <View style={{ width: yLabelW, marginRight: SP.xxs, alignItems: 'flex-end' }}>
           <View style={{ height: chartHeight, justifyContent: 'space-between' }}>
             {yAxisLabels.map((val, i) => (
-              <Text key={i} style={{ fontSize: FS.xxs, color: '#54555A', lineHeight: FS.xxs + 2 }}>{val}</Text>
+              <Text key={i} style={{ fontSize: FS.xxs, color: OperationalColors.muted, lineHeight: FS.xxs + 2 }}>{val}</Text>
             ))}
           </View>
           <View style={{ height: xLabelAreaH }} />
@@ -1751,12 +1752,12 @@ const SalesVolumeChart = () => {
             yAxisTextStyle={{ color: 'transparent', fontSize: 1 }}
             yAxisLabelWidth={0}
             xAxisThickness={1}
-            xAxisColor="#E0E0E0"
-            xAxisLabelTextStyle={{ color: '#54555A', fontSize: FS.xxs, width: sw(50), textAlign: 'center' }}
+            xAxisColor={OperationalColors.border}
+            xAxisLabelTextStyle={{ color: OperationalColors.muted, fontSize: FS.xxs, width: sw(50), textAlign: 'center' }}
             isAnimated
             animationDuration={800}
             rulesType="solid"
-            rulesColor="#F0F0F0"
+            rulesColor={OperationalColors.surfaceAlt}
             height={chartHeight}
             width={chartWidth}
             initialSpacing={sw(12)}
@@ -1777,10 +1778,10 @@ const SalesDistributionCard = () => {
   const innerRadius = sc(isTablet ? 58 : isSmall ? 38 : 48,  30, 75);
 
   const pieData = [
-    { value: PCT_DINE_IN,   color: COLOR_DINE_IN,   text: `${PCT_DINE_IN}%`,   textColor: '#F8F7F5', textSize: FS.xs, fontWeight: 'bold' },
-    { value: PCT_TAKE_AWAY, color: COLOR_TAKE_AWAY, text: `${PCT_TAKE_AWAY}%`, textColor: '#F8F7F5', textSize: FS.xs, fontWeight: 'bold' },
-    { value: PCT_PICK_UP,   color: COLOR_PICK_UP,   text: `${PCT_PICK_UP}%`,   textColor: '#F8F7F5', textSize: FS.xs, fontWeight: 'bold' },
-    { value: PCT_DELIVERY,  color: COLOR_DELIVERY,  text: `${PCT_DELIVERY}%`,  textColor: '#F8F7F5', textSize: FS.xs, fontWeight: 'bold' },
+    { value: PCT_DINE_IN,   color: COLOR_DINE_IN,   text: `${PCT_DINE_IN}%`,   textColor: OperationalColors.onPrimary, textSize: FS.xs, fontWeight: 'bold' },
+    { value: PCT_TAKE_AWAY, color: COLOR_TAKE_AWAY, text: `${PCT_TAKE_AWAY}%`, textColor: OperationalColors.onPrimary, textSize: FS.xs, fontWeight: 'bold' },
+    { value: PCT_PICK_UP,   color: COLOR_PICK_UP,   text: `${PCT_PICK_UP}%`,   textColor: OperationalColors.onPrimary, textSize: FS.xs, fontWeight: 'bold' },
+    { value: PCT_DELIVERY,  color: COLOR_DELIVERY,  text: `${PCT_DELIVERY}%`,  textColor: OperationalColors.onPrimary, textSize: FS.xs, fontWeight: 'bold' },
   ];
 
   const legend = [
@@ -1806,7 +1807,7 @@ const SalesDistributionCard = () => {
           </Text>
           <TouchableOpacity style={styles.expandBtn} onPress={() => setExpandedVisible(true)}>
             <Svg width={sw(16)} height={sw(16)} viewBox="0 0 24 24">
-              <Path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="#333" strokeWidth={2} fill="none" strokeLinecap="round" />
+              <Path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke={OperationalColors.text} strokeWidth={2} fill="none" strokeLinecap="round" />
             </Svg>
           </TouchableOpacity>
         </View>
@@ -1816,7 +1817,7 @@ const SalesDistributionCard = () => {
             data={pieData}
             radius={radius}
             innerRadius={innerRadius}
-            innerCircleColor="#F8F7F5"
+            innerCircleColor={OperationalColors.onPrimary}
             showText
             textBackgroundRadius={0}
             isAnimated
@@ -1824,7 +1825,7 @@ const SalesDistributionCard = () => {
             sectionAutoFocus
             focusOnPress
             strokeWidth={2}
-            strokeColor="#F8F7F5"
+            strokeColor={OperationalColors.onPrimary}
           />
           <View style={styles.donutLegend}>
             {legend.map((l) => (
@@ -1869,7 +1870,7 @@ const TopPerformanceCard = () => {
           <Text style={styles.sectionTitle}>Top Performance</Text>
           <TouchableOpacity style={styles.expandBtn} onPress={() => setExpandedVisible(true)}>
             <Svg width={sw(16)} height={sw(16)} viewBox="0 0 24 24">
-              <Path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="#333" strokeWidth={2} fill="none" strokeLinecap="round" />
+              <Path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke={OperationalColors.text} strokeWidth={2} fill="none" strokeLinecap="round" />
             </Svg>
           </TouchableOpacity>
         </View>
@@ -1892,7 +1893,7 @@ const TopPerformanceCard = () => {
                 {axisVals.slice(1).map((v) => (
                   <View
                     key={v}
-                    style={{ position: 'absolute', left: (v / MAX) * TRACK_W, top: 0, bottom: 0, width: 1, backgroundColor: '#E0E0E0' }}
+                    style={{ position: 'absolute', left: (v / MAX) * TRACK_W, top: 0, bottom: 0, width: 1, backgroundColor: OperationalColors.border }}
                   />
                 ))}
                 <View style={[styles.perfFill, { width: fillW }]}>
@@ -1938,7 +1939,7 @@ const PaymentTypeCard = () => {
         <Text style={styles.sectionTitle}>Payment Type</Text>
         <TouchableOpacity style={styles.expandBtn}>
           <Svg width={sw(16)} height={sw(16)} viewBox="0 0 24 24">
-            <Path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="#333" strokeWidth={2} fill="none" strokeLinecap="round" />
+            <Path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke={OperationalColors.text} strokeWidth={2} fill="none" strokeLinecap="round" />
           </Svg>
         </TouchableOpacity>
       </View>
@@ -1948,17 +1949,17 @@ const PaymentTypeCard = () => {
           data={pieData}
           radius={radius}
           innerRadius={innerRadius}
-          innerCircleColor="#F8F7F5"
+          innerCircleColor={OperationalColors.onPrimary}
           isAnimated
           animationDuration={800}
           sectionAutoFocus
           focusOnPress
           strokeWidth={2}
-          strokeColor="#F8F7F5"
+          strokeColor={OperationalColors.onPrimary}
           centerLabelComponent={() => (
             <View style={{ alignItems: 'center' }}>
-              <Text style={{ fontSize: FS.xs, color: '#54555A', fontWeight: '600' }}>Payment</Text>
-              <Text style={{ fontSize: FS.xxs, color: '#999' }}>Types</Text>
+              <Text style={{ fontSize: FS.xs, color: OperationalColors.muted, fontWeight: '600' }}>Payment</Text>
+              <Text style={{ fontSize: FS.xxs, color: OperationalColors.disabled }}>Types</Text>
             </View>
           )}
         />
@@ -2005,7 +2006,7 @@ const MonthlySalesTrend = () => {
         <View style={{ width: yLabelW, marginRight: SP.xxs, alignItems: 'flex-end' }}>
           <View style={{ height: chartH, justifyContent: 'space-between' }}>
             {yAxisLabels.map((val, i) => (
-              <Text key={i} style={{ fontSize: FS.xxs, color: '#54555A', lineHeight: FS.xxs + 2 }}>{val}K</Text>
+              <Text key={i} style={{ fontSize: FS.xxs, color: OperationalColors.muted, lineHeight: FS.xxs + 2 }}>{val}K</Text>
             ))}
           </View>
           <View style={{ height: xLabelAreaH }} />
@@ -2031,13 +2032,13 @@ const MonthlySalesTrend = () => {
             dataPointsColor="#5D51A9"
             dataPointsRadius={sw(4)}
             yAxisColor="transparent"
-            xAxisColor="#E0E0E0"
+            xAxisColor={OperationalColors.border}
             yAxisThickness={0}
             yAxisTextStyle={{ color: 'transparent', fontSize: 1 }}
             yAxisLabelWidth={0}
-            xAxisLabelTextStyle={{ color: '#54555A', fontSize: FS.xxs }}
+            xAxisLabelTextStyle={{ color: OperationalColors.muted, fontSize: FS.xxs }}
             rulesType="solid"
-            rulesColor="#F0F0F0"
+            rulesColor={OperationalColors.surfaceAlt}
             isAnimated
             animationDuration={1000}
             focusEnabled
@@ -2203,7 +2204,7 @@ const CustomersTab = ({
   return (
     <ScrollView
       ref={scrollRef}
-      style={{ flex: 1, backgroundColor: '#F8F7F5' }}
+      style={{ flex: 1, backgroundColor: OperationalColors.canvas }}
       contentContainerStyle={{ padding: SP.lg, gap: SP.lg, paddingBottom: sh(40) }}
       showsVerticalScrollIndicator={false}
     >
@@ -2263,24 +2264,24 @@ const CustomersTab = ({
 };
 
 const custStyles = StyleSheet.create({
-  reviewsCard:           { backgroundColor: '#F8F7F5', borderRadius: BR.xxl, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4 },
-  reviewsCardHeader:     { backgroundColor: 'rgba(97,145,185,0.34)', paddingHorizontal: SP.lg, paddingVertical: sw(14) },
-  reviewsCardHeaderText: { fontSize: FS.md, fontWeight: '500', color: '#000' },
-  restaurantName:        { fontSize: FS.md, fontWeight: '400', color: '#000', marginTop: SP.sm },
-  bigRating:             { fontSize: sc(34, 26, 44), fontWeight: '400', color: '#000', lineHeight: sc(40, 30, 50), marginBottom: SP.xxs },
+  reviewsCard:           { backgroundColor: OperationalColors.canvas, borderRadius: BR.xxl, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4 },
+  reviewsCardHeader:     { backgroundColor: 'rgba(168,139,98,0.34)', paddingHorizontal: SP.lg, paddingVertical: sw(14) },
+  reviewsCardHeaderText: { fontSize: FS.md, fontWeight: '500', color: OperationalColors.text },
+  restaurantName:        { fontSize: FS.md, fontWeight: '400', color: OperationalColors.text, marginTop: SP.sm },
+  bigRating:             { fontSize: sc(34, 26, 44), fontWeight: '400', color: OperationalColors.text, lineHeight: sc(40, 30, 50), marginBottom: SP.xxs },
   reviewCount:           { fontSize: FS.xs, color: 'rgba(0,0,0,0.50)', marginTop: SP.xxs },
   sectionDivider:        { height: 1, backgroundColor: 'rgba(0,0,0,0.10)', marginVertical: sw(14) },
-  chartStarLabel:        { fontSize: FS.xs, color: '#54555A', width: sw(12), textAlign: 'right' },
+  chartStarLabel:        { fontSize: FS.xs, color: OperationalColors.muted, width: sw(12), textAlign: 'right' },
   chartTrack:            { height: sc(12, 8, 16), backgroundColor: 'rgba(180,180,180,0.18)', borderRadius: sw(2), overflow: 'hidden' },
-  chartFill:             { backgroundColor: '#AAC3D9', borderRadius: sw(2) },
-  chartCountLabel:       { fontSize: FS.xxs, color: '#54555A', width: sw(24), textAlign: 'right' },
-  chartXLabel:           { fontSize: FS.xxs, color: '#54555A', textAlign: 'center' },
-  reviewCard:            { flexDirection: 'row', backgroundColor: '#F8F7F5', borderRadius: BR.xxl, padding: SP.lg, gap: SP.md, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4, marginBottom: SP.lg },
-  reviewAvatar:          { width: sc(52, 40, 64), height: sc(52, 40, 64), borderRadius: BR.md, backgroundColor: '#D9D9D9', flexShrink: 0 },
-  reviewerName:          { fontSize: FS.md, fontWeight: '700', color: '#000' },
+  chartFill:             { backgroundColor: OperationalColors.accentSoft, borderRadius: sw(2) },
+  chartCountLabel:       { fontSize: FS.xxs, color: OperationalColors.muted, width: sw(24), textAlign: 'right' },
+  chartXLabel:           { fontSize: FS.xxs, color: OperationalColors.muted, textAlign: 'center' },
+  reviewCard:            { flexDirection: 'row', backgroundColor: OperationalColors.canvas, borderRadius: BR.xxl, padding: SP.lg, gap: SP.md, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: sw(10), shadowOffset: { width: 0, height: 0 }, elevation: 4, marginBottom: SP.lg },
+  reviewAvatar:          { width: sc(52, 40, 64), height: sc(52, 40, 64), borderRadius: BR.md, backgroundColor: OperationalColors.border, flexShrink: 0 },
+  reviewerName:          { fontSize: FS.md, fontWeight: '700', color: OperationalColors.text },
   reviewMeta:            { fontSize: FS.sm, fontWeight: '700', color: 'rgba(0,0,0,0.50)', marginTop: sw(2) },
   reviewDivider:         { height: 1, backgroundColor: 'rgba(0,0,0,0.25)', marginVertical: SP.sm },
-  reviewText:            { fontSize: FS.sm, fontWeight: '300', color: '#000', lineHeight: sc(20, 16, 24) },
+  reviewText:            { fontSize: FS.sm, fontWeight: '300', color: OperationalColors.text, lineHeight: sc(20, 16, 24) },
 });
 
 // ── Tab Bar ────────────────────────────────────────────────────────────────────
@@ -2315,25 +2316,25 @@ const TabBar = ({
 const RobotIcon = ({ size }: { size: number }) => (
   <Svg width={size} height={size} viewBox="0 0 64 64">
     {/* Antenna */}
-    <Line x1={32} y1={6} x2={32} y2={14} stroke="#F8F7F5" strokeWidth={3} strokeLinecap="round" />
-    <Circle cx={32} cy={5} r={3} fill="#F8F7F5" />
+    <Line x1={32} y1={6} x2={32} y2={14} stroke={OperationalColors.onPrimary} strokeWidth={3} strokeLinecap="round" />
+    <Circle cx={32} cy={5} r={3} fill={OperationalColors.onPrimary} />
     {/* Head */}
-    <Rect x={12} y={14} width={40} height={28} rx={8} fill="#F8F7F5" opacity={0.95} />
+    <Rect x={12} y={14} width={40} height={28} rx={8} fill={OperationalColors.onPrimary} opacity={0.95} />
     {/* Eyes */}
-    <Circle cx={23} cy={26} r={5} fill="#72563C" />
-    <Circle cx={41} cy={26} r={5} fill="#72563C" />
-    <Circle cx={24.5} cy={24.5} r={1.8} fill="#F8F7F5" />
-    <Circle cx={42.5} cy={24.5} r={1.8} fill="#F8F7F5" />
+    <Circle cx={23} cy={26} r={5} fill={OperationalColors.primary} />
+    <Circle cx={41} cy={26} r={5} fill={OperationalColors.primary} />
+    <Circle cx={24.5} cy={24.5} r={1.8} fill={OperationalColors.onPrimary} />
+    <Circle cx={42.5} cy={24.5} r={1.8} fill={OperationalColors.onPrimary} />
     {/* Mouth */}
-    <Rect x={22} y={34} width={20} height={3} rx={1.5} fill="#72563C" opacity={0.7} />
+    <Rect x={22} y={34} width={20} height={3} rx={1.5} fill={OperationalColors.primary} opacity={0.7} />
     {/* Body */}
-    <Rect x={18} y={44} width={28} height={14} rx={5} fill="#F8F7F5" opacity={0.85} />
+    <Rect x={18} y={44} width={28} height={14} rx={5} fill={OperationalColors.onPrimary} opacity={0.85} />
     {/* Body detail */}
-    <Rect x={24} y={49} width={5} height={5} rx={1.5} fill="#72563C" opacity={0.6} />
-    <Rect x={35} y={49} width={5} height={5} rx={1.5} fill="#72563C" opacity={0.6} />
+    <Rect x={24} y={49} width={5} height={5} rx={1.5} fill={OperationalColors.primary} opacity={0.6} />
+    <Rect x={35} y={49} width={5} height={5} rx={1.5} fill={OperationalColors.primary} opacity={0.6} />
     {/* Arms */}
-    <Rect x={6}  y={44} width={10} height={6} rx={3} fill="#F8F7F5" opacity={0.85} />
-    <Rect x={48} y={44} width={10} height={6} rx={3} fill="#F8F7F5" opacity={0.85} />
+    <Rect x={6}  y={44} width={10} height={6} rx={3} fill={OperationalColors.onPrimary} opacity={0.85} />
+    <Rect x={48} y={44} width={10} height={6} rx={3} fill={OperationalColors.onPrimary} opacity={0.85} />
   </Svg>
 );
 
@@ -2442,13 +2443,13 @@ const fabStyles = StyleSheet.create({
   },
   fabRing: {
     position: 'absolute',
-    backgroundColor: '#72563C',
+    backgroundColor: OperationalColors.primary,
   },
   fab: {
-    backgroundColor: '#72563C',
+    backgroundColor: OperationalColors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#72563C',
+    shadowColor: OperationalColors.primary,
     shadowOpacity: 0.55,
     shadowRadius: sw(12),
     shadowOffset: { width: 0, height: sw(4) },
@@ -2456,14 +2457,14 @@ const fabStyles = StyleSheet.create({
   },
   fabLabel: {
     marginTop: sw(5),
-    backgroundColor: 'rgba(47,111,228,0.92)',
+    backgroundColor: 'rgba(168,139,98,0.92)',
     borderRadius: BR.pill,
     paddingHorizontal: sw(8),
     paddingVertical: sw(3),
   },
   fabLabelText: {
     fontSize: FS.xxs,
-    color: '#F8F7F5',
+    color: OperationalColors.onPrimary,
     fontWeight: '700',
     letterSpacing: 0.4,
   },
@@ -2557,7 +2558,7 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.screen}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
+      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.onPrimary} />
 
       <View style={styles.topArea}>
         <Header onHamburger={() => setDrawerVisible(true)} />
@@ -2635,98 +2636,98 @@ export default function DashboardScreen() {
 
 // ── Global styles ──────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  screen:             { flex: 1, backgroundColor: '#F8F7F5' },
-  topArea:            { backgroundColor: '#F8F7F5', elevation: 2, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: SP.xxs, shadowOffset: { width: 0, height: sw(2) } },
+  screen:             { flex: 1, backgroundColor: OperationalColors.canvas },
+  topArea:            { backgroundColor: OperationalColors.canvas, elevation: 2, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: SP.xxs, shadowOffset: { width: 0, height: sw(2) } },
 
   // Header
-  headerContainer:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.lg, paddingTop: isTablet ? sw(14) : sh(30), paddingBottom: isTablet ? SP.md : SP.sm, backgroundColor: '#F8F7F5' },
+  headerContainer:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.lg, paddingTop: isTablet ? sw(14) : sh(30), paddingBottom: isTablet ? SP.md : SP.sm, backgroundColor: OperationalColors.canvas },
   hamburger:          { width: HEADER_SIDE_W, gap: sw(5) },
-  hamLine:            { width: SZ.hamLineW, height: SZ.hamLineH, backgroundColor: '#1A1A2E', borderRadius: sw(1) },
-  headerTitle:        { flex: 1, textAlign: 'center', fontSize: FS.xl, fontWeight: '700', color: '#000' },
-  avatarRing:         { width: HEADER_SIDE_W, height: HEADER_SIDE_W, borderRadius: HEADER_SIDE_W / 2, borderWidth: sw(2), borderColor: '#72563C', padding: sw(2), alignSelf: 'flex-end' },
-  avatar:             { width: '100%', height: '100%', borderRadius: BR.pill, backgroundColor: '#D9D9D9' },
+  hamLine:            { width: SZ.hamLineW, height: SZ.hamLineH, backgroundColor: OperationalColors.text, borderRadius: sw(1) },
+  headerTitle:        { flex: 1, textAlign: 'center', fontSize: FS.xl, fontWeight: '700', color: OperationalColors.text },
+  avatarRing:         { width: HEADER_SIDE_W, height: HEADER_SIDE_W, borderRadius: HEADER_SIDE_W / 2, borderWidth: sw(2), borderColor: OperationalColors.primary, padding: sw(2), alignSelf: 'flex-end' },
+  avatar:             { width: '100%', height: '100%', borderRadius: BR.pill, backgroundColor: OperationalColors.border },
 
   // Tab bar
-  tabBarWrapper:      { flexDirection: 'row', alignItems: 'stretch', marginHorizontal: SP.lg, marginBottom: SP.md, backgroundColor: '#E7F0FB', borderRadius: BR.md, padding: SP.xxs },
+  tabBarWrapper:      { flexDirection: 'row', alignItems: 'stretch', marginHorizontal: SP.lg, marginBottom: SP.md, backgroundColor: OperationalColors.surfaceAlt, borderRadius: BR.md, padding: SP.xxs },
   tabItem:            { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: SP.sm, borderRadius: BR.md },
-  activeTab:          { backgroundColor: '#72563C' },
-  activeTabText:      { color: '#F8F7F5', fontWeight: '600' },
-  tabText:            { fontSize: FS.sm, fontWeight: '500', color: '#3A3A3A', textAlign: 'center' },
+  activeTab:          { backgroundColor: OperationalColors.primary },
+  activeTabText:      { color: OperationalColors.onPrimary, fontWeight: '600' },
+  tabText:            { fontSize: FS.sm, fontWeight: '500', color: OperationalColors.text, textAlign: 'center' },
 
   // Filter row
-  filterRow:          { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingVertical: SP.md, backgroundColor: '#F8F7F5' },
-  filterPill:         { flexDirection: 'row', alignItems: 'center', gap: SP.xs, backgroundColor: '#F8F7F5', borderRadius: sw(20), paddingHorizontal: SP.md, paddingVertical: sw(7), borderWidth: 1, borderColor: '#E5E5E5', maxWidth: (CARD_WIDTH - SP.md) / 2 },
-  filterText:         { fontSize: FS.xs, fontWeight: '500', color: '#333', flexShrink: 1 },
+  filterRow:          { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: SP.lg, paddingVertical: SP.md, backgroundColor: OperationalColors.canvas },
+  filterPill:         { flexDirection: 'row', alignItems: 'center', gap: SP.xs, backgroundColor: OperationalColors.canvas, borderRadius: sw(20), paddingHorizontal: SP.md, paddingVertical: sw(7), borderWidth: 1, borderColor: OperationalColors.border, maxWidth: (CARD_WIDTH - SP.md) / 2 },
+  filterText:         { fontSize: FS.xs, fontWeight: '500', color: OperationalColors.text, flexShrink: 1 },
 
   // Scroll content
   scrollContent:      { padding: SP.lg, gap: SP.lg },
 
   // KPI
-  kpiOuterCard:       { backgroundColor: '#F8F7F5', borderRadius: BR.xl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.sm, shadowOffset: { width: 0, height: sw(2) }, elevation: 3 },
+  kpiOuterCard:       { backgroundColor: OperationalColors.canvas, borderRadius: BR.xl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.sm, shadowOffset: { width: 0, height: sw(2) }, elevation: 3 },
   kpiGrid:            { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: SP.md },
   kpiInnerCard:       { borderRadius: BR.lg, padding: SP.md, minHeight: sh(isTablet ? 150 : 130) },
   kpiIconBadgeRow:    { flexDirection: 'row', alignItems: 'center', gap: SP.sm, marginBottom: SP.md },
   kpiIconBox:         { width: SZ.iconBox, height: SZ.iconBox, backgroundColor: 'rgba(248,247,245,0.80)', borderRadius: BR.sm, justifyContent: 'center', alignItems: 'center' },
-  kpiBadge:           { fontSize: FS.xs, fontWeight: '700', color: '#333' },
+  kpiBadge:           { fontSize: FS.xs, fontWeight: '700', color: OperationalColors.text },
   kpiLabel:           { fontSize: FS.sm, fontWeight: '500', color: 'rgba(0,0,0,0.70)', marginBottom: sw(2) },
-  kpiValue:           { fontSize: FS.kpi, fontWeight: '700', color: '#1A1A2E', marginBottom: SP.xs },
+  kpiValue:           { fontSize: FS.kpi, fontWeight: '700', color: OperationalColors.text, marginBottom: SP.xs },
   kpiSubRow:          { flexDirection: 'row', alignItems: 'center', gap: SP.xxs },
   kpiSub:             { fontSize: FS.xxs, color: 'rgba(0,0,0,0.55)', fontWeight: '500', flexShrink: 1 },
   kpiMoreRow:         { alignItems: 'flex-end', marginTop: SP.md },
-  moreBtn:            { flexDirection: 'row', alignItems: 'center', gap: SP.xxs, backgroundColor: '#F8F7F5', borderRadius: sw(10), paddingHorizontal: SZ.moreBtn.paddingH, paddingVertical: SZ.moreBtn.paddingV, borderWidth: 1, borderColor: '#E0E0E0', shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.xxs, shadowOffset: { width: 0, height: sw(2) }, elevation: 2 },
-  moreBtnText:        { fontSize: FS.sm, color: '#000', fontWeight: '500' },
+  moreBtn:            { flexDirection: 'row', alignItems: 'center', gap: SP.xxs, backgroundColor: OperationalColors.canvas, borderRadius: sw(10), paddingHorizontal: SZ.moreBtn.paddingH, paddingVertical: SZ.moreBtn.paddingV, borderWidth: 1, borderColor: OperationalColors.border, shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.xxs, shadowOffset: { width: 0, height: sw(2) }, elevation: 2 },
+  moreBtnText:        { fontSize: FS.sm, color: OperationalColors.text, fontWeight: '500' },
 
   // Section card
-  sectionCard:        { backgroundColor: '#F8F7F5', borderRadius: BR.xl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.sm, shadowOffset: { width: 0, height: sw(2) }, elevation: 3 },
-  sectionTitle:       { fontSize: FS.md, fontWeight: '600', color: '#000', marginBottom: SP.md },
+  sectionCard:        { backgroundColor: OperationalColors.canvas, borderRadius: BR.xl, padding: SP.lg, shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: SP.sm, shadowOffset: { width: 0, height: sw(2) }, elevation: 3 },
+  sectionTitle:       { fontSize: FS.md, fontWeight: '600', color: OperationalColors.text, marginBottom: SP.md },
   cardHeaderRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP.md },
-  expandBtn:          { width: SZ.expandBtn, height: SZ.expandBtn, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F0F0F0', borderRadius: BR.xs },
+  expandBtn:          { width: SZ.expandBtn, height: SZ.expandBtn, justifyContent: 'center', alignItems: 'center', backgroundColor: OperationalColors.surfaceAlt, borderRadius: BR.xs },
 
   // Legend
   legendRow:          { flexDirection: 'row', gap: sw(14), marginBottom: SP.md },
   legendItem:         { flexDirection: 'row', alignItems: 'center', gap: SP.xxs },
   legendDot:          { width: SZ.legendDot, height: SZ.legendDot, borderRadius: sw(2) },
-  legendText:         { fontSize: FS.xs, color: '#54555A' },
+  legendText:         { fontSize: FS.xs, color: OperationalColors.muted },
 
   // Distribution
   distributionBody:   { flexDirection: 'row', alignItems: 'center', gap: SP.lg },
   donutLegend:        { flex: 1, gap: SP.md },
   donutLegendItem:    { flexDirection: 'row', alignItems: 'center', gap: SP.sm },
   legendSquare:       { width: SZ.legendSquare, height: SZ.legendSquare, borderRadius: sw(2) },
-  donutLegendText:    { fontSize: FS.sm, color: '#222' },
+  donutLegendText:    { fontSize: FS.sm, color: OperationalColors.text },
 
   // Performance
-  axisLabel:          { fontSize: FS.xxs, color: '#54555A', textAlign: 'center' },
+  axisLabel:          { fontSize: FS.xxs, color: OperationalColors.muted, textAlign: 'center' },
   perfRow:            { flexDirection: 'row', alignItems: 'center' },
-  perfName:           { fontSize: FS.xs, color: '#54555A', textAlign: 'right' },
+  perfName:           { fontSize: FS.xs, color: OperationalColors.muted, textAlign: 'right' },
   perfTrack:          { height: sc(28, 20, 36), backgroundColor: 'rgba(180,180,180,0.15)', borderRadius: BR.xs, overflow: 'hidden' },
-  perfFill:           { height: '100%', backgroundColor: 'rgba(0,98,170,0.60)', justifyContent: 'center', alignItems: 'flex-end', paddingRight: SP.xs, borderRadius: BR.xs },
-  perfFillVal:        { fontSize: FS.xs, color: '#F8F7F5', fontWeight: '600' },
-  perfAxisLine:       { height: 1, backgroundColor: '#E0E0E0', marginTop: SP.xxs },
+  perfFill:           { height: '100%', backgroundColor: 'rgba(168,139,98,0.60)', justifyContent: 'center', alignItems: 'flex-end', paddingRight: SP.xs, borderRadius: BR.xs },
+  perfFillVal:        { fontSize: FS.xs, color: OperationalColors.onPrimary, fontWeight: '600' },
+  perfAxisLine:       { height: 1, backgroundColor: OperationalColors.border, marginTop: SP.xxs },
 
   // Payment legend
   payLegendGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: SP.sm, marginTop: SP.sm },
   payLegendItem:      { flexDirection: 'row', alignItems: 'center', gap: SP.xxs, width: '45%' },
   payLegendDot:       { width: sc(11, 8, 14), height: sc(11, 8, 14), borderRadius: sw(2) },
-  payLegendText:      { fontSize: FS.xs, color: '#54555A' },
+  payLegendText:      { fontSize: FS.xs, color: OperationalColors.muted },
 
   // Modals
   modalOverlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: SP.xl },
-  modalCard:          { width: '100%', maxWidth: sw(420), backgroundColor: '#F8F7F5', borderRadius: sw(24), padding: SP.xl },
-  modalTitle:         { fontSize: FS.lg, fontWeight: '700', color: '#000', marginBottom: SP.lg },
-  confirmBtn:         { backgroundColor: '#4A87C6', borderRadius: sw(24), paddingVertical: sw(14), alignItems: 'center', marginTop: SP.lg },
-  confirmBtnText:     { color: '#F8F7F5', fontSize: FS.md, fontWeight: '600' },
+  modalCard:          { width: '100%', maxWidth: sw(420), backgroundColor: OperationalColors.canvas, borderRadius: sw(24), padding: SP.xl },
+  modalTitle:         { fontSize: FS.lg, fontWeight: '700', color: OperationalColors.text, marginBottom: SP.lg },
+  confirmBtn:         { backgroundColor: OperationalColors.primary, borderRadius: sw(24), paddingVertical: sw(14), alignItems: 'center', marginTop: SP.lg },
+  confirmBtnText:     { color: OperationalColors.onPrimary, fontSize: FS.md, fontWeight: '600' },
   closeBtn:           { width: SZ.closeBtn, height: SZ.closeBtn, justifyContent: 'center', alignItems: 'center' },
-  modalOptionRow:     { flexDirection: 'row', alignItems: 'center', gap: sw(14), paddingVertical: sw(14), borderBottomWidth: 1, borderBottomColor: '#EEE' },
-  modalOptionText:    { fontSize: FS.md, fontWeight: '600', color: '#000' },
-  checkboxBox:        { width: SZ.checkbox, height: SZ.checkbox, borderRadius: BR.xs, borderWidth: sw(1.5), borderColor: '#999', justifyContent: 'center', alignItems: 'center' },
-  checkboxBoxChecked: { backgroundColor: '#4A87C6', borderColor: '#4A87C6' },
+  modalOptionRow:     { flexDirection: 'row', alignItems: 'center', gap: sw(14), paddingVertical: sw(14), borderBottomWidth: 1, borderBottomColor: OperationalColors.surfaceAlt },
+  modalOptionText:    { fontSize: FS.md, fontWeight: '600', color: OperationalColors.text },
+  checkboxBox:        { width: SZ.checkbox, height: SZ.checkbox, borderRadius: BR.xs, borderWidth: sw(1.5), borderColor: OperationalColors.disabled, justifyContent: 'center', alignItems: 'center' },
+  checkboxBoxChecked: { backgroundColor: OperationalColors.primary, borderColor: OperationalColors.primary },
 
   // Sales volume modal
   svLocRow:           { marginBottom: sw(14) },
   svLocHeader:        { flexDirection: 'row', justifyContent: 'space-between', marginBottom: SP.xs },
-  svLocName:          { fontSize: FS.sm, fontWeight: '600', color: '#333' },
-  svLocValue:         { fontSize: FS.sm, fontWeight: '700', color: '#72563C' },
+  svLocName:          { fontSize: FS.sm, fontWeight: '600', color: OperationalColors.text },
+  svLocValue:         { fontSize: FS.sm, fontWeight: '700', color: OperationalColors.primary },
   svTrack:            { height: sw(10), borderRadius: sw(5), backgroundColor: 'rgba(114,86,60,0.12)', overflow: 'hidden' },
-  svFill:             { height: '100%', backgroundColor: '#72563C', borderRadius: sw(5) },
+  svFill:             { height: '100%', backgroundColor: OperationalColors.primary, borderRadius: sw(5) },
 });

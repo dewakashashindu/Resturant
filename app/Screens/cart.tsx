@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { default as React, useEffect, useMemo, useState } from 'react';
@@ -994,7 +995,7 @@ export default function CartScreen() {
                         onPress={() => setRemarkVisible(false)}
                         activeOpacity={0.8}
                       >
-                        <Ionicons name="close" size={22} color="#0F172A" />
+                        <Ionicons name="close" size={22} color={OperationalColors.text} />
                       </TouchableOpacity>
                     </View>
 
@@ -1021,7 +1022,7 @@ export default function CartScreen() {
                                 <Ionicons
                                   name="close"
                                   size={14}
-                                  color="#F8F7F5"
+                                  color={OperationalColors.onPrimary}
                                 />
                               </TouchableOpacity>
                             </View>
@@ -1045,7 +1046,7 @@ export default function CartScreen() {
                               <Ionicons
                                 name="chevron-down"
                                 size={20}
-                                color="#72563C"
+                                color={OperationalColors.primary}
                               />
                             </TouchableOpacity>
                           </View>
@@ -1076,7 +1077,7 @@ export default function CartScreen() {
                         activeOpacity={0.8}
                         style={styles.remarkHeaderIconBtn}
                       >
-                        <Ionicons name="arrow-back" size={22} color="#0F172A" />
+                        <Ionicons name="arrow-back" size={22} color={OperationalColors.text} />
                       </TouchableOpacity>
                       <Text style={styles.remarkCardHeaderTitle}>
                         Select Preset Remark
@@ -1086,7 +1087,7 @@ export default function CartScreen() {
                         activeOpacity={0.8}
                         style={styles.remarkHeaderIconBtn}
                       >
-                        <Ionicons name="close" size={22} color="#0F172A" />
+                        <Ionicons name="close" size={22} color={OperationalColors.text} />
                       </TouchableOpacity>
                     </View>
 
@@ -1094,7 +1095,7 @@ export default function CartScreen() {
 
                     {loadingRemarkOptions ? (
                       <View style={styles.presetsLoaderWrap}>
-                        <ActivityIndicator size="small" color="#72563C" />
+                        <ActivityIndicator size="small" color={OperationalColors.primary} />
                       </View>
                     ) : (
                       <ScrollView
@@ -1230,7 +1231,7 @@ export default function CartScreen() {
           disabled={confirming}
         >
           {confirming ? (
-            <ActivityIndicator size="small" color="#F8F7F5" />
+            <ActivityIndicator size="small" color={OperationalColors.onPrimary} />
           ) : (
             <>
               <Text
@@ -1276,13 +1277,13 @@ const styles = StyleSheet.create({
 
   tableBadge: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(0,98,170,0.15)',
+    backgroundColor: 'rgba(168,139,98,0.15)',
     borderRadius: 20,
     alignItems: 'center',
     gap: 6,
     top: 25,
   },
-  tableBadgeText: { color: '#000', fontWeight: '600' },
+  tableBadgeText: { color: OperationalColors.text, fontWeight: '600' },
   dropdownArrow: {
     width: 0,
     height: 0,
@@ -1293,13 +1294,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: '#000',
+    borderTopColor: OperationalColors.text,
   },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
   dropdown: {
     position: 'absolute',
-    backgroundColor: '#F8F7F5',
+    backgroundColor: OperationalColors.canvas,
     borderRadius: 14,
     paddingVertical: 8,
     elevation: 8,
@@ -1315,26 +1316,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  dropdownTitle: { fontWeight: '700', color: '#72563C' },
-  dropdownClose: { color: '#888', fontWeight: '600' },
-  ddDivider: { height: 1, backgroundColor: '#EEE', marginVertical: 4 },
+  dropdownTitle: { fontWeight: '700', color: OperationalColors.primary },
+  dropdownClose: { color: OperationalColors.muted, fontWeight: '600' },
+  ddDivider: { height: 1, backgroundColor: OperationalColors.surfaceAlt, marginVertical: 4 },
   dropdownRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
-  dropdownLabel: { color: '#666', fontWeight: '500' },
-  dropdownValue: { color: '#000', fontWeight: '700' },
+  dropdownLabel: { color: OperationalColors.muted, fontWeight: '500' },
+  dropdownValue: { color: OperationalColors.text, fontWeight: '700' },
   changeTableBtn: {
     marginHorizontal: 12,
     marginTop: 4,
     marginBottom: 6,
-    backgroundColor: '#72563C',
+    backgroundColor: OperationalColors.primary,
     borderRadius: 10,
     alignItems: 'center',
   },
-  changeTableText: { color: '#F8F7F5', fontWeight: '700' },
+  changeTableText: { color: OperationalColors.onPrimary, fontWeight: '700' },
 
   actionHeaderRow: {
     flexDirection: 'row',
@@ -1343,7 +1344,7 @@ const styles = StyleSheet.create({
     marginTop: 45,
     marginBottom: 5,
   },
-  itemsCountText: { color: '#334155', fontWeight: '700' },
+  itemsCountText: { color: OperationalColors.text, fontWeight: '700' },
   clearCartBtn: { alignSelf: 'flex-end' },
   clearCartText: { color: '#DB6161', fontWeight: '500' },
 
@@ -1354,38 +1355,38 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingTop: 60,
   },
-  emptyText: { color: '#999', fontSize: 16, fontWeight: '500' },
+  emptyText: { color: OperationalColors.disabled, fontSize: 16, fontWeight: '500' },
   addMoreWrap: { marginTop: 8, marginBottom: 4 },
   addMoreBtn: {
     height: 52,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: '#72563C',
+    borderColor: OperationalColors.primary,
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  addMoreText: { color: '#72563C', fontSize: 16, fontWeight: '700' },
+  addMoreText: { color: OperationalColors.primary, fontSize: 16, fontWeight: '700' },
 
   itemContainer: { marginTop: 24 },
   itemContainerReadOnly: { opacity: 0.55 },
   itemContainerNew: {
     borderWidth: 1.5,
-    borderColor: '#72563C',
+    borderColor: OperationalColors.primary,
     borderRadius: 10,
     padding: 10,
     marginTop: 16,
-    backgroundColor: 'rgba(0,98,170,0.04)',
+    backgroundColor: 'rgba(168,139,98,0.04)',
   },
   newBadge: {
-    backgroundColor: '#72563C',
+    backgroundColor: OperationalColors.primary,
     borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 2,
     flexShrink: 0,
   },
   newBadgeText: {
-    color: '#F8F7F5',
+    color: OperationalColors.onPrimary,
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -1403,9 +1404,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
     marginRight: 8,
   },
-  itemNameReadOnly: { color: '#A38C77' },
+  itemNameReadOnly: { color: OperationalColors.muted },
   itemPrice: { color: 'black', fontWeight: '400', marginTop: 4 },
-  itemPriceReadOnly: { color: '#A38C77' },
+  itemPriceReadOnly: { color: OperationalColors.muted },
   itemRemarkBlock: { marginTop: 6, alignSelf: 'stretch' },
   itemFooter: {
     flexDirection: 'row',
@@ -1415,15 +1416,15 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   remarkBtn: { flexShrink: 1 },
-  remarkText: { color: '#A38C77', fontWeight: '600' },
-  remarkTextReadOnly: { color: '#A38C77' },
+  remarkText: { color: OperationalColors.muted, fontWeight: '600' },
+  remarkTextReadOnly: { color: OperationalColors.muted },
   remarkPreview: {
-    color: '#A38C77',
+    color: OperationalColors.muted,
     fontSize: 12,
     maxWidth: '100%',
     textAlign: 'left',
   },
-  remarkPreviewReadOnly: { color: '#A38C77' },
+  remarkPreviewReadOnly: { color: OperationalColors.muted },
   quantityContainer: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   qtyBtn: {
     borderWidth: 1,
@@ -1431,11 +1432,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  qtyBtnDisabled: { borderColor: '#CFBDAA', backgroundColor: '#F8F7F5' },
+  qtyBtnDisabled: { borderColor: OperationalColors.border, backgroundColor: OperationalColors.canvas },
   qtyText: { fontSize: 18, fontWeight: '500' },
-  qtyTextDisabled: { color: '#A38C77' },
+  qtyTextDisabled: { color: OperationalColors.muted },
   qtyValue: { fontWeight: '500', minWidth: 20, textAlign: 'center' },
-  qtyValueReadOnly: { color: '#A38C77' },
+  qtyValueReadOnly: { color: OperationalColors.muted },
   divider: {
     height: 1,
     backgroundColor: 'rgba(0,0,0,0.1)',
@@ -1455,7 +1456,7 @@ const styles = StyleSheet.create({
   totalLabel: { fontWeight: '500' },
   totalValue: { fontWeight: '500' },
   confirmBtn: {
-    backgroundColor: '#8D9ED4',
+    backgroundColor: OperationalColors.accent,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1475,7 +1476,7 @@ const styles = StyleSheet.create({
     maxWidth: 560,
     height: 320,
     borderRadius: 20,
-    backgroundColor: '#F8F7F5',
+    backgroundColor: OperationalColors.canvas,
     padding: 16,
     overflow: 'hidden',
     elevation: 18,
@@ -1493,7 +1494,7 @@ const styles = StyleSheet.create({
   remarkCardHeaderTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#0F172A',
+    color: OperationalColors.text,
     flex: 1,
     textAlign: 'center',
   },
@@ -1506,7 +1507,7 @@ const styles = StyleSheet.create({
   remarkCardBody: { flex: 1 },
   remarkScrollArea: { flex: 1 },
   remarkCardContent: { paddingBottom: 4 },
-  presetsDivider: { height: 1, backgroundColor: '#CFBDAA', marginBottom: 8 },
+  presetsDivider: { height: 1, backgroundColor: OperationalColors.border, marginBottom: 8 },
   presetsLoaderWrap: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1516,7 +1517,7 @@ const styles = StyleSheet.create({
     height: 48,
     paddingHorizontal: 12,
     fontSize: 16,
-    color: '#000',
+    color: OperationalColors.text,
     textAlignVertical: 'center',
     flex: 1,
   },
@@ -1524,11 +1525,11 @@ const styles = StyleSheet.create({
     marginTop: 14,
     height: 48,
     borderRadius: 8,
-    backgroundColor: '#8D9ED4',
+    backgroundColor: OperationalColors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  saveRemarkText: { color: '#F8F7F5', fontSize: 16, fontWeight: '600' },
+  saveRemarkText: { color: OperationalColors.onPrimary, fontSize: 16, fontWeight: '600' },
   tagsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1536,7 +1537,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   tagBadge: {
-    backgroundColor: '#72563C',
+    backgroundColor: OperationalColors.primary,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 16,
@@ -1546,7 +1547,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   tagLabelBtn: { paddingRight: 4 },
-  tagText: { color: '#F8F7F5', fontSize: 13, marginRight: 6 },
+  tagText: { color: OperationalColors.onPrimary, fontSize: 13, marginRight: 6 },
   tagClose: {
     width: 18,
     height: 18,
@@ -1572,19 +1573,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   addTagBtn: {
-    backgroundColor: '#72563C',
+    backgroundColor: OperationalColors.primary,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
   },
-  addTagText: { color: '#F8F7F5', fontWeight: '700' },
+  addTagText: { color: OperationalColors.onPrimary, fontWeight: '700' },
   presetsListContent: { paddingVertical: 2 },
   presetsRow: {
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F4F4F4',
+    borderBottomColor: OperationalColors.surfaceAlt,
   },
-  presetsRowText: { color: '#003366', fontWeight: '600' },
+  presetsRowText: { color: OperationalColors.primary, fontWeight: '600' },
 
   sectionHeader: {
     flexDirection: 'row',
@@ -1595,7 +1596,7 @@ const styles = StyleSheet.create({
   sectionHeaderText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#186cb1',
+    color: OperationalColors.primary,
     letterSpacing: 1.2,
     textTransform: 'uppercase',
     marginRight: 10,

@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { StatusBar } from 'expo-status-bar';
 import { useRef, useState } from 'react';
@@ -15,7 +16,7 @@ type ResultMsg  = { id: string; type: 'result';  data: ReportResponse & { _q: st
 type Msg = UserMsg | LoadingMsg | ErrorMsg | ResultMsg;
 
 // ─── COLORS ───────────────────────────────────────────────────────────────────
-const CHART_COLORS = ['#2563eb', '#16a34a', '#d97706', '#7c3aed', '#dc2626', '#0891b2'];
+const CHART_COLORS = [OperationalColors.primary, '#16a34a', '#d97706', '#7c3aed', '#dc2626', '#0891b2'];
 
 const PRIORITY_STYLE: Record<string, { bg: string; text: string; label: string }> = {
   HIGH:   { bg: '#fef2f2', text: '#dc2626', label: 'High' },
@@ -31,7 +32,7 @@ const TREND_ICON: Record<string, string> = {
 const TREND_COLOR: Record<string, string> = {
   up:      '#16a34a',
   down:    '#dc2626',
-  neutral: '#64748b',
+  neutral: OperationalColors.muted,
 };
 
 // ─── CURRENCY FORMATTER ───────────────────────────────────────────────────────
@@ -60,7 +61,7 @@ function MetricCard({ label, value, trend, trendNote }: {
     <View style={s.metricCard}>
       <Text style={s.metricLabel}>{label}</Text>
       <Text style={s.metricValue}>{value}</Text>
-      <Text style={[s.metricTrend, { color: TREND_COLOR[trend] || '#64748b' }]}>
+      <Text style={[s.metricTrend, { color: TREND_COLOR[trend] || OperationalColors.muted }]}>
         {TREND_ICON[trend] || '─'} {trendNote}
       </Text>
     </View>
@@ -278,7 +279,7 @@ function DeepResult({ data, onNBA }: { data: ReportResponse & { _q: string }; on
 function LoadingCard({ phase, elapsed }: { phase: string; elapsed: number }) {
   return (
     <View style={s.loadingBubble}>
-      <ActivityIndicator size="small" color="#2563eb" />
+      <ActivityIndicator size="small" color={OperationalColors.primary} />
       <Text style={s.loadingTxt}>{phase}</Text>
       <Text style={s.loadingElapsed}>{elapsed}s</Text>
     </View>
@@ -306,14 +307,14 @@ function MicIcon({ active }: { active: boolean }) {
 const micS = StyleSheet.create({
   wrapper:      { width: 22, height: 22, alignItems: 'center', justifyContent: 'center', position: 'relative' },
   wrapperActive: {},
-  body:         { width: 8, height: 11, borderRadius: 4, backgroundColor: '#64748b', position: 'absolute', top: 0 },
-  bodyActive:   { backgroundColor: '#F8F7F5' },
-  neck:         { width: 12, height: 6, borderTopLeftRadius: 6, borderTopRightRadius: 6, borderWidth: 2, borderColor: '#64748b', borderBottomWidth: 0, position: 'absolute', top: 9, backgroundColor: 'transparent' },
-  neckActive:   { borderColor: '#F8F7F5' },
-  stand:        { width: 2, height: 4, backgroundColor: '#64748b', position: 'absolute', top: 15 },
-  standActive:  { backgroundColor: '#F8F7F5' },
-  base:         { width: 8, height: 2, borderRadius: 1, backgroundColor: '#64748b', position: 'absolute', top: 19 },
-  baseActive:   { backgroundColor: '#F8F7F5' },
+  body:         { width: 8, height: 11, borderRadius: 4, backgroundColor: OperationalColors.muted, position: 'absolute', top: 0 },
+  bodyActive:   { backgroundColor: OperationalColors.canvas },
+  neck:         { width: 12, height: 6, borderTopLeftRadius: 6, borderTopRightRadius: 6, borderWidth: 2, borderColor: OperationalColors.muted, borderBottomWidth: 0, position: 'absolute', top: 9, backgroundColor: 'transparent' },
+  neckActive:   { borderColor: OperationalColors.onPrimary },
+  stand:        { width: 2, height: 4, backgroundColor: OperationalColors.muted, position: 'absolute', top: 15 },
+  standActive:  { backgroundColor: OperationalColors.canvas },
+  base:         { width: 8, height: 2, borderRadius: 1, backgroundColor: OperationalColors.muted, position: 'absolute', top: 19 },
+  baseActive:   { backgroundColor: OperationalColors.canvas },
   ring1:        { position: 'absolute', width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: 'rgba(248,247,245,0.4)', top: 2 },
   ring2:        { position: 'absolute', width: 24, height: 24, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(248,247,245,0.2)', top: -1, left: -1 },
 });
@@ -334,10 +335,10 @@ const sendS = StyleSheet.create({
     width: 0, height: 0,
     borderLeftWidth: 6, borderLeftColor: 'transparent',
     borderRightWidth: 6, borderRightColor: 'transparent',
-    borderBottomWidth: 9, borderBottomColor: '#F8F7F5',
+    borderBottomWidth: 9, borderBottomColor: OperationalColors.onPrimary,
     marginBottom: -1,
   },
-  shaft: { width: 3, height: 10, backgroundColor: '#F8F7F5', borderRadius: 1.5 },
+  shaft: { width: 3, height: 10, backgroundColor: OperationalColors.canvas, borderRadius: 1.5 },
 });
 
 // ─── VOICE HOOK ───────────────────────────────────────────────────────────────
@@ -524,7 +525,7 @@ export default function AiChat() {
         <TextInput
           style={[s.input, listening && s.inputListening]}
           placeholder={listening ? 'Listening...' : 'Ask about your restaurant...'}
-          placeholderTextColor={listening ? '#dc2626' : '#94a3b8'}
+          placeholderTextColor={listening ? '#dc2626' : OperationalColors.disabled}
           value={text}
           onChangeText={setText}
           onSubmitEditing={() => ask()}
@@ -542,7 +543,7 @@ export default function AiChat() {
         >
           <View style={s.sendShine} />
           {busy
-            ? <ActivityIndicator color="#F8F7F5" size="small" />
+            ? <ActivityIndicator color={OperationalColors.onPrimary} size="small" />
             : <SendIcon />
           }
         </TouchableOpacity>
@@ -554,54 +555,54 @@ export default function AiChat() {
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: OperationalColors.canvas },
 
   // Header
   header: {
     paddingTop: 56, paddingBottom: 14, paddingHorizontal: 18,
-    backgroundColor: '#F8F7F5',
-    borderBottomWidth: 1, borderColor: '#e2e8f0',
+    backgroundColor: OperationalColors.canvas,
+    borderBottomWidth: 1, borderColor: OperationalColors.border,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end',
   },
-  title:    { fontSize: 20, fontWeight: '800', color: '#0f172a', letterSpacing: -0.3 },
-  subtitle: { fontSize: 12, color: '#94a3b8', marginTop: 1 },
-  clearBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#f1f5f9', borderRadius: 8 },
-  clearTxt: { fontSize: 12, color: '#64748b', fontWeight: '500' },
+  title:    { fontSize: 20, fontWeight: '800', color: OperationalColors.text, letterSpacing: -0.3 },
+  subtitle: { fontSize: 12, color: OperationalColors.disabled, marginTop: 1 },
+  clearBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: OperationalColors.surfaceAlt, borderRadius: 8 },
+  clearTxt: { fontSize: 12, color: OperationalColors.muted, fontWeight: '500' },
 
   scroll: { flex: 1, paddingHorizontal: 14, paddingTop: 14 },
 
   // Empty state
   emptyState: { alignItems: 'center', marginTop: 40, gap: 8 },
   emptyEmoji: { fontSize: 40, marginBottom: 4 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a' },
-  emptyHint:  { fontSize: 13, color: '#64748b', textAlign: 'center' },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: OperationalColors.text },
+  emptyHint:  { fontSize: 13, color: OperationalColors.muted, textAlign: 'center' },
   quickGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center', marginTop: 16 },
   quickBtn:   {
-    backgroundColor: '#F8F7F5', borderRadius: 12,
+    backgroundColor: OperationalColors.canvas, borderRadius: 12,
     paddingHorizontal: 16, paddingVertical: 10,
-    borderWidth: 1, borderColor: '#e2e8f0',
+    borderWidth: 1, borderColor: OperationalColors.border,
     elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 },
   },
-  quickBtnTxt: { fontSize: 13, fontWeight: '600', color: '#1e293b' },
+  quickBtnTxt: { fontSize: 13, fontWeight: '600', color: OperationalColors.text },
 
   // Messages
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: '#2563eb',
+    backgroundColor: OperationalColors.primary,
     borderRadius: 16, borderBottomRightRadius: 3,
     paddingHorizontal: 14, paddingVertical: 10,
     marginBottom: 12, maxWidth: '82%',
   },
-  userTxt: { color: '#F8F7F5', fontSize: 14, lineHeight: 20 },
+  userTxt: { color: OperationalColors.onPrimary, fontSize: 14, lineHeight: 20 },
 
   loadingBubble: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#F8F7F5', borderRadius: 12,
+    backgroundColor: OperationalColors.canvas, borderRadius: 12,
     padding: 14, marginBottom: 12,
-    borderWidth: 1, borderColor: '#e2e8f0',
+    borderWidth: 1, borderColor: OperationalColors.border,
   },
-  loadingTxt:     { fontSize: 13, color: '#64748b', flex: 1 },
-  loadingElapsed: { fontSize: 12, color: '#94a3b8', fontVariant: ['tabular-nums'] },
+  loadingTxt:     { fontSize: 13, color: OperationalColors.muted, flex: 1 },
+  loadingElapsed: { fontSize: 12, color: OperationalColors.disabled, fontVariant: ['tabular-nums'] },
 
   errorBubble: {
     backgroundColor: '#fef2f2', borderRadius: 12,
@@ -614,8 +615,8 @@ const s = StyleSheet.create({
 
   // Result box
   resultBox: {
-    backgroundColor: '#F8F7F5', borderRadius: 16,
-    padding: 16, borderWidth: 1, borderColor: '#e2e8f0',
+    backgroundColor: OperationalColors.canvas, borderRadius: 16,
+    padding: 16, borderWidth: 1, borderColor: OperationalColors.border,
     elevation: 1, shadowColor: '#000', shadowOpacity: 0.04,
     shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
   },
@@ -633,18 +634,18 @@ const s = StyleSheet.create({
   scoreWrap:  { alignItems: 'center', gap: 4 },
   scoreRing:  { width: 64, height: 64, borderRadius: 32, borderWidth: 4, alignItems: 'center', justifyContent: 'center' },
   scoreNum:   { fontSize: 20, fontWeight: '800', lineHeight: 24 },
-  scoreOutOf: { fontSize: 9, color: '#94a3b8', marginTop: -2 },
+  scoreOutOf: { fontSize: 9, color: OperationalColors.disabled, marginTop: -2 },
   scoreLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
 
-  directAnswer: { fontSize: 14, fontWeight: '500', color: '#0f172a', lineHeight: 22, flex: 1 },
+  directAnswer: { fontSize: 14, fontWeight: '500', color: OperationalColors.text, lineHeight: 22, flex: 1 },
 
-  section:      { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderColor: '#f1f5f9' },
-  sectionTitle: { fontSize: 10, fontWeight: '700', color: '#94a3b8', letterSpacing: 1, marginBottom: 10 },
+  section:      { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderColor: OperationalColors.surfaceAlt },
+  sectionTitle: { fontSize: 10, fontWeight: '700', color: OperationalColors.disabled, letterSpacing: 1, marginBottom: 10 },
 
   // Metrics
-  metricCard:  { backgroundColor: '#f8fafc', borderRadius: 10, padding: 12, minWidth: 110, borderWidth: 1, borderColor: '#e2e8f0' },
-  metricLabel: { fontSize: 11, color: '#64748b', marginBottom: 4 },
-  metricValue: { fontSize: 16, fontWeight: '800', color: '#0f172a', marginBottom: 2 },
+  metricCard:  { backgroundColor: OperationalColors.canvas, borderRadius: 10, padding: 12, minWidth: 110, borderWidth: 1, borderColor: OperationalColors.border },
+  metricLabel: { fontSize: 11, color: OperationalColors.muted, marginBottom: 4 },
+  metricValue: { fontSize: 16, fontWeight: '800', color: OperationalColors.text, marginBottom: 2 },
   metricTrend: { fontSize: 11, fontWeight: '500' },
 
   // Chart
@@ -653,32 +654,32 @@ const s = StyleSheet.create({
   pieBar:      { flexDirection: 'row', borderRadius: 6, overflow: 'hidden', height: 14, marginBottom: 8 },
   pieLegendRow:{ flexDirection: 'row', alignItems: 'center', gap: 8 },
   pieDot:      { width: 10, height: 10, borderRadius: 2 },
-  chartLabel:  { fontSize: 12, color: '#475569', flex: 1 },
-  chartVal:    { fontSize: 12, color: '#1e293b', fontWeight: '600' },
+  chartLabel:  { fontSize: 12, color: OperationalColors.muted, flex: 1 },
+  chartVal:    { fontSize: 12, color: OperationalColors.text, fontWeight: '600' },
   barLabelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 },
-  barTrack:    { height: 7, backgroundColor: '#f1f5f9', borderRadius: 4, overflow: 'hidden' },
+  barTrack:    { height: 7, backgroundColor: OperationalColors.surfaceAlt, borderRadius: 4, overflow: 'hidden' },
   barFill:     { height: 7, borderRadius: 4 },
 
   // Highlights
   highlightCard:   { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderRadius: 10, padding: 10, borderLeftWidth: 3 },
   highlightIcon:   { fontSize: 16, lineHeight: 22 },
-  highlightTitle:  { fontSize: 13, fontWeight: '700', color: '#0f172a', marginBottom: 2 },
-  highlightDetail: { fontSize: 12, color: '#475569', lineHeight: 18 },
+  highlightTitle:  { fontSize: 13, fontWeight: '700', color: OperationalColors.text, marginBottom: 2 },
+  highlightDetail: { fontSize: 12, color: OperationalColors.muted, lineHeight: 18 },
 
   // Suggestions
-  suggCard:      { backgroundColor: '#f8fafc', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' },
+  suggCard:      { backgroundColor: OperationalColors.canvas, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: OperationalColors.border },
   suggHeader:    { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   priorityBadge: { borderRadius: 4, paddingHorizontal: 7, paddingVertical: 2 },
   priorityText:  { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  suggAction:    { fontSize: 13, fontWeight: '700', color: '#0f172a', flex: 1 },
-  suggWhy:       { fontSize: 12, color: '#475569', lineHeight: 18, marginBottom: 4 },
-  suggImpact:    { fontSize: 12, color: '#2563eb', fontWeight: '500' },
+  suggAction:    { fontSize: 13, fontWeight: '700', color: OperationalColors.text, flex: 1 },
+  suggWhy:       { fontSize: 12, color: OperationalColors.muted, lineHeight: 18, marginBottom: 4 },
+  suggImpact:    { fontSize: 12, color: OperationalColors.primary, fontWeight: '500' },
 
   // NBA
   nbaWrap:    { gap: 8 },
-  nbaLabel:   { fontSize: 10, fontWeight: '700', color: '#94a3b8', letterSpacing: 1 },
-  nbaChip:    { backgroundColor: '#eff6ff', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: '#bfdbfe' },
-  nbaChipTxt: { fontSize: 12, fontWeight: '600', color: '#2563eb' },
+  nbaLabel:   { fontSize: 10, fontWeight: '700', color: OperationalColors.disabled, letterSpacing: 1 },
+  nbaChip:    { backgroundColor: OperationalColors.surfaceAlt, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: OperationalColors.border },
+  nbaChipTxt: { fontSize: 12, fontWeight: '600', color: OperationalColors.primary },
 
   // ── INPUT DOCK ──────────────────────────────────────────────────────────────
   dock: {
@@ -688,9 +689,9 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: Platform.OS === 'ios' ? 28 : 12,
-    backgroundColor: '#F8F7F5',
+    backgroundColor: OperationalColors.canvas,
     borderTopWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: OperationalColors.border,
     shadowColor: '#000',
     shadowOpacity: 0.06,
     shadowRadius: 8,
@@ -701,8 +702,8 @@ const s = StyleSheet.create({
   // ── MIC BUTTON ──────────────────────────────────────────────────────────────
   micBtn: {
     width: 46, height: 46, borderRadius: 14,
-    backgroundColor: '#f1f5f9',
-    borderWidth: 1.5, borderColor: '#cbd5e1',
+    backgroundColor: OperationalColors.surfaceAlt,
+    borderWidth: 1.5, borderColor: OperationalColors.border,
     alignItems: 'center', justifyContent: 'center',
     overflow: 'visible',
     shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
@@ -726,19 +727,19 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 2,
     backgroundColor: '#dc2626', borderRadius: 4,
     paddingHorizontal: 4, paddingVertical: 1,
-    borderWidth: 1.5, borderColor: '#F8F7F5',
+    borderWidth: 1.5, borderColor: OperationalColors.onPrimary,
   },
-  liveDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#F8F7F5' },
-  liveTxt: { fontSize: 7, fontWeight: '800', color: '#F8F7F5', letterSpacing: 0.5 },
+  liveDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: OperationalColors.canvas },
+  liveTxt: { fontSize: 7, fontWeight: '800', color: OperationalColors.onPrimary, letterSpacing: 0.5 },
 
   // ── TEXT INPUT ──────────────────────────────────────────────────────────────
   input: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: OperationalColors.canvas,
     borderRadius: 14,
     paddingHorizontal: 14, paddingVertical: 11,
-    fontSize: 14, color: '#0f172a',
-    borderWidth: 1.5, borderColor: '#e2e8f0',
+    fontSize: 14, color: OperationalColors.text,
+    borderWidth: 1.5, borderColor: OperationalColors.border,
     maxHeight: 100, minHeight: 46,
   },
   inputListening: {
@@ -749,10 +750,10 @@ const s = StyleSheet.create({
   // ── SEND BUTTON ─────────────────────────────────────────────────────────────
   sendBtn: {
     width: 46, height: 46, borderRadius: 14,
-    backgroundColor: '#2563eb',
+    backgroundColor: OperationalColors.primary,
     alignItems: 'center', justifyContent: 'center',
     overflow: 'hidden',
-    shadowColor: '#2563eb', shadowOpacity: 0.45, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
+    shadowColor: OperationalColors.primary, shadowOpacity: 0.45, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
     elevation: 5,
   },
   sendBtnDisabled: {

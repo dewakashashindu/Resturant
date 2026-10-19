@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { apiClient } from '@/services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -205,7 +206,7 @@ export default function SignUpScreen() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
+      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.onPrimary} />
 
       <View style={[styles.topCircle, {
         width:  isTablet ? 220 : 150,
@@ -245,7 +246,7 @@ export default function SignUpScreen() {
               height:       inputH,
               fontSize:     inputFs,
               borderRadius: inputRadius,
-              borderColor:  usernameError ? '#D32F2F' : '#72563C',
+              borderColor:  usernameError ? '#D32F2F' : OperationalColors.primary,
             },
           ]}
           value={username}
@@ -279,7 +280,7 @@ export default function SignUpScreen() {
               height:       inputH,
               fontSize:     inputFs,
               borderRadius: inputRadius,
-              borderColor:  phoneError ? '#D32F2F' : '#72563C',
+              borderColor:  phoneError ? '#D32F2F' : OperationalColors.primary,
             },
           ]}
           value={phoneNumber}
@@ -306,7 +307,7 @@ export default function SignUpScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  passwordError ? '#D32F2F' : '#72563C',
+              borderColor:  passwordError ? '#D32F2F' : OperationalColors.primary,
             },
           ]}
         >
@@ -347,7 +348,7 @@ export default function SignUpScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  confirmError ? '#D32F2F' : '#72563C',
+              borderColor:  confirmError ? '#D32F2F' : OperationalColors.primary,
             },
           ]}
         >
@@ -401,19 +402,19 @@ export default function SignUpScreen() {
 }
 
 const styles = StyleSheet.create({
-  container:     { flex: 1, backgroundColor: '#F8F7F5' },
-  topCircle:     { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(97,145,185,0.54)', left: -60 },
-  bottomCircle:  { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(97,145,185,0.54)', bottom: -50, right: -60 },
+  container:     { flex: 1, backgroundColor: OperationalColors.canvas },
+  topCircle:     { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(168,139,98,0.54)', left: -60 },
+  bottomCircle:  { position: 'absolute', borderRadius: 110, backgroundColor: 'rgba(168,139,98,0.54)', bottom: -50, right: -60 },
   logoContainer: { alignItems: 'center' },
-  title:         { fontWeight: '600', color: '#000', marginBottom: 6 },
-  subtitle:      { color: '#555' },
+  title:         { fontWeight: '600', color: OperationalColors.text, marginBottom: 6 },
+  subtitle:      { color: OperationalColors.muted },
 
   input: {
     width:             '100%',
     borderWidth:       1.5,
     paddingHorizontal: 16,
-    color:             '#000',
-    backgroundColor:   '#F8F7F5',
+    color:             OperationalColors.text,
+    backgroundColor:   OperationalColors.canvas,
   },
 
   inputWrapper: {
@@ -422,12 +423,12 @@ const styles = StyleSheet.create({
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: 16,
-    backgroundColor:   '#F8F7F5',
+    backgroundColor:   OperationalColors.canvas,
   },
 
   inputInner: {
     flex:   1,
-    color:  '#000',
+    color:  OperationalColors.text,
     height: '100%',
   },
 
@@ -452,9 +453,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
 
-  signUpButton:    { width: '100%', backgroundColor: '#72563C', justifyContent: 'center', alignItems: 'center' },
-  signUpText:      { color: '#F8F7F5', fontWeight: '700' },
+  signUpButton:    { width: '100%', backgroundColor: OperationalColors.primary, justifyContent: 'center', alignItems: 'center' },
+  signUpText:      { color: OperationalColors.onPrimary, fontWeight: '700' },
   footerContainer: { flexDirection: 'row', justifyContent: 'center' },
-  footerText:      { color: '#3B4054' },
-  signInText:      { color: '#72563C', fontWeight: '600' },
+  footerText:      { color: OperationalColors.text },
+  signInText:      { color: OperationalColors.primary, fontWeight: '600' },
 });

@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { NavigationProp } from '@react-navigation/native';
 import React from 'react';
 import { SafeAreaView, StyleSheet, View } from 'react-native';
@@ -27,7 +28,7 @@ export default function App({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F7F5',
+    backgroundColor: OperationalColors.canvas,
   },
   headerContainer: {
     paddingHorizontal: 20,
@@ -37,7 +38,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: '#F5F5F7',
+    backgroundColor: OperationalColors.canvas,
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 20,
@@ -53,13 +54,13 @@ const styles = StyleSheet.create({
   arrowLine: {
     width: 12,
     height: 2,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: OperationalColors.text,
     borderRadius: 1,
   },
   arrowHead: {
     width: 7,
     height: 2,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: OperationalColors.text,
     position: 'absolute',
     borderRadius: 1,
     left: 2,
@@ -74,7 +75,7 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontSize: 15,
-    color: '#1A1A1A',
+    color: OperationalColors.text,
     fontWeight: '600',
     letterSpacing: -0.2,
   },

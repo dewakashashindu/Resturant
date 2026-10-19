@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -265,7 +266,7 @@ export default function ManageAccessScreen() {
   // ── JSX ────────────────────────────────────────────────────────────────────
   return (
     <View style={s.container}>
-      <StatusBar backgroundColor="#72563C" barStyle="light-content" />
+      <StatusBar backgroundColor={OperationalColors.primary} barStyle="light-content" />
 
       {/* HEADER */}
       <View style={[s.header, { paddingTop: insets.top, height: s.header.height + insets.top }]}>
@@ -317,7 +318,7 @@ export default function ManageAccessScreen() {
       {/* WORKERS LIST */}
       {loading ? (
         <View style={s.centeredFill}>
-          <ActivityIndicator size="small" color="#72563C" />
+          <ActivityIndicator size="small" color={OperationalColors.primary} />
         </View>
       ) : error ? (
         <View style={s.errorWrap}>
@@ -383,7 +384,7 @@ export default function ManageAccessScreen() {
 
             <ScrollView style={s.modalOptionsList}>
               {(tableGroupsLoading || loadingAccess) && (
-                <ActivityIndicator size="small" color="#72563C" style={s.modalLoader} />
+                <ActivityIndicator size="small" color={OperationalColors.primary} style={s.modalLoader} />
               )}
 
               {!tableGroupsLoading && !loadingAccess && tableGroupsError && (
@@ -538,12 +539,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: '#F4F6F8',
+      backgroundColor: OperationalColors.canvas,
     },
 
     // ── Header ──────────────────────────────────────────────────────────────
     header: {
-      backgroundColor: '#72563C',
+      backgroundColor: OperationalColors.primary,
       justifyContent: 'center',
       height: scale(headerH), // insets.top added inline in JSX
       paddingHorizontal: scale(hPad),
@@ -564,11 +565,11 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     backIcon: {
       width: scale(backIconSize),
       height: scale(backIconSize),
-      tintColor: '#F8F7F5',
+      tintColor: OperationalColors.onPrimary,
     },
     headerTitle: {
       fontWeight: '500',
-      color: '#F8F7F5',
+      color: OperationalColors.onPrimary,
       textAlign: 'center',
       flex: 1,
       fontFamily: 'Roboto',
@@ -592,24 +593,24 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       paddingHorizontal: scale(chipPadH),
       paddingVertical: scale(chipPadV),
       borderRadius: scale(chipRadius),
-      backgroundColor: '#E4E8EC',
+      backgroundColor: OperationalColors.border,
       borderWidth: 1,
       borderColor: 'rgba(114,86,60,0.1)',
       justifyContent: 'center',
       alignItems: 'center',
     },
     groupChipActive: {
-      backgroundColor: '#72563C',
-      borderColor: '#72563C',
+      backgroundColor: OperationalColors.primary,
+      borderColor: OperationalColors.primary,
     },
     groupChipText: {
       fontSize: scale(chipFs),
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontWeight: '500',
       fontFamily: 'Roboto',
     },
     groupChipTextActive: {
-      color: '#F8F7F5',
+      color: OperationalColors.onPrimary,
     },
 
     // ── List header ──────────────────────────────────────────────────────────
@@ -619,7 +620,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       paddingHorizontal: scale(hPad),
     },
     listHeaderLabel: {
-      color: '#000',
+      color: OperationalColors.text,
       fontWeight: '300',
       fontFamily: 'Roboto',
       marginBottom: scale(listLabelMB),
@@ -642,7 +643,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       paddingVertical: scale(rowPadV),
       paddingHorizontal: scale(rowPadH),
       borderRadius: scale(rowRadius),
@@ -658,17 +659,17 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       gap: scale(rowInfoGap),
     },
     waiterName: {
-      color: '#000',
+      color: OperationalColors.text,
       fontWeight: '400',
       fontFamily: 'Roboto',
       fontSize: scale(nameFs),
     },
     waiterGroupTag: {
       fontSize: scale(tagFs),
-      color: '#666',
+      color: OperationalColors.muted,
       fontWeight: '500',
       fontFamily: 'Roboto',
-      backgroundColor: '#F0F2F5',
+      backgroundColor: OperationalColors.canvas,
       paddingHorizontal: scale(tagPadH),
       paddingVertical: scale(tagPadV),
       borderRadius: scale(tagRadius),
@@ -692,14 +693,14 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     manageBtn: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: '#D9D9D9',
+      backgroundColor: OperationalColors.border,
       paddingHorizontal: scale(managePadH),
       paddingVertical: scale(managePadV),
       borderRadius: scale(manageRadius),
       gap: scale(manageGap),
     },
     manageBtnText: {
-      color: '#000',
+      color: OperationalColors.text,
       fontSize: scale(manageBtnFs),
       fontWeight: '400',
       fontFamily: 'Roboto',
@@ -707,7 +708,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     arrowIcon: {
       width: scale(arrowSz),
       height: scale(arrowSz),
-      tintColor: '#000',
+      tintColor: OperationalColors.text,
     },
 
     // ── Loading / error / empty ──────────────────────────────────────────────
@@ -729,7 +730,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontSize: scale(stateTextFs),
     },
     emptyText: {
-      color: '#666',
+      color: OperationalColors.muted,
       textAlign: 'center',
       marginTop: scale(emptyMT),
       fontFamily: 'Roboto',
@@ -750,7 +751,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: '100%',
       maxWidth: scale(modalMaxW),
       maxHeight: '70%',
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderRadius: scale(modalRadius),
       paddingTop: scale(modalPadT),
       paddingHorizontal: scale(modalPadH),
@@ -764,7 +765,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     modalTitle: {
       fontSize: scale(modalTitleFs),
       fontWeight: '500',
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontFamily: 'Roboto',
       marginBottom: scale(modalTitleMB),
     },
@@ -785,7 +786,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontSize: scale(optionTextFs),
     },
     modalEmptyText: {
-      color: '#666',
+      color: OperationalColors.muted,
       fontFamily: 'Roboto',
       paddingVertical: scale(msgPadV),
       textAlign: 'center',
@@ -807,17 +808,17 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       alignItems: 'center',
     },
     checkboxChecked: {
-      backgroundColor: '#72563C',
-      borderColor: '#72563C',
+      backgroundColor: OperationalColors.primary,
+      borderColor: OperationalColors.primary,
     },
     checkmark: {
-      color: '#F8F7F5',
+      color: OperationalColors.onPrimary,
       fontSize: scale(checkmarkFs),
       fontWeight: '700',
     },
     modalOptionText: {
       fontSize: scale(optionTextFs),
-      color: '#000',
+      color: OperationalColors.text,
       fontFamily: 'Roboto',
     },
 
@@ -834,10 +835,10 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       paddingHorizontal: scale(cancelPadH),
       paddingVertical: scale(cancelPadV),
       borderRadius: scale(cancelRadius),
-      backgroundColor: '#E4E8EC',
+      backgroundColor: OperationalColors.border,
     },
     cancelBtnText: {
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontSize: scale(cancelFs),
       fontWeight: '500',
       fontFamily: 'Roboto',
@@ -846,10 +847,10 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       paddingHorizontal: scale(savePadH),
       paddingVertical: scale(savePadV),
       borderRadius: scale(saveRadius),
-      backgroundColor: '#72563C',
+      backgroundColor: OperationalColors.primary,
     },
     saveBtnText: {
-      color: '#F8F7F5',
+      color: OperationalColors.onPrimary,
       fontSize: scale(saveFs),
       fontWeight: '500',
       fontFamily: 'Roboto',

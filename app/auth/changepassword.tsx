@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import PasswordUpdatedModal from '@/components/PasswordUpdatedModal';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -189,7 +190,7 @@ export default function ChangePasswordScreen() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.container, { paddingHorizontal: hPad }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
+      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.onPrimary} />
 
       {/* BACK BUTTON */}
       <TouchableOpacity style={styles.backButtonAbsolute} onPress={() => router.back()}>
@@ -236,7 +237,7 @@ export default function ChangePasswordScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  oldPasswordError ? '#D32F2F' : '#72563C',
+              borderColor:  oldPasswordError ? '#D32F2F' : OperationalColors.primary,
             },
           ]}
         >
@@ -271,7 +272,7 @@ export default function ChangePasswordScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  newPasswordError ? '#D32F2F' : '#72563C',
+              borderColor:  newPasswordError ? '#D32F2F' : OperationalColors.primary,
             },
           ]}
         >
@@ -307,7 +308,7 @@ export default function ChangePasswordScreen() {
             {
               height:       inputH,
               borderRadius: inputRadius,
-              borderColor:  confirmError ? '#D32F2F' : '#72563C',
+              borderColor:  confirmError ? '#D32F2F' : OperationalColors.primary,
             },
           ]}
         >
@@ -353,17 +354,17 @@ export default function ChangePasswordScreen() {
 }
 
 const styles = StyleSheet.create({
-  container:          { flex: 1, backgroundColor: '#F8F7F5' },
+  container:          { flex: 1, backgroundColor: OperationalColors.canvas },
 
   backButtonAbsolute: { position: 'absolute', top: 50, left: 16, zIndex: 10 },
 
-  topCircle:    { position: 'absolute', borderRadius: 9999, backgroundColor: 'rgba(97,145,185,0.54)', left: -58 },
-  bottomCircle: { position: 'absolute', borderRadius: 9999, backgroundColor: 'rgba(97,145,185,0.54)', bottom: -40, right: -50 },
+  topCircle:    { position: 'absolute', borderRadius: 9999, backgroundColor: 'rgba(168,139,98,0.54)', left: -58 },
+  bottomCircle: { position: 'absolute', borderRadius: 9999, backgroundColor: 'rgba(168,139,98,0.54)', bottom: -40, right: -50 },
 
   logoContainer: { alignItems: 'center' },
 
-  title:    { fontWeight: '600', color: '#000', marginBottom: 8 },
-  subtitle: { color: '#555' },
+  title:    { fontWeight: '600', color: OperationalColors.text, marginBottom: 8 },
+  subtitle: { color: OperationalColors.muted },
 
   inputWrapper: {
     width:             '100%',
@@ -371,12 +372,12 @@ const styles = StyleSheet.create({
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: 16,
-    backgroundColor:   '#F8F7F5',
+    backgroundColor:   OperationalColors.canvas,
   },
 
   input: {
     flex:   1,
-    color:  '#000',
+    color:  OperationalColors.text,
     height: '100%',
   },
 
@@ -403,12 +404,12 @@ const styles = StyleSheet.create({
 
   button: {
     width:           '100%',
-    backgroundColor: 'rgba(0,98,170,0.56)',
+    backgroundColor: 'rgba(168,139,98,0.56)',
     justifyContent:  'center',
     alignItems:      'center',
     flexDirection:   'row',
     gap:             10,
   },
 
-  buttonText: { color: '#F8F7F5', fontWeight: '700' },
+  buttonText: { color: OperationalColors.onPrimary, fontWeight: '700' },
 });

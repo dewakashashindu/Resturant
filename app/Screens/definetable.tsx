@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -50,7 +51,7 @@ export default function DefineTableScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor="#F8F7F5" barStyle="dark-content" />
+      <StatusBar backgroundColor={OperationalColors.onPrimary} barStyle="dark-content" />
 
       {/* BACK BUTTON */}
       <TouchableOpacity
@@ -118,7 +119,7 @@ export default function DefineTableScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F7F5',
+    backgroundColor: OperationalColors.canvas,
   },
   backButtonAbsolute: {
     position: 'absolute',
@@ -140,10 +141,10 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontWeight: '600',
-    color: '#000',
+    color: OperationalColors.text,
   },
   mainCard: {
-    backgroundColor: '#F8F7F5',
+    backgroundColor: OperationalColors.canvas,
     borderRadius: 16,
     elevation: 5,
     shadowColor: '#000',
@@ -158,15 +159,15 @@ const styles = StyleSheet.create({
   input: {
     width: '100%',
     borderWidth: 1.5,
-    borderColor: '#72563C',
+    borderColor: OperationalColors.primary,
     borderRadius: 10,
     paddingHorizontal: 16,
-    color: '#000',
-    backgroundColor: '#F8F7F5',
+    color: OperationalColors.text,
+    backgroundColor: OperationalColors.canvas,
   },
   nextButton: {
     width: '100%',
-    backgroundColor: '#72563C',
+    backgroundColor: OperationalColors.primary,
     borderRadius: 10,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -174,11 +175,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   nextText: {
-    color: '#F8F7F5',
+    color: OperationalColors.onPrimary,
     fontWeight: '700',
   },
   nextIcon: {
-    tintColor: '#F8F7F5',
+    tintColor: OperationalColors.onPrimary,
     transform: [{ rotate: '180deg' }],
   },
 });

@@ -1,8 +1,10 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   FlatList,
+  ScrollView,
   Image,
   Modal,
   Platform,
@@ -28,28 +30,28 @@ const MODES: {
   {
     label: 'Dining',
     visible: true,
-    color: '#B9A0D5',
+    color: OperationalColors.surfaceAlt,
     ionIcon: 'restaurant-outline',
     route: '/Screens/tableselection',
   },
   {
     label: 'Take Away',
     visible: true,
-    color: '#8D9ED4',
+    color: OperationalColors.surfaceAlt,
     ionIcon: 'bag-handle-outline',
     route: '/Screens/TakeAway',
   },
   {
     label: 'Delivery',
     visible: false,
-    color: '#A9ABCF',
+    color: OperationalColors.surfaceAlt,
     ionIcon: 'bicycle-outline',
     route: null,
   },
   {
     label: 'Pickup',
     visible: false,
-    color: '#BC8EB6',
+    color: OperationalColors.surfaceAlt,
     ionIcon: 'storefront-outline',
     route: null,
   },
@@ -58,9 +60,12 @@ const MODES: {
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function ModeSelectionScreen() {
   const router = useRouter();
-  const { width, height } = useWindowDimensions();
+  const { width, height, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const { s, meta } = getDynamicStyles(width, height, insets.bottom);
+  const { s } = getDynamicStyles(width, height, insets.bottom);
+  const contentWidth = Math.min(Math.max(0, width - insets.left - insets.right), 800);
+  const modeColumns = contentWidth < 350 || fontScale > 1.3 ? 1 : 2;
+  const modeWidth = Math.floor((contentWidth - 40 - (modeColumns - 1) * 14) / modeColumns);
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [billOverlayVisible, setBillOverlayVisible] = useState(false);
@@ -106,56 +111,48 @@ export default function ModeSelectionScreen() {
 
   // ── JSX ────────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={s.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F7F5" />
-
-      {/* BACK BUTTON */}
-      <TouchableOpacity style={s.backButtonAbsolute} onPress={() => router.back()}>
-        <Image
-          source={require('../../assets/icons/blackback.png')}
-          style={s.backIcon}
-          resizeMode="contain"
-        />
-      </TouchableOpacity>
-
-      <View style={s.contentWrapper}>
-
-        {/* HEADER */}
-        <View style={s.header}>
-          <Text style={s.headerTitle}>Mode Selection</Text>
+    <SafeAreaView style={modeStyles.safe} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle="dark-content" backgroundColor={OperationalColors.header} />
+      <ScrollView style={modeStyles.scroll} contentContainerStyle={modeStyles.scrollContent}>
+        <View style={modeStyles.header}>
+          <View pointerEvents="none" style={modeStyles.circle} />
+          <View style={modeStyles.headerRow}>
+            <TouchableOpacity style={modeStyles.backButton} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+              <Ionicons name="arrow-back" size={24} color={OperationalColors.primary} />
+            </TouchableOpacity>
+            <Text style={modeStyles.title}>Mode Selection</Text>
+            <View style={{ width: 48 }} />
+          </View>
+          <Text style={modeStyles.subtitle}>Choose how you would like to serve.</Text>
         </View>
-
-        {/* MAIN CARD */}
-        <View style={s.mainCard}>
-          <View style={s.grid}>
-          {MODES.filter((mode) => mode.visible).map((mode) => (
+        <View style={modeStyles.main}>
+          <Text style={modeStyles.sectionTitle}>Start an order</Text>
+          <View style={modeStyles.grid}>
+            {MODES.filter((mode) => mode.visible).map((mode) => (
               <TouchableOpacity
-              key={mode.label}
-                activeOpacity={0.82}
-                style={[s.modeCard, { backgroundColor: mode.color }]}
+                key={mode.label}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={mode.label}
+                style={[modeStyles.card, { width: modeWidth }, mode.label === 'Dining' && modeStyles.primaryCard]}
                 onPress={() => { if (mode.route) router.push(mode.route as any); }}
               >
-                {/* Ionicons — same pattern as settings & home screens */}
-                <Ionicons
-                  name={mode.ionIcon}
-                  size={meta.modeIconSize}
-                  color="#000000"
-                  style={s.modeIconSpacing}
-                />
-                <View style={s.labelContainer}>
-                  <Text style={s.label}>{mode.label}</Text>
+                <View style={modeStyles.cardTop}>
+                  <View style={modeStyles.iconBox}><Ionicons name={mode.ionIcon} size={32} color={OperationalColors.primary} /></View>
+                  <Ionicons name="arrow-forward" size={18} color={OperationalColors.muted} />
                 </View>
+                <Text style={modeStyles.cardTitle}>{mode.label}</Text>
+                <Text style={modeStyles.cardSubtitle}>{mode.label === 'Dining' ? 'Table service' : 'Collection orders'}</Text>
               </TouchableOpacity>
             ))}
           </View>
+          <TouchableOpacity style={modeStyles.billButton} onPress={handleBillPress} accessibilityRole="button" accessibilityLabel="View listed bills">
+            <Ionicons name="receipt-outline" size={21} color={OperationalColors.onPrimary} />
+            <Text style={modeStyles.billText}>Bill</Text>
+            <Ionicons name="arrow-forward" size={19} color={OperationalColors.onPrimary} />
+          </TouchableOpacity>
         </View>
-
-        {/* BILL BUTTON */}
-        <TouchableOpacity style={s.billButton} onPress={handleBillPress}>
-          <Text style={s.billText}>Bill</Text>
-        </TouchableOpacity>
-
-      </View>
+      </ScrollView>
 
       {/* BILL OVERLAY MODAL */}
       <Modal
@@ -311,7 +308,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
   const s = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
     },
     backButtonAbsolute: {
       position: 'absolute',
@@ -337,13 +334,15 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     },
     headerTitle: {
       fontWeight: '600',
-      color: '#000',
+      color: OperationalColors.text,
       fontSize: scale(headerTitleFs),
     },
     mainCard: {
+      borderWidth: 1,
+      borderColor: OperationalColors.border,
       width: cardW,
       padding: scale(innerPad),
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderRadius: scale(cardRadius),
       elevation: 5,
       shadowColor: '#000',
@@ -358,6 +357,8 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       gap: scale(modeGap),
     },
     modeCard: {
+      borderWidth: 1,
+      borderColor: OperationalColors.border,
       width: modeCardW,
       height: modeCardH,
       borderRadius: scale(modeCardR),
@@ -369,13 +370,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       marginBottom: scale(iconMB),
     },
     labelContainer: {
-      backgroundColor: '#000',
+      backgroundColor: OperationalColors.primary,
       borderRadius: scale(labelRadius),
       paddingHorizontal: scale(labelPadH),
       paddingVertical: scale(labelPadV),
     },
     label: {
-      color: '#F8F7F5',
+      color: OperationalColors.onPrimary,
       fontWeight: '600',
       fontSize: scale(labelFs),
     },
@@ -384,14 +385,14 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       marginTop: scale(billMT),
       paddingVertical: scale(billPadV),
       borderRadius: scale(billRadius),
-      backgroundColor: '#72563C',
+      backgroundColor: OperationalColors.primary,
       alignItems: 'center',
       justifyContent: 'center',
     },
     billText: {
       fontSize: scale(billFs),
       fontWeight: '700',
-      color: '#F8F7F5',
+      color: OperationalColors.onPrimary,
     },
     overlayBackdrop: {
       flex: 1,
@@ -403,7 +404,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     overlayCard: {
       width: overlayCardW,
       padding: scale(overlayPad),
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderRadius: scale(overlayRadius),
       maxHeight: '78%',
       elevation: 8,
@@ -418,7 +419,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       justifyContent: 'space-between',
     },
     overlayTitle: {
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontSize: scale(overlayTitleFs),
       fontWeight: '800',
       flex: 1,
@@ -432,7 +433,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       backgroundColor: 'rgba(114,86,60,0.08)',
     },
     overlayCloseText: {
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontSize: scale(closeIconFs),
       fontWeight: '800',
     },
@@ -450,7 +451,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       borderRadius: scale(rowRadius),
       paddingVertical: scale(rowPadV),
       paddingHorizontal: scale(rowPadH),
-      backgroundColor: '#F4F7FB',
+      backgroundColor: OperationalColors.canvas,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -459,7 +460,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       borderColor: 'rgba(114,86,60,0.08)',
     },
     heldTableLabel: {
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontSize: scale(rowLabelFs),
       fontWeight: '800',
     },
@@ -470,7 +471,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontWeight: '500',
     },
     heldTableChevron: {
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontSize: scale(chevronFs),
       fontWeight: '300',
       marginLeft: scale(chevronML),
@@ -481,7 +482,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       paddingVertical: scale(emptyPadV),
     },
     emptyStateTitle: {
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontSize: scale(emptyTitleFs),
       fontWeight: '800',
     },
@@ -501,3 +502,25 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
 
   return { s, meta };
 }
+const modeStyles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: OperationalColors.header },
+  scroll: { flex: 1, backgroundColor: OperationalColors.canvas },
+  scrollContent: { flexGrow: 1, paddingBottom: 28 },
+  header: { backgroundColor: OperationalColors.header, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 26, overflow: 'hidden', borderBottomWidth: 1, borderBottomColor: OperationalColors.border },
+  circle: { position: 'absolute', width: 220, height: 220, borderRadius: 110, right: -60, top: -65, backgroundColor: 'rgba(255,253,250,0.18)' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: 760, width: '100%', alignSelf: 'center' },
+  backButton: { width: 48, height: 48, borderRadius: 15, backgroundColor: 'rgba(255,253,250,0.5)', alignItems: 'center', justifyContent: 'center' },
+  title: { flex: 1, textAlign: 'center', fontSize: 23, color: OperationalColors.text, fontWeight: '700' },
+  subtitle: { color: OperationalColors.primary, fontSize: 13, textAlign: 'center', marginTop: 18 },
+  main: { width: '100%', maxWidth: 800, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 26 },
+  sectionTitle: { fontSize: 20, fontWeight: '700', color: OperationalColors.text, marginBottom: 18 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  card: { minHeight: 180, padding: 18, borderRadius: 20, borderWidth: 1, borderColor: OperationalColors.border, backgroundColor: OperationalColors.surface },
+  primaryCard: { backgroundColor: OperationalColors.surfaceAlt, borderColor: OperationalColors.accent },
+  cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  iconBox: { width: 56, height: 56, borderRadius: 15, backgroundColor: OperationalColors.surfaceAlt, alignItems: 'center', justifyContent: 'center' },
+  cardTitle: { fontSize: 18, fontWeight: '700', color: OperationalColors.text, marginTop: 25 },
+  cardSubtitle: { fontSize: 12, color: OperationalColors.muted, marginTop: 5 },
+  billButton: { marginTop: 22, minHeight: 56, borderRadius: 15, backgroundColor: OperationalColors.primary, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 },
+  billText: { flex: 1, color: OperationalColors.onPrimary, fontWeight: '700', fontSize: 17, textAlign: 'center' },
+});

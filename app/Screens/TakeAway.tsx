@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import {
@@ -143,7 +144,7 @@ export default function TakeAwayScreen() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={s.container}>
-        <StatusBar backgroundColor="#F8F7F5" barStyle="dark-content" />
+        <StatusBar backgroundColor={OperationalColors.onPrimary} barStyle="dark-content" />
 
         {/* HEADER */}
         <View style={s.headerContainer}>
@@ -337,7 +338,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
     },
 
     // ── Header ──────────────────────────────────────────────────────────────
@@ -345,7 +346,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       marginTop: scale(headerMT),
       paddingHorizontal: scale(hPad),
       paddingVertical: scale(headerPadV),
@@ -370,7 +371,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     headerTitle: {
       fontFamily: 'Roboto',
       fontWeight: '500',
-      color: '#000000',
+      color: OperationalColors.text,
       textAlign: 'center',
       fontSize: scale(headerTitleFs),
     },
@@ -392,7 +393,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: cardW,
       padding: scale(innerPad),
       gap: scale(cardGap),
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderRadius: scale(cardRadius),
       elevation: 3,
       shadowColor: '#000000',
@@ -406,24 +407,24 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: '100%',
       height: scale(inputH),
       borderWidth: inputBW,
-      borderColor: '#72563C',
+      borderColor: OperationalColors.primary,
       borderRadius: scale(inputRadius),
       paddingHorizontal: scale(inputPadH),
       fontSize: scale(inputFs),
-      color: '#000000',
-      backgroundColor: '#F8F7F5',
+      color: OperationalColors.text,
+      backgroundColor: OperationalColors.canvas,
       fontFamily: 'Inter',
     },
     remarkInput: {
       width: '100%',
       minHeight: scale(remarkMinH),
       borderWidth: inputBW,
-      borderColor: '#72563C',
+      borderColor: OperationalColors.primary,
       borderRadius: scale(inputRadius),
       paddingHorizontal: scale(inputPadH),
       fontSize: scale(inputFs),
-      color: '#000000',
-      backgroundColor: '#F8F7F5',
+      color: OperationalColors.text,
+      backgroundColor: OperationalColors.canvas,
       fontFamily: 'Inter',
       textAlignVertical: 'top',
       paddingTop: scale(remarkPadT),
@@ -434,7 +435,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: cardW,
       padding: scale(innerPad),
       paddingVertical: scale(behaviorPadV),
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderRadius: scale(behaviorCardR),
       elevation: 3,
       shadowColor: '#000000',
@@ -447,7 +448,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontFamily: 'Inter',
       fontSize: scale(behaviorTitleFs),
       fontWeight: '500',
-      color: '#000000',
+      color: OperationalColors.text,
       marginBottom: scale(behaviorTitleMB),
     },
 
@@ -475,7 +476,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: scale(knobSz),
       height: scale(knobSz),
       borderRadius: scale(knobSz / 2),
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       justifyContent: 'center',
       alignItems: 'center',
       shadowColor: '#000000',
@@ -488,16 +489,16 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: scale(knobSz - 16),
       height: scale(knobSz - 16),
       borderRadius: scale((knobSz - 16) / 2),
-      backgroundColor: '#72563C',
+      backgroundColor: OperationalColors.primary,
       position: 'relative',
       borderWidth: 2,
-      borderColor: '#F8F7F5',
+      borderColor: OperationalColors.onPrimary,
     },
     knobIndicator: {
       width: scale(knobIndW),
       height: scale(knobIndH),
       borderRadius: scale(knobIndR),
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       position: 'absolute',
       top: scale(knobIndTop),
       alignSelf: 'center',
@@ -507,7 +508,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     confirmButton: {
       width: cardW,
       height: scale(confirmBtnH),
-      backgroundColor: '#72563C',
+      backgroundColor: OperationalColors.primary,
       borderRadius: scale(confirmBtnR),
       flexDirection: 'row',
       justifyContent: 'center',
@@ -521,7 +522,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       shadowRadius: scale(confirmShadR),
     },
     confirmButtonText: {
-      color: '#F8F7F5',
+      color: OperationalColors.onPrimary,
       fontWeight: '700',
       fontFamily: 'Inter',
       fontSize: scale(confirmBtnFs),

@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -204,22 +205,22 @@ export default function TableSelectionScreen() {
     switch (status) {
       case 'occupied': return '#E6A46B';
       case 'reserved': return '#4E8EC4';
-      default:         return '#F8F7F5';
+      default:         return OperationalColors.onPrimary;
     }
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      <StatusBar backgroundColor="#72563C" barStyle="light-content" />
+      <StatusBar backgroundColor={OperationalColors.header} barStyle="dark-content" />
 
       {/* FIXED HEADER */}
-      <View style={[styles.header, { paddingHorizontal: hPad, paddingTop: insets.top, height: 200 + insets.top }]}>
+      <View style={[styles.header, { paddingHorizontal: hPad, paddingTop: insets.top, height: (height < 500 ? 96 : 140) + insets.top }]}>
         <View pointerEvents="none" style={styles.headerCircle} />
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Image
             source={require('../../assets/icons/back.png')}
-            style={{ width: backIconSize, height: backIconSize, tintColor: '#F8F7F5' }}
+            style={{ width: backIconSize, height: backIconSize, tintColor: OperationalColors.primary }}
             resizeMode="contain"
           />
         </TouchableOpacity>
@@ -287,7 +288,7 @@ export default function TableSelectionScreen() {
         <View style={[styles.statusContainer, { paddingHorizontal: hPad }]}>
           <View style={[styles.statusBox, styles.availableBox]}>
             {loadingCounts ? (
-              <ActivityIndicator size="small" color="#72563C" />
+              <ActivityIndicator size="small" color={OperationalColors.primary} />
             ) : (
               <Text style={[styles.statusNumber, { fontSize: statNumFs }]}>
                 {availableCount}
@@ -300,7 +301,7 @@ export default function TableSelectionScreen() {
 
           <View style={[styles.statusBox, { backgroundColor: '#E6A46B' }]}>
             {loadingCounts ? (
-              <ActivityIndicator size="small" color="#F8F7F5" />
+              <ActivityIndicator size="small" color={OperationalColors.onPrimary} />
             ) : (
               <Text style={[styles.statusNumber, { fontSize: statNumFs }]}>
                 {occupiedCount}
@@ -313,7 +314,7 @@ export default function TableSelectionScreen() {
 
           <View style={[styles.statusBox, { backgroundColor: '#4E8EC4' }]}>
             {loadingCounts ? (
-              <ActivityIndicator size="small" color="#F8F7F5" />
+              <ActivityIndicator size="small" color={OperationalColors.onPrimary} />
             ) : (
               <Text style={[styles.statusNumber, { fontSize: statNumFs }]}>
                 {reservedCount}
@@ -340,7 +341,7 @@ export default function TableSelectionScreen() {
         contentContainerStyle={{ paddingBottom: 30 + insets.bottom }}
       >
         {loadingTables ? (
-          <ActivityIndicator size="small" color="#72563C" style={{ marginTop: 30 }} />
+          <ActivityIndicator size="small" color={OperationalColors.primary} style={{ marginTop: 30 }} />
         ) : tableError ? (
           <View style={{ alignItems: 'center', marginTop: 30, gap: 10 }}>
             <Text style={{ color: '#D32F2F', fontSize: 14 }}>{tableError}</Text>
@@ -353,13 +354,13 @@ export default function TableSelectionScreen() {
           </View>
         ) : !selectedFloor ? (
           <View style={{ alignItems: 'center', marginTop: 30 }}>
-            <Text style={{ color: '#888', fontSize: 14 }}>
+            <Text style={{ color: OperationalColors.muted, fontSize: 14 }}>
               Select a floor to view tables.
             </Text>
           </View>
         ) : tables.length === 0 ? (
           <View style={{ alignItems: 'center', marginTop: 30 }}>
-            <Text style={{ color: '#888', fontSize: 14 }}>
+            <Text style={{ color: OperationalColors.muted, fontSize: 14 }}>
               No tables found for this floor.
             </Text>
           </View>
@@ -492,7 +493,7 @@ export default function TableSelectionScreen() {
                 {table.status === 'available' ? (
                   <Text style={[styles.plusIcon, { fontSize: plusFs }]}>+</Text>
                   ) : openingTableId === table.id ? (
-                    <ActivityIndicator size="small" color="#72563C" />
+                    <ActivityIndicator size="small" color={OperationalColors.primary} />
                   ) : (
                   <Text style={{ fontSize: emojiFs, marginBottom: 4 }}>👥</Text>
                 )}
@@ -509,42 +510,42 @@ export default function TableSelectionScreen() {
 }
 
 const styles = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#F4F6F8' },
+  container:    { flex: 1, backgroundColor: OperationalColors.canvas },
 
-  header:       { backgroundColor: '#72563C', flexDirection: 'row', alignItems: 'center', paddingVertical: 16, height: 200, overflow: 'hidden' },
+  header:       { backgroundColor: OperationalColors.header, flexDirection: 'row', alignItems: 'center', paddingVertical: 16, height: 200, overflow: 'hidden' },
   // Same visible decorative circle used on the Home header, in a warm brown tone.
-  headerCircle: { position: 'absolute', width: 220, height: 220, borderRadius: 110, top: -60, right: -60, backgroundColor: 'rgba(163,140,119,0.45)' },
+  headerCircle: { position: 'absolute', width: 220, height: 220, borderRadius: 110, top: -60, right: -60, backgroundColor: 'rgba(255,253,250,0.18)' },
   backButton:   { marginRight: 16 },
-  headerTitle: { fontWeight: '700', color: '#F8F7F5' },
+  headerTitle: { fontWeight: '700', color: OperationalColors.text },
 
-  fixedTopContainer: { backgroundColor: '#F4F6F8' },
+  fixedTopContainer: { backgroundColor: OperationalColors.canvas },
   gridScrollContainer: { flex: 1 },
 
   floorContainer:    { paddingBottom: 8, gap: 10 },
-  floorButton: { minWidth: 90, paddingHorizontal: 16, borderRadius: 14, backgroundColor: '#B7C1CC', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
-  floorText:         { fontWeight: '700', color: '#555' },
-  activeFloorText:   { color: '#000' },
+  floorButton: { minWidth: 90, paddingHorizontal: 16, borderRadius: 14, backgroundColor: OperationalColors.surfaceAlt, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+  floorText:         { fontWeight: '700', color: OperationalColors.muted },
+  activeFloorText:   { color: OperationalColors.text },
   activeFloorButton: {
-    backgroundColor: '#fcfcfc',
-    borderBlockColor: '#72563C',
+    backgroundColor: OperationalColors.surface,
+    borderBlockColor: OperationalColors.primary,
     borderWidth: 1.5,
   },
-  banner:     { marginTop: 10, backgroundColor: '#7FAFD2', borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
-  bannerText: { color: '#F8F7F5', fontWeight: '700', letterSpacing: 0.5 },
+  banner:     { marginTop: 10, backgroundColor: OperationalColors.primary, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  bannerText: { color: OperationalColors.onPrimary, fontWeight: '700', letterSpacing: 0.5 },
 
   statusContainer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, gap: 8 },
   statusBox:       { flex: 1, borderRadius: 12, paddingVertical: 8, justifyContent: 'center', alignItems: 'center' },
-  availableBox:    { backgroundColor: '#F8F7F5', borderWidth: 1, borderColor: '#DDD' },
-  statusNumber:    { fontWeight: '800', color: '#000' },
-  statusLabel:     { fontWeight: '700', color: '#111', marginTop: 2 },
+  availableBox:    { backgroundColor: OperationalColors.canvas, borderWidth: 1, borderColor: OperationalColors.border },
+  statusNumber:    { fontWeight: '800', color: OperationalColors.text },
+  statusLabel:     { fontWeight: '700', color: OperationalColors.text, marginTop: 2 },
 
-  sectionTitle: { marginTop: 14, marginBottom: 10, fontWeight: '700', color: '#666' },
+  sectionTitle: { marginTop: 14, marginBottom: 10, fontWeight: '700', color: OperationalColors.muted },
 
   grid:               { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   tableCard:          { borderRadius: 14, justifyContent: 'center', alignItems: 'center', elevation: 3, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
-  tableCardAvailable: { borderWidth: 1.5, borderColor: '#DDD' },
-  plusIcon:           { fontWeight: '300', color: '#333', marginBottom: 2 },
-  tableText:          { fontWeight: '800', color: '#000' },
-  retryBtn:           { backgroundColor: '#72563C', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 },
-  retryText:          { color: '#F8F7F5', fontWeight: '700', fontSize: 14 },
+  tableCardAvailable: { borderWidth: 1.5, borderColor: OperationalColors.border },
+  plusIcon:           { fontWeight: '300', color: OperationalColors.text, marginBottom: 2 },
+  tableText:          { fontWeight: '800', color: OperationalColors.text },
+  retryBtn:           { backgroundColor: OperationalColors.primary, paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 },
+  retryText:          { color: OperationalColors.onPrimary, fontWeight: '700', fontSize: 14 },
 });

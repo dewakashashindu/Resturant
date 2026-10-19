@@ -1,3 +1,4 @@
+import { OperationalColors } from '../../constants/operationalTheme';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
@@ -203,7 +204,7 @@ export default function SettingsScreen() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <View style={s.container}>
-      <StatusBar backgroundColor="#72563C" barStyle="light-content" />
+      <StatusBar backgroundColor={OperationalColors.primary} barStyle="light-content" />
 
       {/* ── HEADER ── */}
       <View style={[s.header, { paddingTop: insets.top, height: s.header.height + insets.top }]}>
@@ -271,7 +272,7 @@ export default function SettingsScreen() {
                     }}
                   >
                     <View style={[s.sheetIconCircle, { backgroundColor: 'rgba(114,86,60,0.08)' }]}>
-                      <Ionicons name="eye-outline" size={22} color="#72563C" />
+                      <Ionicons name="eye-outline" size={22} color={OperationalColors.primary} />
                     </View>
                     <View style={s.sheetOptionText}>
                       <Text style={s.sheetOptionLabel}>View Photo</Text>
@@ -287,7 +288,7 @@ export default function SettingsScreen() {
                     onPress={pickFromLibrary}
                   >
                     <View style={[s.sheetIconCircle, { backgroundColor: 'rgba(114,86,60,0.08)' }]}>
-                      <Ionicons name="images-outline" size={22} color="#72563C" />
+                      <Ionicons name="images-outline" size={22} color={OperationalColors.primary} />
                     </View>
                     <View style={s.sheetOptionText}>
                       <Text style={s.sheetOptionLabel}>Choose from Gallery</Text>
@@ -303,7 +304,7 @@ export default function SettingsScreen() {
                     onPress={takePhoto}
                   >
                     <View style={[s.sheetIconCircle, { backgroundColor: 'rgba(114,86,60,0.08)' }]}>
-                      <Ionicons name="camera-outline" size={22} color="#72563C" />
+                      <Ionicons name="camera-outline" size={22} color={OperationalColors.primary} />
                     </View>
                     <View style={s.sheetOptionText}>
                       <Text style={s.sheetOptionLabel}>Take a Photo</Text>
@@ -361,7 +362,7 @@ export default function SettingsScreen() {
               >
                 {pictureUploading ? (
                   <View style={s.avatarLoading}>
-                    <ActivityIndicator size="large" color="#72563C" />
+                    <ActivityIndicator size="large" color={OperationalColors.primary} />
                   </View>
                 ) : user?.picture ? (
                   <Image
@@ -379,8 +380,8 @@ export default function SettingsScreen() {
 
                 <View style={s.cameraBadge}>
                   {pictureUploading
-                    ? <ActivityIndicator size="small" color="#F8F7F5" />
-                    : <Ionicons name="camera" size={16} color="#F8F7F5" />
+                    ? <ActivityIndicator size="small" color={OperationalColors.onPrimary} />
+                    : <Ionicons name="camera" size={16} color={OperationalColors.onPrimary} />
                   }
                 </View>
               </TouchableOpacity>
@@ -400,7 +401,7 @@ export default function SettingsScreen() {
                 onPress={() => router.push('/auth/changepassword' as any)}
                 activeOpacity={0.85}
               >
-                <Ionicons name="key-outline" size={18} color="#F8F7F5" />
+                <Ionicons name="key-outline" size={18} color={OperationalColors.onPrimary} />
                 <Text style={s.changePwText}>Change Password</Text>
               </TouchableOpacity>
             </View>
@@ -415,7 +416,7 @@ export default function SettingsScreen() {
                   activeOpacity={0.85}
                 >
                   <View style={[s.actionCardIcon, { backgroundColor: 'rgba(114,86,60,0.1)' }]}>
-                    <Ionicons name="settings-outline" size={22} color="#72563C" />
+                    <Ionicons name="settings-outline" size={22} color={OperationalColors.primary} />
                   </View>
                   <View style={s.actionCardText}>
                     <Text style={s.actionCardLabel}>Manage Floor Access</Text>
@@ -456,8 +457,8 @@ export default function SettingsScreen() {
             >
               <View style={[s.actionCardIcon, { backgroundColor: 'rgba(114,86,60,0.1)' }]}>
                 {isSyncing
-                  ? <ActivityIndicator size="small" color="#72563C" />
-                  : <Ionicons name="sync-outline" size={22} color="#72563C" />
+                  ? <ActivityIndicator size="small" color={OperationalColors.primary} />
+                  : <Ionicons name="sync-outline" size={22} color={OperationalColors.primary} />
                 }
               </View>
               <View style={s.actionCardText}>
@@ -491,7 +492,7 @@ export default function SettingsScreen() {
             <View style={s.notificationSettingsCard}>
               <View style={s.notificationSettingRow}>
                 <View style={s.notificationSettingIcon}>
-                  <Ionicons name="finger-print-outline" size={22} color="#72563C" />
+                  <Ionicons name="finger-print-outline" size={22} color={OperationalColors.primary} />
                 </View>
                 <View style={s.notificationSettingText}>
                   <Text style={s.notificationSettingLabel}>Biometric Sign In</Text>
@@ -505,8 +506,8 @@ export default function SettingsScreen() {
                   value={biometricEnabled}
                   onValueChange={(enabled) => void handleBiometricToggle(enabled)}
                   disabled={!biometricAvailable || biometricBusy}
-                  trackColor={{ false: '#CFBDAA', true: '#72563C' }}
-                  thumbColor={biometricEnabled ? '#72563C' : '#F8F7F5'}
+                  trackColor={{ false: OperationalColors.border, true: OperationalColors.primary }}
+                  thumbColor={biometricEnabled ? OperationalColors.primary : OperationalColors.onPrimary}
                 />
               </View>
             </View>
@@ -515,7 +516,7 @@ export default function SettingsScreen() {
             <View style={s.notificationSettingsCard}>
               <View style={s.notificationSettingRow}>
                 <View style={s.notificationSettingIcon}>
-                  <Ionicons name="volume-high-outline" size={21} color="#72563C" />
+                  <Ionicons name="volume-high-outline" size={21} color={OperationalColors.primary} />
                 </View>
                 <View style={s.notificationSettingText}>
                   <Text style={s.notificationSettingLabel}>Notification Sound</Text>
@@ -524,14 +525,14 @@ export default function SettingsScreen() {
                 <Switch
                   value={notificationPreferences.soundEnabled}
                   onValueChange={(soundEnabled) => updateNotificationPreferences({ soundEnabled })}
-                  trackColor={{ false: '#CFBDAA', true: '#72563C' }}
-                  thumbColor={notificationPreferences.soundEnabled ? '#72563C' : '#F8F7F5'}
+                  trackColor={{ false: OperationalColors.border, true: OperationalColors.primary }}
+                  thumbColor={notificationPreferences.soundEnabled ? OperationalColors.primary : OperationalColors.onPrimary}
                 />
               </View>
               <View style={s.notificationSettingsDivider} />
               <View style={s.notificationSettingRow}>
                 <View style={s.notificationSettingIcon}>
-                  <Ionicons name="phone-portrait-outline" size={21} color="#72563C" />
+                  <Ionicons name="phone-portrait-outline" size={21} color={OperationalColors.primary} />
                 </View>
                 <View style={s.notificationSettingText}>
                   <Text style={s.notificationSettingLabel}>Vibration</Text>
@@ -540,8 +541,8 @@ export default function SettingsScreen() {
                 <Switch
                   value={notificationPreferences.vibrationEnabled}
                   onValueChange={(vibrationEnabled) => updateNotificationPreferences({ vibrationEnabled })}
-                  trackColor={{ false: '#CFBDAA', true: '#72563C' }}
-                  thumbColor={notificationPreferences.vibrationEnabled ? '#72563C' : '#F8F7F5'}
+                  trackColor={{ false: OperationalColors.border, true: OperationalColors.primary }}
+                  thumbColor={notificationPreferences.vibrationEnabled ? OperationalColors.primary : OperationalColors.onPrimary}
                 />
               </View>
             </View>
@@ -686,12 +687,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     // ── Root ────────────────────────────────────────────────────────────────
     container: {
       flex: 1,
-      backgroundColor: '#F0F2F5',
+      backgroundColor: OperationalColors.canvas,
     },
 
     // ── Header ──────────────────────────────────────────────────────────────
     header: {
-      backgroundColor: '#72563C',
+      backgroundColor: OperationalColors.primary,
       height: scale(headerH),
       paddingHorizontal: scale(hPad),
       justifyContent: 'space-between',
@@ -723,12 +724,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     backIcon: {
       width: scale(backSz * 0.7),
       height: scale(backSz * 0.7),
-      tintColor: '#F8F7F5',
+      tintColor: OperationalColors.onPrimary,
     },
     headerTitle: {
       flex: 1,
       textAlign: 'center',
-      color: '#F8F7F5',
+      color: OperationalColors.onPrimary,
       fontSize: scale(titleFs),
       fontWeight: '600',
       fontFamily: 'Roboto',
@@ -751,7 +752,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       borderRadius: scale(tabRadius),
     },
     tabButtonActive: {
-      backgroundColor: '#F0F2F5',
+      backgroundColor: OperationalColors.canvas,
     },
     tabText: {
       fontSize: scale(tabFs),
@@ -759,7 +760,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontWeight: '500',
     },
     tabTextActive: {
-      color: '#72563C',
+      color: OperationalColors.primary,
     },
     tabTextInactive: {
       color: 'rgba(248,247,245,0.75)',
@@ -777,7 +778,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     sectionLabel: {
       fontSize: scale(sectionFs),
       fontWeight: '700',
-      color: '#A38C77',
+      color: OperationalColors.muted,
       textTransform: 'uppercase',
       letterSpacing: 0.8,
       marginTop: scale(sectionMT),
@@ -787,7 +788,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
 
     // ── Profile Card ─────────────────────────────────────────────────────────
     profileCard: {
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderRadius: scale(profileCardBR),
       paddingHorizontal: scale(profileCardPadH),
       paddingTop: scale(profileCardPadT),
@@ -811,26 +812,26 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       height: scale(avatarSz),
       borderRadius: scale(avatarSz / 2),
       borderWidth: avatarBW,
-      borderColor: '#72563C',
+      borderColor: OperationalColors.primary,
     },
     avatarPlaceholder: {
       width: scale(avatarSz),
       height: scale(avatarSz),
       borderRadius: scale(avatarSz / 2),
-      backgroundColor: '#72563C',
+      backgroundColor: OperationalColors.primary,
       justifyContent: 'center',
       alignItems: 'center',
     },
     avatarInitial: {
       fontSize: scale(avatarSz * 0.38),
-      color: '#F8F7F5',
+      color: OperationalColors.onPrimary,
       fontWeight: '700',
     },
     avatarLoading: {
       width: scale(avatarSz),
       height: scale(avatarSz),
       borderRadius: scale(avatarSz / 2),
-      backgroundColor: '#F0F2F5',
+      backgroundColor: OperationalColors.canvas,
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -843,11 +844,11 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: scale(badgeSz),
       height: scale(badgeSz),
       borderRadius: scale(badgeSz / 2),
-      backgroundColor: '#72563C',
+      backgroundColor: OperationalColors.primary,
       justifyContent: 'center',
       alignItems: 'center',
       borderWidth: badgeBW,
-      borderColor: '#F8F7F5',
+      borderColor: OperationalColors.onPrimary,
       elevation: 4,
     },
 
@@ -855,7 +856,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     userName: {
       fontSize: scale(userNameFs),
       fontWeight: '600',
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontFamily: 'Roboto',
       marginBottom: scale(userNameMB),
     },
@@ -870,7 +871,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     },
     locCodeText: {
       fontSize: scale(locCodeFs),
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontWeight: '600',
     },
 
@@ -878,7 +879,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     cardDivider: {
       width: '100%',
       height: 1,
-      backgroundColor: '#F0F2F5',
+      backgroundColor: OperationalColors.canvas,
       marginVertical: scale(cardDividerMV),
     },
 
@@ -889,13 +890,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       gap: scale(changePwGap),
       width: '100%',
       height: scale(changePwH),
-      backgroundColor: '#72563C',
+      backgroundColor: OperationalColors.primary,
       borderRadius: scale(changePwBR),
       justifyContent: 'center',
     },
     changePwText: {
       fontSize: scale(changePwFs),
-      color: '#F8F7F5',
+      color: OperationalColors.onPrimary,
       fontWeight: '600',
       fontFamily: 'Roboto',
     },
@@ -904,7 +905,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     actionCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderRadius: scale(actionCardBR),
       padding: scale(actionCardPad),
       gap: scale(actionCardGap),
@@ -927,16 +928,16 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     actionCardLabel: {
       fontSize: scale(actionLabelFs),
       fontWeight: '600',
-      color: '#72563C',
+      color: OperationalColors.primary,
     },
     actionCardSub: {
       fontSize: scale(actionSubFs),
-      color: '#A38C77',
+      color: OperationalColors.muted,
       marginTop: scale(actionSubMT),
     },
     actionCardArrow: {
       fontSize: scale(actionArrowFs),
-      color: '#A38C77',
+      color: OperationalColors.muted,
       fontWeight: '300',
     },
 
@@ -947,7 +948,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       gap: scale(chipGridGap),
     },
     chip: {
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderRadius: scale(chipBR),
       paddingHorizontal: scale(chipPadH),
       paddingVertical: scale(chipPadV),
@@ -961,13 +962,13 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     },
     chipText: {
       fontSize: scale(chipFs),
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontWeight: '600',
     },
 
     // ── Empty Box ────────────────────────────────────────────────────────────
     emptyBox: {
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderRadius: scale(emptyBR),
       padding: scale(emptyPad),
       alignItems: 'center',
@@ -975,12 +976,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     },
     emptyText: {
       fontSize: scale(emptyFs),
-      color: '#A38C77',
+      color: OperationalColors.muted,
     },
 
     // ── Live Menu Sync Progress ──────────────────────────────────────────────
     syncProgressCard: {
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderRadius: scale(syncCardBR),
       padding: scale(syncCardPad),
       borderWidth: 1,
@@ -995,35 +996,35 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     syncProgressStage: {
       flex: 1,
       fontSize: scale(actionSubFs),
-      color: '#A38C77',
+      color: OperationalColors.muted,
       fontWeight: '600',
     },
     syncProgressPercent: {
       fontSize: scale(actionSubFs),
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontWeight: '800',
     },
     syncProgressTrack: {
       height: scale(isSmall ? 7 : 9),
       borderRadius: scale(10),
       overflow: 'hidden',
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       marginTop: scale(isSmall ? 8 : 11),
     },
     syncProgressFill: {
       height: '100%',
       borderRadius: scale(10),
-      backgroundColor: '#72563C',
+      backgroundColor: OperationalColors.primary,
     },
     syncProgressHint: {
       marginTop: scale(isSmall ? 7 : 9),
       fontSize: scale(isSmall ? 10 : 12),
-      color: '#A38C77',
+      color: OperationalColors.muted,
     },
 
     // ── Sync Info Card ───────────────────────────────────────────────────────
     syncInfoCard: {
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderRadius: scale(syncCardBR),
       padding: scale(syncCardPad),
       elevation: 2,
@@ -1034,7 +1035,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     },
     syncInfoLabel: {
       fontSize: scale(syncLabelFs),
-      color: '#A38C77',
+      color: OperationalColors.muted,
       fontWeight: '600',
       textTransform: 'uppercase',
       letterSpacing: 0.6,
@@ -1042,14 +1043,14 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     },
     syncInfoValue: {
       fontSize: scale(syncValFs),
-      color: '#72563C',
+      color: OperationalColors.primary,
       fontWeight: '700',
       fontFamily: 'Roboto',
     },
 
     // ── Notification Preferences ─────────────────────────────────────────────
     notificationSettingsCard: {
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderRadius: scale(syncCardBR),
       paddingHorizontal: scale(syncCardPad),
       elevation: 2,
@@ -1073,9 +1074,9 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       backgroundColor: 'rgba(114,86,60,0.10)',
     },
     notificationSettingText: { flex: 1, paddingRight: scale(8) },
-    notificationSettingLabel: { fontSize: scale(isSmall ? 13 : 15), fontWeight: '700', color: '#72563C' },
-    notificationSettingSub: { fontSize: scale(isSmall ? 10 : 12), color: '#A38C77', marginTop: scale(3) },
-    notificationSettingsDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#F8F7F5' },
+    notificationSettingLabel: { fontSize: scale(isSmall ? 13 : 15), fontWeight: '700', color: OperationalColors.primary },
+    notificationSettingSub: { fontSize: scale(isSmall ? 10 : 12), color: OperationalColors.muted, marginTop: scale(3) },
+    notificationSettingsDivider: { height: StyleSheet.hairlineWidth, backgroundColor: OperationalColors.canvas },
 
     // ── Photo Action Sheet ───────────────────────────────────────────────────
     sheetOverlay: {
@@ -1084,7 +1085,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       justifyContent: 'flex-end',
     },
     sheetContainer: {
-      backgroundColor: '#F8F7F5',
+      backgroundColor: OperationalColors.canvas,
       borderTopLeftRadius: scale(24),
       borderTopRightRadius: scale(24),
       paddingHorizontal: scale(sheetPadH),
@@ -1094,7 +1095,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     sheetHandle: {
       width: scale(40),
       height: scale(4),
-      backgroundColor: '#CFBDAA',
+      backgroundColor: OperationalColors.border,
       borderRadius: scale(2),
       alignSelf: 'center',
       marginBottom: scale(sheetHandleMB),
@@ -1102,7 +1103,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     sheetTitle: {
       fontSize: scale(sheetTitleFs),
       fontWeight: '700',
-      color: '#72563C',
+      color: OperationalColors.primary,
       textAlign: 'center',
       marginBottom: scale(sheetTitleMB),
     },
@@ -1125,20 +1126,20 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     sheetOptionLabel: {
       fontSize: scale(sheetOptLabelFs),
       fontWeight: '600',
-      color: '#72563C',
+      color: OperationalColors.primary,
     },
     sheetOptionSub: {
       fontSize: scale(sheetOptSubFs),
-      color: '#A38C77',
+      color: OperationalColors.muted,
       marginTop: scale(sheetOptSubMT),
     },
     sheetDivider: {
       height: 1,
-      backgroundColor: '#F3F4F6',
+      backgroundColor: OperationalColors.surfaceAlt,
     },
     sheetCancel: {
       marginTop: scale(sheetCancelMT),
-      backgroundColor: '#F3F4F6',
+      backgroundColor: OperationalColors.surfaceAlt,
       borderRadius: scale(sheetCancelBR),
       height: scale(sheetCancelH),
       justifyContent: 'center',
@@ -1146,7 +1147,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     },
     sheetCancelText: {
       fontSize: scale(sheetCancelFs),
-      color: '#A38C77',
+      color: OperationalColors.muted,
       fontWeight: '600',
     },
 
@@ -1170,12 +1171,12 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       width: '100%',
       aspectRatio: 1,
       borderRadius: scale(viewerBR),
-      backgroundColor: '#1F2937',
+      backgroundColor: OperationalColors.text,
       justifyContent: 'center',
       alignItems: 'center',
     },
     viewerNoPhotoText: {
-      color: '#A38C77',
+      color: OperationalColors.muted,
       fontSize: scale(viewerNoPhotoFs),
     },
     viewerDismiss: {
