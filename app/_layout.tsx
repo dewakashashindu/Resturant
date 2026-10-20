@@ -167,6 +167,7 @@ function AuthGate() {
         <Stack.Screen name="Screens/KDSHomeScreen" options={{ headerShown: false }} />
         <Stack.Screen name="Screens/BDSHomeScreen" options={{ headerShown: false }} />
         <Stack.Screen name="Screens/kds-unavailable" options={{ headerShown: false }} />
+        <Stack.Screen name="Screens/kds-dashboard" options={{ headerShown: false }} />
       </Stack>
       <NotificationPolling />
       <NotificationToastBubble />

@@ -1776,6 +1776,8 @@ app.post('/api/kds/menu-items/availability/batch', async (req, res) => {
 //   S = waiting / TO DO, P = IN PROGRESS, D = DONE.
 // The KDS reads the existing Vw_KOTBOTHder view; its [Type] value (KOT/BOT)
 // is returned unchanged and shown on each kitchen item.
+// DONE lines older than 30 minutes are not returned at all, so the KDS/BDS
+// DONE column only shows what was finished in the last half hour.
 const normalizeKdsProStatus = (value) => {
   const status = String(value ?? '').trim().toUpperCase();
   return status === 'P' || status === 'D' ? status : 'S';
@@ -1822,8 +1824,21 @@ app.get('/api/kds/orders', async (req, res) => {
           ON LTRIM(RTRIM(u.UserId)) = LTRIM(RTRIM(k.Steward))
         LEFT JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
           ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(k.ItemCode))
-        WHERE @Type = ''
-           OR LEFT(UPPER(LTRIM(RTRIM(k.[Type]))), 1) = @Type
+        WHERE (@Type = ''
+           OR LEFT(UPPER(LTRIM(RTRIM(k.[Type]))), 1) = @Type)
+          -- The DONE column is a live "just finished" view: only lines whose
+          -- ProDone timestamp falls within the last 30 minutes stay in the
+          -- queue. Older done lines (and legacy done rows with no ProDone)
+          -- drop out so the column never fills with the whole day's history.
+          -- ProDone and this cutoff both use the SQL Server clock, so the
+          -- window stays correct even when that clock drifts from real time.
+          AND (
+            LTRIM(RTRIM(ISNULL(k.ProStatus, 'S'))) <> 'D'
+            OR (
+              k.ProDone IS NOT NULL
+              AND k.ProDone >= DATEADD(MINUTE, -30, GETDATE())
+            )
+          )
         -- Oldest received order always appears first. Rows without a usable
         -- PlacedTime are kept behind timestamped orders, then KBDate breaks ties.
         ORDER BY
@@ -1874,6 +1889,366 @@ app.get('/api/kds/orders', async (req, res) => {
     });
   } catch (error) {
     console.log('[KDS] load KOT/BOT queue error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KDS/BDS mini performance dashboard — today only, per station (K or B).
+// Aggregates today's lines for one station into:
+//   • order status counts   (Pending / In Progress / Done — at order level)
+//   • order mode counts     (Dine-In / Takeaway / Pickup+Delivery / Other)
+//   • average prep time     (order arrival → every item Done)
+//   • top items by quantity prepared today
+//   • hourly order arrival trend
+// The reporting window is selected with ?from=YYYY-MM-DD&to=YYYY-MM-DD
+// (defaults to today in Sri Lanka) or ?all=1 for every day on record. The
+// server is SQL Server 2008, so no TRY_CONVERT — calendar days are matched by
+// rendering datetimes with style 120 and comparing the first 10 characters.
+// Data sources are tried in order, each falling back to the next when it
+// errors or returns nothing:
+//   1. Tbl_KOTBOTHeder filtered to the window (KBDate OR PlacedTime) —
+//      preferred because it also includes lines already printed and removed
+//      from the live queue.
+//   2. Vw_KOTBOTHder (the live-queue view) filtered to the window — used when
+//      the base table keeps KBDate/PlacedTime empty and the view fills them in.
+//   3. Vw_KOTBOTHder without a date filter — only when the window includes
+//      today. The same rows the station queue shows; undated rows are kept
+//      only while still To Do / In Progress so old stuck lines never inflate
+//      the numbers.
+app.get('/api/kds/dashboard', async (req, res) => {
+  try {
+    // Station switch matches the live queue: first Type character K/B.
+    const requestedType = String(req.query.type ?? '').trim().toUpperCase().slice(0, 1);
+    const pool = await poolPromise;
+
+    const orderKeyOf = (row) => `${String(row.OrderNo ?? '').trim()}|${String(row.TableNo ?? '').trim()}|${String(row.InvoiceNo ?? '').trim()}`;
+
+    // Real OrderMode values in production data: TAKEAWAY, DIMING (legacy
+    // spelling of DINING), PICK UP and DELEVERY (legacy spelling of DELIVERY).
+    // Matching therefore ignores spaces/hyphens and checks the broad stems.
+    // TableNo prefixes reinforce the mode: TA- takeaway, PU- pickup, DL-
+    // delivery, plain T<digits> dine-in.
+    const modeCategoryOf = (rawMode, tableNo) => {
+      const value = String(rawMode ?? '').replace(/[\s-]+/g, '').toUpperCase();
+      const table = String(tableNo ?? '').trim().toUpperCase();
+      if (value.includes('TAKE') || value === 'TA' || value === 'T' || table.startsWith('TA-')) return 'takeaway';
+      if (value.includes('PICK') || value === 'PU' || value === 'PK' || table.startsWith('PU-')) return 'pickup';
+      if (value.includes('DEL') || value === 'DL' || value === 'DLY' || table.startsWith('DL-')) return 'delivery';
+      if (value.includes('DIN') || value.includes('DIM') || value === 'DI' || value === 'D' || value === 'DN' || /^T\d/.test(table)) return 'dineIn';
+      return 'other';
+    };
+
+    const toMillis = (value) => {
+      if (value == null) return null;
+      const parsed = value instanceof Date ? value.getTime() : new Date(value).getTime();
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    // ── Reporting window ───────────────────────────────────────────────────
+    const SRI_LANKA_OFFSET_MS = 330 * 60 * 1000;
+    const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+    const MS_PER_DAY = 86_400_000;
+    const sriLankaTodayKey = () => new Date(Date.now() + SRI_LANKA_OFFSET_MS).toISOString().slice(0, 10);
+    const parseDateParam = (value) => {
+      const text = String(value ?? '').trim();
+      if (!DATE_KEY_PATTERN.test(text)) return null;
+      return Number.isFinite(Date.parse(`${text}T00:00:00Z`)) ? text : null;
+    };
+
+    const includeAll = String(req.query.all ?? '') === '1';
+    let fromDate = parseDateParam(req.query.from) ?? sriLankaTodayKey();
+    let toDate = parseDateParam(req.query.to) ?? fromDate;
+    if (fromDate > toDate) {
+      const swap = fromDate;
+      fromDate = toDate;
+      toDate = swap;
+    }
+    // Cap the window at 62 days so a huge span cannot stall the station.
+    if (!includeAll) {
+      const spanDays = Math.round((Date.parse(`${toDate}T00:00:00Z`) - Date.parse(`${fromDate}T00:00:00Z`)) / MS_PER_DAY);
+      if (spanDays > 62) {
+        toDate = new Date(Date.parse(`${fromDate}T00:00:00Z`) + 62 * MS_PER_DAY).toISOString().slice(0, 10);
+      }
+    }
+    const todayKey = sriLankaTodayKey();
+    const rangeIncludesToday = fromDate <= todayKey && toDate >= todayKey;
+
+    const dashboardColumns = (src, itemNameExpr) => `
+          LTRIM(RTRIM(${src}.OrderNo)) AS OrderNo,
+          LTRIM(RTRIM(${src}.OrderMode)) AS OrderMode,
+          LTRIM(RTRIM(${src}.TableNo)) AS TableNo,
+          LTRIM(RTRIM(${src}.Invoiceno)) AS InvoiceNo,
+          LTRIM(RTRIM(${src}.ItemCode)) AS ItemCode,
+          LTRIM(RTRIM(${src}.[Type])) AS KOTBOTType,
+          ${itemNameExpr} AS ItemName,
+          CAST(${src}.ItmQty AS float) AS ItmQty,
+          LTRIM(RTRIM(ISNULL(${src}.ProStatus, 'S'))) AS ProStatus,
+          ${src}.KBDate,
+          ${src}.PlacedTime,
+          ${src}.ProStarted,
+          ${src}.ProDone`;
+
+    const typeFilter = (src) => `(@Type = '' OR LEFT(UPPER(LTRIM(RTRIM(${src}.[Type]))), 1) = @Type)`;
+    // SQL Server 2008 safe day match: style 120 renders a datetime as
+    // 'yyyy-mm-dd hh:mi:ss', so the first 10 characters are the calendar day
+    // (and a varchar KBDate in ISO form is simply truncated). TRY_CONVERT is
+    // NOT available on this server version.
+    const windowFilter = (src) => `(CONVERT(varchar(10), ${src}.KBDate, 120) BETWEEN @From AND @To OR CONVERT(varchar(10), ${src}.PlacedTime, 120) BETWEEN @From AND @To)`;
+
+    const baseTableQuery = () => `
+        SELECT${dashboardColumns('h', "LTRIM(RTRIM(COALESCE(NULLIF(m.MenuItmDes, ''), h.ItemCode)))")}
+        FROM dbo.Tbl_KOTBOTHeder h WITH (NOLOCK)
+        LEFT JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
+          ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(h.ItemCode))
+        WHERE ${typeFilter('h')}${includeAll ? '' : ` AND ${windowFilter('h')}`}
+        ORDER BY h.KBDate ASC, h.OrderNo ASC`;
+
+    const queueViewQuery = (withDateFilter) => `
+        SELECT${dashboardColumns('v', "LTRIM(RTRIM(COALESCE(NULLIF(v.MenuItmDes, ''), NULLIF(m.MenuItmDes, ''), v.ItemCode)))")}
+        FROM dbo.Vw_KOTBOTHder v WITH (NOLOCK)
+        LEFT JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
+          ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(v.ItemCode))
+        WHERE ${typeFilter('v')}${withDateFilter && !includeAll ? ` AND ${windowFilter('v')}` : ''}
+        ORDER BY v.KBDate ASC, v.OrderNo ASC`;
+
+    const runDashboardQuery = async (queryText) => {
+      const result = await pool.request()
+        .input('Type', sql.VarChar(2), requestedType)
+        .input('From', sql.VarChar(10), fromDate)
+        .input('To', sql.VarChar(10), toDate)
+        .query(queryText);
+      return result.recordset ?? [];
+    };
+
+    // Strategy 1: base table inside the window.
+    let strategy = 'base-window';
+    let rows = [];
+    try {
+      rows = await runDashboardQuery(baseTableQuery());
+    } catch (error) {
+      console.log('[KDS] dashboard base-table window query failed:', error?.message ?? error);
+      rows = [];
+    }
+
+    // Strategy 2: live-queue view inside the window.
+    if (rows.length === 0) {
+      strategy = 'view-window';
+      try {
+        rows = await runDashboardQuery(queueViewQuery(true));
+      } catch (error) {
+        console.log('[KDS] dashboard view window query failed:', error?.message ?? error);
+        rows = [];
+      }
+    }
+
+    // Strategy 3: live-queue view without a date filter — only when the window
+    // includes today, because the queue reflects the current moment only.
+    if (rows.length === 0 && rangeIncludesToday && !includeAll) {
+      strategy = 'view-queue';
+      try {
+        rows = await runDashboardQuery(queueViewQuery(false));
+      } catch (error) {
+        console.log('[KDS] dashboard view queue query failed:', error?.message ?? error);
+        rows = [];
+      }
+      const localDateKey = (value) => {
+        const ms = toMillis(value);
+        if (ms == null) return null;
+        const date = new Date(ms);
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      };
+      rows = rows.filter((row) => {
+        const placedKey = localDateKey(row.PlacedTime);
+        if (placedKey && placedKey >= fromDate && placedKey <= toDate) return true;
+        const kbKey = localDateKey(row.KBDate);
+        if (kbKey && kbKey >= fromDate && kbKey <= toDate) return true;
+        // No usable timestamp: keep only rows still active in the live queue.
+        return normalizeKdsProStatus(row.ProStatus) !== 'D';
+      });
+    }
+
+    // The queue view can repeat a source line when its menu join matches more
+    // than once; the base table cannot hold the same line twice. Drop exact
+    // duplicates so quantities are never double counted.
+    const seenLines = new Set();
+    rows = rows.filter((row) => {
+      const orderNo = String(row.OrderNo ?? '').trim();
+      const itemCode = String(row.ItemCode ?? '').trim();
+      if (!orderNo || !itemCode) return false;
+      const lineKey = `${orderKeyOf(row)}|${itemCode}|${String(row.KOTBOTType ?? '').trim()}`;
+      if (seenLines.has(lineKey)) return false;
+      seenLines.add(lineKey);
+      return true;
+    });
+
+    console.log(`[KDS] dashboard type=${requestedType || '*'} window=${includeAll ? 'all' : `${fromDate}..${toDate}`} strategy=${strategy} rows=${rows.length}`);
+
+    const orders = new Map();
+    const itemTotals = new Map();
+    const rawModeCounts = new Map();
+    let itemPrepMinutesTotal = 0;
+    let itemPrepSamples = 0;
+
+    for (const row of rows) {
+      const orderNo = String(row.OrderNo ?? '').trim();
+      const itemCode = String(row.ItemCode ?? '').trim();
+      if (!orderNo || !itemCode) continue;
+
+      const key = orderKeyOf(row);
+      let order = orders.get(key);
+      if (!order) {
+        order = {
+          mode: modeCategoryOf(row.OrderMode, row.TableNo),
+          rawMode: String(row.OrderMode ?? '').trim() || '(blank)',
+          placedTime: null,
+          doneTime: null,
+          pendingCount: 0,
+          inProgressCount: 0,
+          doneCount: 0,
+        };
+        orders.set(key, order);
+        rawModeCounts.set(order.rawMode, (rawModeCounts.get(order.rawMode) ?? 0) + 1);
+      }
+
+      const status = normalizeKdsProStatus(row.ProStatus);
+      if (status === 'S') order.pendingCount += 1;
+      else if (status === 'P') order.inProgressCount += 1;
+      else order.doneCount += 1;
+
+      // Effective arrival: PlacedTime when present, otherwise the KBDate
+      // timestamp (legacy rows often keep PlacedTime empty).
+      const placedMs = toMillis(row.PlacedTime) ?? toMillis(row.KBDate);
+      const doneMs = toMillis(row.ProDone);
+      if (placedMs != null && (order.placedTime == null || placedMs < order.placedTime)) order.placedTime = placedMs;
+      if (doneMs != null && (order.doneTime == null || doneMs > order.doneTime)) order.doneTime = doneMs;
+
+      // Per-line prep time (item arrival → item done) for the secondary average.
+      if (status === 'D' && placedMs != null && doneMs != null) {
+        const minutes = (doneMs - placedMs) / 60000;
+        if (minutes >= 0 && minutes <= 24 * 60) {
+          itemPrepMinutesTotal += minutes;
+          itemPrepSamples += 1;
+        }
+      }
+
+      const quantity = Number(row.ItmQty ?? 0) || 0;
+      let item = itemTotals.get(itemCode);
+      if (!item) {
+        item = {
+          itemCode,
+          itemName: String(row.ItemName ?? itemCode).trim() || itemCode,
+          quantity: 0,
+          orderKeys: new Set(),
+        };
+        itemTotals.set(itemCode, item);
+      }
+      item.quantity += quantity;
+      item.orderKeys.add(key);
+    }
+
+    // Order-level status: an order is Pending until anything starts, Done once
+    // every line is Done, and In Progress in between (including part-done).
+    const statusCounts = { pending: 0, inProgress: 0, done: 0 };
+    const modeCounts = { dineIn: 0, takeaway: 0, pickup: 0, delivery: 0, other: 0 };
+    const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
+    let prepMinutesTotal = 0;
+    let prepMinutesSamples = 0;
+
+    for (const order of orders.values()) {
+      if (order.doneCount > 0 && order.pendingCount === 0 && order.inProgressCount === 0) statusCounts.done += 1;
+      else if (order.pendingCount > 0 && order.inProgressCount === 0 && order.doneCount === 0) statusCounts.pending += 1;
+      else statusCounts.inProgress += 1;
+
+      if (order.mode === 'dineIn') modeCounts.dineIn += 1;
+      else if (order.mode === 'takeaway') modeCounts.takeaway += 1;
+      else if (order.mode === 'pickup') modeCounts.pickup += 1;
+      else if (order.mode === 'delivery') modeCounts.delivery += 1;
+      else modeCounts.other += 1;
+
+      if (order.placedTime != null) {
+        const hour = new Date(order.placedTime).getHours();
+        if (hour >= 0 && hour < 24) hourly[hour].count += 1;
+      }
+
+      // Average prep time: fully done orders, first arrival → last item done.
+      if (order.doneCount > 0 && order.pendingCount === 0 && order.inProgressCount === 0
+        && order.placedTime != null && order.doneTime != null) {
+        const minutes = (order.doneTime - order.placedTime) / 60000;
+        if (minutes >= 0 && minutes <= 24 * 60) {
+          prepMinutesTotal += minutes;
+          prepMinutesSamples += 1;
+        }
+      }
+    }
+
+    const topItems = [...itemTotals.values()]
+      .sort((left, right) => right.quantity - left.quantity || left.itemName.localeCompare(right.itemName))
+      .slice(0, 8)
+      .map((item) => ({
+        itemCode: item.itemCode,
+        itemName: item.itemName,
+        quantity: Math.round(item.quantity * 100) / 100,
+        orderCount: item.orderKeys.size,
+      }));
+
+    const totalItems = [...itemTotals.values()].reduce((sum, item) => sum + item.quantity, 0);
+    const round1 = (value) => Math.round(value * 10) / 10;
+
+    // Days that actually hold data for this station, newest first. The POS
+    // clock can drift from the real date, so the app offers these as one-tap
+    // selections in the date bar.
+    const availableDates = [];
+    try {
+      const datesResult = await pool.request()
+        .input('Type', sql.VarChar(2), requestedType)
+        .query(`
+          SELECT TOP (12) CONVERT(varchar(10), KBDate, 120) AS [Day], COUNT(*) AS Lines
+          FROM dbo.Tbl_KOTBOTHeder WITH (NOLOCK)
+          WHERE KBDate IS NOT NULL
+            AND (@Type = '' OR LEFT(UPPER(LTRIM(RTRIM([Type]))), 1) = @Type)
+          GROUP BY CONVERT(varchar(10), KBDate, 120)
+          ORDER BY CONVERT(varchar(10), KBDate, 120) DESC
+        `);
+      for (const row of datesResult.recordset ?? []) {
+        const day = String(row.Day ?? '').trim();
+        if (DATE_KEY_PATTERN.test(day)) {
+          availableDates.push({ date: day, lines: Math.max(0, Number(row.Lines ?? 0) || 0) });
+        }
+      }
+    } catch (error) {
+      console.log('[KDS] dashboard available dates query failed:', error?.message ?? error);
+    }
+
+    return res.json({
+      ok: true,
+      stationType: requestedType,
+      source: strategy,
+      from: includeAll ? null : fromDate,
+      to: includeAll ? null : toDate,
+      includeAll,
+      date: todayKey,
+      generatedAt: new Date().toISOString(),
+      totals: {
+        orders: orders.size,
+        items: Math.round(totalItems * 100) / 100,
+        lines: rows.length,
+      },
+      statusCounts,
+      modeCounts,
+      otherModes: [...rawModeCounts.entries()]
+        .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+        .slice(0, 10)
+        .map(([mode, count]) => ({ mode, count })),
+      averagePrepMinutes: prepMinutesSamples > 0 ? round1(prepMinutesTotal / prepMinutesSamples) : null,
+      averagePrepOrderCount: prepMinutesSamples,
+      averageItemPrepMinutes: itemPrepSamples > 0 ? round1(itemPrepMinutesTotal / itemPrepSamples) : null,
+      topItems,
+      hourlyOrders: hourly,
+      availableDates,
+    });
+  } catch (error) {
+    console.log('[KDS] dashboard aggregation error', error?.message ?? error);
     return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
   }
 });

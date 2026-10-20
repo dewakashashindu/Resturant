@@ -910,6 +910,25 @@ export const apiClient = {
     }
   },
 
+  getKdsDashboard: async (type?: string, range?: { from?: string; to?: string; all?: boolean }) => {
+    try {
+      const query = new URLSearchParams();
+      if (String(type ?? '').trim()) query.set('type', String(type).trim());
+      if (range?.all) {
+        query.set('all', '1');
+      } else {
+        if (range?.from && /^\d{4}-\d{2}-\d{2}$/.test(range.from)) query.set('from', range.from);
+        if (range?.to && /^\d{4}-\d{2}-\d{2}$/.test(range.to)) query.set('to', range.to);
+      }
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/kds/dashboard?${query.toString()}`);
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] getKdsDashboard failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
   updateKdsOrderItemStatus: async (payload: {
     orderNo: string;
     itemCode: string;

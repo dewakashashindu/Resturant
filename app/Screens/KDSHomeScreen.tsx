@@ -1350,6 +1350,14 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
           <Text style={styles.headerSub}>Station locked to {stationName} · S = To Do · P = In Progress · D = Done</Text>
         </View>
         <TouchableOpacity
+          style={styles.dashboardButton}
+          onPress={() => router.push({ pathname: '/Screens/kds-dashboard', params: { type: kdsQueueType } })}
+          accessibilityRole="button"
+          accessibilityLabel={`Open the ${stationName.toLowerCase()} performance dashboard`}
+        >
+          <Ionicons name="stats-chart-outline" size={iconSize(20)} color={COLORS.white} />
+        </TouchableOpacity>
+        <TouchableOpacity
           style={styles.refreshButton}
           onPress={() => void loadOrders('manual')}
           disabled={isRefreshing || isLoading}
@@ -1744,6 +1752,7 @@ const baseStyles = StyleSheet.create({
   headerEyebrow: { color: OperationalColors.border, fontSize: 9, fontWeight: '900', letterSpacing: 0.9 },
   headerTitle: { color: COLORS.white, fontSize: 22, fontWeight: '900', marginTop: 3 },
   headerSub: { color: 'rgba(248,247,245,0.68)', fontSize: 10, lineHeight: 15, marginTop: 3 },
+  dashboardButton: { width: 40, height: 40, marginRight: 7, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(248,247,245,0.13)', borderWidth: 1, borderColor: 'rgba(248,247,245,0.16)' },
   refreshButton: { width: 40, height: 40, marginRight: 7, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(248,247,245,0.13)', borderWidth: 1, borderColor: 'rgba(248,247,245,0.16)' },
   unavailableButton: { minHeight: 40, paddingHorizontal: 9, gap: 4, borderRadius: 13, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(248,247,245,0.13)', borderWidth: 1, borderColor: 'rgba(248,247,245,0.16)' },
   unavailableButtonText: { color: COLORS.white, fontSize: 9, fontWeight: '900' },
