@@ -4088,6 +4088,32 @@ app.post('/api/devices/check-in', async (req, res) => {
           const assignmentTransaction = new sql.Transaction(pool);
           await assignmentTransaction.begin();
           try {
+            const currentDeviceAssignment = await new sql.Request(assignmentTransaction)
+              .input('DeviceId', sql.VarChar(50), deviceId)
+              .query(`
+                SELECT TOP (1) LTRIM(RTRIM(ISNULL(UserID, ''))) AS UserID
+                FROM dbo.Tbl_Warkstation WITH (UPDLOCK, HOLDLOCK)
+                WHERE LTRIM(RTRIM(Warkstation)) = @DeviceId
+                  AND ISNULL(IsApproved, 0) = 1
+              `);
+            const currentDeviceUserId = String(
+              currentDeviceAssignment.recordset?.[0]?.UserID ?? '',
+            ).trim();
+            if (
+              currentDeviceUserId
+              && currentDeviceUserId !== authenticatedUser
+              && !shouldForceSwitch
+            ) {
+              await assignmentTransaction.rollback();
+              return res.status(409).json({
+                allowed: false,
+                status: 'session-conflict',
+                message: 'This workstation is already assigned to another user.',
+                currentUserId: currentDeviceUserId,
+                stationType: String(device.KDUOrBDU ?? '').trim().toUpperCase().slice(0, 1) || null,
+              });
+            }
+
             const currentAssignment = await new sql.Request(assignmentTransaction)
               .input('UserID', sql.VarChar(10), authenticatedUser)
               .input('DeviceId', sql.VarChar(50), deviceId)

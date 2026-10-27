@@ -223,8 +223,8 @@ export default function LoginScreen() {
   const confirmDeviceSwitch = (): Promise<boolean> =>
     new Promise<boolean>((resolve) => {
       Alert.alert(
-        'Already logged in',
-        'You are already logged in from another device. Do you want to log out from the previous device and log in on this device?',
+        'Workstation already in use',
+        'This workstation is already assigned to another user. Do you want to switch the workstation to your account?',
         [
           { text: 'NO', style: 'cancel', onPress: () => resolve(false) },
           { text: 'YES, SWITCH DEVICE', onPress: () => resolve(true) },

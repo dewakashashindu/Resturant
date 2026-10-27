@@ -1,4 +1,3 @@
-import { OperationalColors as C } from '../../constants/operationalTheme';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Tabs, useRouter } from 'expo-router';
@@ -13,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { OperationalColors as C } from '../../constants/operationalTheme';
 import { useAuthStore } from '../../services/authStore';
 import { useNotificationStore } from '../../services/notificationStore';
 

@@ -2,7 +2,6 @@ import { OperationalColors } from '../../constants/operationalTheme';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../services/api';
-import { useAuthStore } from '../../services/authStore';
 
 import {
   ActivityIndicator,
@@ -39,7 +38,6 @@ interface TableItem {
 }
 
 
-const EMPTY_ASSIGNED_FLOORS: string[] = [];
 // ══════════════════════════════════════
 // RESPONSIVE SCALE UTILITIES
 // ══════════════════════════════════════
@@ -73,8 +71,6 @@ const TableSelectionScreen = () => {
   const modalMaxHeight = height * 0.65;
   // ── State ──
   // The data comes from the same table APIs used by Dining; only the UI is a dropdown.
-  const { user } = useAuthStore();
-  const assignedFloors = user?.assignedFloors ?? EMPTY_ASSIGNED_FLOORS;
   const [groups, setGroups] = useState<TableGroup[]>([]);
   const [tables, setTables] = useState<TableItem[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<TableGroup | null>(null);
@@ -103,14 +99,12 @@ const TableSelectionScreen = () => {
           return;
         }
 
-        const allowedNames = assignedFloors.map((floor) => String(floor).trim());
         setGroups(records
           .map((floor: any) => ({
             id: String(floor.GroupId ?? floor.groupId ?? floor.GroupName ?? floor.groupName ?? '').trim(),
             label: String(floor.GroupName ?? floor.groupName ?? floor).trim(),
           }))
-          .filter((floor: TableGroup) => floor.id && floor.label)
-          .filter((floor: TableGroup) => allowedNames.includes(floor.label)));
+          .filter((floor: TableGroup) => floor.id && floor.label));
       } catch {
         setGroupError('Unable to load table groups.');
       } finally {
@@ -118,7 +112,7 @@ const TableSelectionScreen = () => {
       }
     };
     void loadGroups();
-  }, [assignedFloors]);
+  }, []);
 
   const loadTables = async (group: TableGroup) => {
     setLoadingTables(true);

@@ -51,7 +51,6 @@ export default function TableSelectionScreen() {
 
  
   const { user } = useAuthStore();
-  const assignedFloors = user?.assignedFloors || [];
   const userGroupId = user?.groupId;
 
   const [selectedFloor,  setSelectedFloor]  = useState('');
@@ -103,18 +102,16 @@ export default function TableSelectionScreen() {
             (f: any) => f.GroupName || f.groupName || String(f)
           );
 
-          console.log('assignedFloors (from authStore):', JSON.stringify(assignedFloors));
           console.log('allNames (from /api/floors):', JSON.stringify(allNames));
           console.log('userGroupId:', userGroupId);
 
-          //  Role Based Visibility Filter — everyone sees only their assigned floors
-          const filteredFloors = allNames.filter(floorName => assignedFloors.includes(floorName));
-
-          setFloors(filteredFloors);
+          // Show every floor returned by the database. Floor access assignments
+          // are no longer used to hide floors in table selection.
+          setFloors(allNames);
 
           //  Default Floor Setup & Table Load
-          if (filteredFloors.length > 0 && !selectedFloor) {
-            const defaultFloor = filteredFloors[0];
+          if (allNames.length > 0 && !selectedFloor) {
+            const defaultFloor = allNames[0];
             setSelectedFloor(defaultFloor);
             fetchTables(defaultFloor);
           }
@@ -127,7 +124,7 @@ export default function TableSelectionScreen() {
     };
 
     loadFloors();
-  }, [userGroupId, assignedFloors]);
+  }, [userGroupId]);
 
   // ── Fetch counts for the currently selected floor and on focus 
   const isFocused = useIsFocused();

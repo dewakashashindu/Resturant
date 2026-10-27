@@ -1,6 +1,3 @@
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { OperationalColors as C } from '../../constants/operationalTheme';
-import { getHomeLayout } from '../../constants/homeLayout';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -15,6 +12,9 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getHomeLayout } from '../../constants/homeLayout';
+import { OperationalColors as C } from '../../constants/operationalTheme';
 import { useAuthStore } from '../../services/authStore';
 import { useCartStore } from '../../services/cartStore';
 import { useMenuSessionStore } from '../../services/menuSessionStore';
@@ -109,7 +109,7 @@ export default function HomeScreen() {
     {
       title: 'Dashboard',
       subtitle: 'Live Overview',
-      visible: true,
+      visible: false,
       route: '/Screens/Dashboard',
       ionIcon: 'grid-outline',
     },
@@ -144,14 +144,14 @@ export default function HomeScreen() {
     {
       title: 'KDS',
       subtitle: 'Kitchen Display',
-      visible: true,
+      visible: false,
       route: '/Screens/KDSHomeScreen',
       ionIcon: 'flame-outline',
     },
     {
       title: 'BDS',
       subtitle: 'Bar Display',
-      visible: true,
+      visible: false,
       route: '/Screens/BDSHomeScreen',
       ionIcon: 'wine-outline',
     },
