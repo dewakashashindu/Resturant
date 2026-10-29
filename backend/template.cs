@@ -37,7 +37,7 @@ public class Startup
         }
     }
 
-    public async Task<object> LoadConfig(object input)
+    public Task<object> LoadConfig(object input)
     {
         var config = new Dictionary<string, string>();
 
@@ -55,6 +55,10 @@ public class Startup
         config.Add("PORT", Decrypt("#PORT#"));
         config.Add("GROQ_API_KEY", Decrypt("#GROQ_API_KEY#")); // ← GROQ API Key එක Decrypt වී Dictionary එකට එකතු වේ
 
-        return config;
+        // Return the same completed Task<object> without requiring the legacy
+        // Framework compiler to support the C# async state-machine feature.
+        var result = new TaskCompletionSource<object>();
+        result.SetResult(config);
+        return result.Task;
     }
 }

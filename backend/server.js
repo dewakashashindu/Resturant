@@ -3,11 +3,26 @@ const cors = require('cors');
 const sql = require('mssql');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const edge = require('edge-js'); 
 const path = require('path');
+const fs = require('fs');
+
+// The packaged Windows x64 build includes the matching edge-js native addon.
+// DLLs loaded by .NET itself must remain on the real filesystem, outside the
+// pkg snapshot. Service working directories are not reliable for this purpose.
+if (process.pkg && process.platform === 'win32') {
+  process.env.EDGE_NATIVE = path.join(
+    __dirname, 'node_modules', 'edge-js', 'lib', 'native', 'win32', 'x64',
+    '24', 'edge_nativeclr.node'
+  );
+}
+const edge = require('edge-js');
 const app = express();
 
-const dllPath = path.join(__dirname, 'DbProtector.dll');
+const configDirectory = process.pkg ? path.dirname(process.execPath) : __dirname;
+const dllPath = path.join(configDirectory, 'DbProtector.dll');
+if (!fs.existsSync(dllPath)) {
+  throw new Error(`[Config] DbProtector.dll was not found at ${dllPath}`);
+}
 
 
 const loadConfigFromDLL = edge.func({ 
@@ -35,6 +50,24 @@ app.get('/test', (_req, res) => {
     message: 'Backend is reachable from the network.',
     timestamp: new Date().toISOString(),
   });
+});
+
+// This indicates the first successful connection, not ongoing DB health.
+let dbStartupReady = false;
+app.get('/startup-ready', (_req, res) => {
+  return res.status(dbStartupReady ? 200 : 503).json({
+    database: dbStartupReady ? 'ready' : 'connecting',
+  });
+});
+
+// Fail quickly while startup retries run rather than accumulating requests.
+app.use('/api', (_req, res, next) => {
+  if (!dbStartupReady) {
+    return res.status(503).json({
+      message: 'Database is starting. Please try again.',
+    });
+  }
+  next();
 });
 
 
@@ -287,29 +320,34 @@ const remarksDbConfig = {
 
 const JWT_SECRET_KEY = sysConfig.JWT_SECRET;
 
-const poolPromise = new sql.ConnectionPool(dbConfig)
-  .connect()
-  .then((pool) => {
-    console.log('Connected to MSSQL');
+const poolPromise = (async () => {
+  let retryDelay = 5000;
+
+  while (true) {
+    let pool;
     try {
+      pool = new sql.ConnectionPool(dbConfig);
+      pool.on('error', (err) => {
+        console.error('[MSSQL] Pool error:', err.code || '', err.message);
+      });
+      await pool.connect();
       pool.__connected = true;
-    } catch (_) {}
-    return pool;
-  })
-  .catch((err) => {
-    console.error('Database Connection Failed! Bad Config: ', err);
-    const dummyPool = {
-      __connected: false,
-      request: () => {
-        const r = {
-          input: function () { return r; },
-          query: async function () { throw new Error('Database not connected'); },
-        };
-        return r;
-      },
-    };
-    return dummyPool;
-  });
+      dbStartupReady = true;
+      console.log('[MSSQL] Connected successfully.');
+      return pool;
+    } catch (err) {
+      console.error(
+        `[MSSQL] Connection failed. Retrying in ${retryDelay / 1000}s:`,
+        err?.message || String(err)
+      );
+      if (pool) {
+        try { await pool.close(); } catch (_) {}
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      retryDelay = Math.min(retryDelay * 2, 30000);
+    }
+  }
+})();
 
 // ─── App notification queue ─────────────────────────────────────────────────
 // Kitchen/other local systems insert one row into this queue. The mobile app
@@ -4088,32 +4126,6 @@ app.post('/api/devices/check-in', async (req, res) => {
           const assignmentTransaction = new sql.Transaction(pool);
           await assignmentTransaction.begin();
           try {
-            const currentDeviceAssignment = await new sql.Request(assignmentTransaction)
-              .input('DeviceId', sql.VarChar(50), deviceId)
-              .query(`
-                SELECT TOP (1) LTRIM(RTRIM(ISNULL(UserID, ''))) AS UserID
-                FROM dbo.Tbl_Warkstation WITH (UPDLOCK, HOLDLOCK)
-                WHERE LTRIM(RTRIM(Warkstation)) = @DeviceId
-                  AND ISNULL(IsApproved, 0) = 1
-              `);
-            const currentDeviceUserId = String(
-              currentDeviceAssignment.recordset?.[0]?.UserID ?? '',
-            ).trim();
-            if (
-              currentDeviceUserId
-              && currentDeviceUserId !== authenticatedUser
-              && !shouldForceSwitch
-            ) {
-              await assignmentTransaction.rollback();
-              return res.status(409).json({
-                allowed: false,
-                status: 'session-conflict',
-                message: 'This workstation is already assigned to another user.',
-                currentUserId: currentDeviceUserId,
-                stationType: String(device.KDUOrBDU ?? '').trim().toUpperCase().slice(0, 1) || null,
-              });
-            }
-
             const currentAssignment = await new sql.Request(assignmentTransaction)
               .input('UserID', sql.VarChar(10), authenticatedUser)
               .input('DeviceId', sql.VarChar(50), deviceId)

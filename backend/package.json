@@ -27,6 +27,7 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
+    "build:exe": "node exe-build/build-exe.cjs",
     "android": "expo run:android",
     "ios": "expo run:ios"
   }

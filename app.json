@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Mila Mirissa",
-    "slug": "Restaurant",
+    "name": "EChef Steward",
+    "slug": "echef-steward",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icons/millamirissa-app-icon.png",
-    "scheme": "restaurant",
+    "scheme": "echef-steward",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true
@@ -15,7 +15,7 @@
         "foregroundImage": "./assets/icons/millamirissa-adaptive.png",
         "backgroundColor": "#F8F7F5"
       },
-      "package": "com.dewaka_shashindu.Restaurant"
+      "package": "com.dewaka_shashindu.echef.steward"
     },
     "plugins": [
       "expo-router",
@@ -40,7 +40,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow Mila Mirissa to use Face ID for secure sign in."
+          "faceIDPermission": "Allow EChef Steward to use Face ID for secure sign in."
         }
       ],
       [
@@ -55,8 +55,8 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Allow Mila Mirissa to access the microphone for voice queries.",
-          "speechRecognitionPermission": "Allow Mila Mirissa to use speech recognition to analyze sales data."
+          "microphonePermission": "Allow EChef Steward to access the microphone for voice queries.",
+          "speechRecognitionPermission": "Allow EChef Steward to use speech recognition to analyze sales data."
         }
       ]
     ],

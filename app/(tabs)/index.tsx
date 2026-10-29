@@ -144,14 +144,14 @@ export default function HomeScreen() {
     {
       title: 'KDS',
       subtitle: 'Kitchen Display',
-      visible: false,
+      visible: true,
       route: '/Screens/KDSHomeScreen',
       ionIcon: 'flame-outline',
     },
     {
       title: 'BDS',
       subtitle: 'Bar Display',
-      visible: false,
+      visible: true,
       route: '/Screens/BDSHomeScreen',
       ionIcon: 'wine-outline',
     },
@@ -173,7 +173,7 @@ export default function HomeScreen() {
                 source={require('../../assets/images/millamirissa.png')}
                 style={{ width: layout.compact ? 126 : 164, height: layout.compact ? 48 : 64 }}
                 resizeMode="contain"
-                accessible accessibilityLabel="Mila Mirissa"
+                accessible accessibilityLabel="EChef Admin"
               />
             </View>
             <View style={[styles.headerRow, { flexDirection: layout.stackGreeting ? 'column' : 'row', alignItems: layout.stackGreeting ? 'flex-start' : 'flex-end' }]}>
