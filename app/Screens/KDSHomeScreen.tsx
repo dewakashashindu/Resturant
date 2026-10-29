@@ -48,9 +48,14 @@ type KdsItem = {
   itemName: string;
   quantity: number;
   remarks: string;
+  birthNo: number;
   status: KdsStatus;
+  // Arrival: PlacedTime when the POS recorded one, otherwise the KBDate stamp.
+  // Null means the row carries no usable timestamp (legacy 1900-01-01).
   placedTime: string | null;
   proStarted: string | null;
+  proDone: string | null;
+  kbDate: string | null;
   prepDuration: number;
 };
 
@@ -148,23 +153,45 @@ type AlertLevel = 'normal' | 'amber' | 'red';
 
 const ALERT_RANK: Record<AlertLevel, number> = { normal: 0, amber: 1, red: 2 };
 
-const elapsedMinutes = (value: string | null, now: number) => {
-  if (!value) return 0;
+// Tbl_KOTBOTHeder stores PlacedTime/ProStarted/ProDone as `datetime NOT NULL`,
+// so the POS writes 1900-01-01 when the moment has not happened yet. Such a
+// value is not an arrival time: it made every card read as decades old (and it
+// only appeared to change when the calendar day rolled over).
+const LEGACY_TIMESTAMP_YEAR = 2000;
+
+const isUsableTimestamp = (value: string | null): value is string => {
+  if (!value) return false;
   const time = new Date(value).getTime();
-  if (!Number.isFinite(time)) return 0;
+  if (!Number.isFinite(time)) return false;
+  return new Date(time).getFullYear() >= LEGACY_TIMESTAMP_YEAR;
+};
+
+const elapsedMinutes = (value: string | null, now: number) => {
+  if (!isUsableTimestamp(value)) return 0;
+  const time = new Date(value).getTime();
   return Math.max(0, (now - time) / 60000);
 };
 
 const relativeTime = (value: string | null, now = Date.now()) => {
-  if (!value) return 'New';
+  if (!isUsableTimestamp(value)) return '';
   const minutes = Math.floor(elapsedMinutes(value, now));
   if (minutes < 1) return 'Just now';
   if (minutes < 60) return `${minutes} min`;
   const hours = Math.floor(minutes / 60);
-  return hours < 24 ? `${hours}h ${minutes % 60}m` : `${Math.floor(hours / 24)}d`;
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+};
+
+/** "12 min ago" for a card line; "time unknown" when the row has no stamp. */
+const ageLabel = (value: string | null, now: number) => {
+  const relative = relativeTime(value, now);
+  return relative ? `${relative} ago` : 'time unknown';
 };
 
 const itemAlertLevel = (item: KdsItem, now: number, waitingConfig: KdsWaitingConfig): AlertLevel => {
+  // A line without a usable arrival time cannot be "late" — guessing would make
+  // a legacy 1900-01-01 row (or a KBDate-only row) trigger red alert speech.
+  if (!isUsableTimestamp(item.placedTime) && !isUsableTimestamp(item.proStarted)) return 'normal';
   if (item.status === 'S') {
     const waiting = elapsedMinutes(item.placedTime, now);
     if (waitingConfig.toDoRedMinutes > 0 && waiting >= waitingConfig.toDoRedMinutes) return 'red';
@@ -240,7 +267,19 @@ const speakKdsDelayAlert = async (order: KdsOrderGroup, isStillAllowed: () => bo
   }
 };
 
-const asKdsItem = (row: any, rowIndex: number): KdsItem | null => {
+const asTimestamp = (...values: unknown[]): string | null => {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (!text) continue;
+    const time = new Date(text).getTime();
+    if (!Number.isFinite(time)) continue;
+    if (new Date(time).getFullYear() < LEGACY_TIMESTAMP_YEAR) continue;
+    return text;
+  }
+  return null;
+};
+
+const asKdsItem = (row: any): KdsItem | null => {
   const orderNo = String(row?.orderNo ?? row?.OrderNo ?? '').trim();
   const itemCode = String(row?.itemCode ?? row?.ItemCode ?? '').trim();
   const type = String(row?.type ?? row?.KOTBOTType ?? row?.Type ?? '').trim();
@@ -248,11 +287,13 @@ const asKdsItem = (row: any, rowIndex: number): KdsItem | null => {
   const tableNo = String(row?.tableNo ?? row?.TableNo ?? '').trim();
   const invoiceNo = String(row?.invoiceNo ?? row?.InvoiceNo ?? '').trim();
   const stewardName = String(row?.stewardName ?? row?.StewardName ?? row?.steward ?? row?.Steward ?? '').trim();
+  // BirthNo separates two lines of the same item inside one order. Rows that
+  // share every identity field (including BirthNo 0) are made unique later by
+  // finalizeKdsItems, which is the only place that guarantees a React key.
+  const birthNo = Number(row?.birthNo ?? row?.BirthNo ?? 0) || 0;
+  const lineSuffix = birthNo > 0 ? String(birthNo) : 'b0';
   return {
-    // Vw_KOTBOTHder can contain repeated identical source rows when its menu
-    // assignment join has more than one match. Keep the rendered key unique
-    // even before the backend refresh removes exact duplicate projection rows.
-    id: `${orderNo}|${itemCode}|${type}|${tableNo}|${invoiceNo}|${rowIndex}`,
+    id: `${orderNo}|${itemCode}|${type}|${tableNo}|${invoiceNo}|${lineSuffix}`,
     orderNo,
     orderMode: String(row?.orderMode ?? row?.OrderMode ?? '').trim(),
     type,
@@ -263,9 +304,19 @@ const asKdsItem = (row: any, rowIndex: number): KdsItem | null => {
     itemName: String(row?.itemName ?? row?.MenuItmDes ?? itemCode).trim(),
     quantity: Number(row?.quantity ?? row?.ItmQty ?? 0) || 0,
     remarks: String(row?.remarks ?? row?.ItmRmks ?? '').trim(),
+    birthNo,
     status: statusFromValue(row?.status ?? row?.ProStatus),
-    placedTime: row?.placedTime ?? row?.PlacedTime ?? null,
-    proStarted: row?.proStarted ?? row?.ProStarted ?? null,
+    placedTime: asTimestamp(
+      row?.effectivePlacedTime,
+      row?.EffectivePlacedTime,
+      row?.placedTime,
+      row?.PlacedTime,
+      row?.kbDate,
+      row?.KBDate,
+    ),
+    proStarted: asTimestamp(row?.proStarted, row?.ProStarted),
+    proDone: asTimestamp(row?.proDone, row?.ProDone),
+    kbDate: asTimestamp(row?.kbDate, row?.KBDate),
     prepDuration: Math.max(0, Number(row?.prepDuration ?? row?.PrepDuration ?? 0) || 0),
   };
 };
@@ -289,11 +340,28 @@ const sameKdsItem = (left: KdsItem, right: KdsItem) => (
   && left.itemName === right.itemName
   && left.quantity === right.quantity
   && left.remarks === right.remarks
+  && left.birthNo === right.birthNo
   && left.status === right.status
   && left.placedTime === right.placedTime
   && left.proStarted === right.proStarted
+  && left.proDone === right.proDone
   && left.prepDuration === right.prepDuration
 );
+
+// The POS can put the same dish on one docket twice with the same BirthNo, so
+// two physical lines can share every identity field. No line is ever dropped —
+// losing a dish would be worse than a duplicate — instead each repeat gets a
+// stable "#2", "#3" ... suffix so React always has one unique key per row.
+// The backend orders rows oldest-first, so the numbering does not move between
+// polls and card identity survives background refreshes.
+const finalizeKdsItems = (incoming: KdsItem[]): KdsItem[] => {
+  const idUseCount = new Map<string, number>();
+  return incoming.map((item) => {
+    const useCount = idUseCount.get(item.id) ?? 0;
+    idUseCount.set(item.id, useCount + 1);
+    return useCount === 0 ? item : { ...item, id: `${item.id}#${useCount + 1}` };
+  });
+};
 
 // Polls keep existing object identities where SQL data has not changed. React
 // therefore retains visible cards and inserts a newly received To-Do row/order
@@ -512,7 +580,7 @@ function OrderGroup({
       </View>
       <View style={styles.orderMeta}>
         <Ionicons name="time-outline" size={Math.round(12 * scale)} color={COLORS.textMuted} />
-        <Text style={styles.orderMetaText}>TIME {relativeTime(order.placedTime, now)} ago</Text>
+        <Text style={styles.orderMetaText}>TIME {ageLabel(order.placedTime, now)}</Text>
         {order.orderMode ? <><View style={styles.orderDot} /><Text style={styles.orderMetaText}>TYPE {order.orderMode}</Text></> : null}
       </View>
       <View style={styles.itemsList}>
@@ -599,7 +667,7 @@ function TodoItemGroup({
               <View style={styles.itemCopy}>
                 <Text style={styles.itemName} numberOfLines={1}>ORDER {row.orderNo}  ·  TABLE {row.tableNo || '—'}</Text>
                 <Text style={styles.todoLineMeta} numberOfLines={1}>
-                  {row.stewardName || '—'} · {relativeTime(row.placedTime, now)} ago
+                  {row.stewardName || '—'} · {ageLabel(row.placedTime, now)}
                 </Text>
                 {row.remarks ? <Text style={styles.itemRemark} numberOfLines={2}>{row.remarks}</Text> : null}
               </View>
@@ -706,7 +774,7 @@ function TodoItemSheet({
                   <View style={styles.detailsQty}><Text style={styles.detailsQtyText}>{row.quantity}×</Text></View>
                   <View style={styles.detailsItemCopy}>
                     <Text style={styles.detailsItemName}>ORDER {row.orderNo}  ·  TABLE {row.tableNo || '—'}</Text>
-                    <Text style={styles.detailsItemCode}>{row.stewardName || '—'}  ·  {relativeTime(row.placedTime, now)} ago</Text>
+                    <Text style={styles.detailsItemCode}>{row.stewardName || '—'}  ·  {ageLabel(row.placedTime, now)}</Text>
                     {row.remarks ? (
                       <View style={styles.detailsRemarkBanner}>
                         <Ionicons name="chatbox-ellipses-outline" size={iconSize(14)} color="#8A541F" />
@@ -824,13 +892,15 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         throw new Error(response.data?.message || `Unable to load the ${stationName.toLowerCase()} queue.`);
       }
       if (requestId !== loadRequestRef.current) return;
-      const nextItems = (Array.isArray(response.data.items) ? response.data.items : [])
-        .map(asKdsItem)
+      const mappedItems = (Array.isArray(response.data.items) ? response.data.items : [])
+        .map((row: any) => asKdsItem(row))
         .filter((item: KdsItem | null): item is KdsItem => Boolean(item))
         // The API receives the immutable KDS/BDS station type. Retain this
         // client guard too, so a mixed/cached proxy response cannot put Bar
         // lines on KDS or Kitchen lines on BDS during a poll.
         .filter((item: KdsItem) => queueTypeFor(item.type) === kdsQueueType);
+      // Every rendered line needs a unique key, whatever the database returns.
+      const nextItems = finalizeKdsItems(mappedItems);
       const nextConfig = response.data.waitingConfig;
       if (nextConfig) {
         setWaitingConfig({
@@ -974,21 +1044,35 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
     });
 
     const movedAt = (item: KdsItem) => {
-      const source = status === 'P' ? (item.proStarted || item.placedTime) : item.placedTime;
+      // In Progress keeps the moment the item started; Done shows when it was
+      // finished; To Do keeps the arrival time.
+      const source = status === 'P'
+        ? (item.proStarted || item.placedTime)
+        : status === 'D' ? (item.proDone || item.placedTime) : item.placedTime;
       const value = source ? new Date(source).getTime() : Number.POSITIVE_INFINITY;
       return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
     };
+    // Done spans the whole POS business day, so the freshest finish belongs at
+    // the top. To Do and In Progress stay oldest-first (the queue order).
+    const ascending = status !== 'D';
 
     return [...groups.values()]
       .map((group) => ({
         ...group,
         // Within an In Progress order, items retain the moment each item moved.
-        items: [...group.items].sort((left, right) => movedAt(left) - movedAt(right) || left.itemName.localeCompare(right.itemName)),
+        items: [...group.items].sort((left, right) => {
+          const diff = movedAt(left) - movedAt(right);
+          if (diff !== 0) return ascending ? diff : -diff;
+          return left.itemName.localeCompare(right.itemName);
+        }),
       }))
       .sort((left, right) => {
         const leftTime = Math.min(...left.items.map(movedAt));
         const rightTime = Math.min(...right.items.map(movedAt));
-        if (leftTime !== rightTime) return leftTime - rightTime;
+        if (leftTime !== rightTime) {
+          const diff = leftTime - rightTime;
+          return ascending ? diff : -diff;
+        }
         return left.orderNo.localeCompare(right.orderNo);
       });
   };
@@ -1656,7 +1740,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
 
             <View style={styles.detailsOrderFacts}>
               <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>ORDER TYPE</Text><Text style={styles.detailsFactValue}>{selectedOrder?.orderMode || '—'}</Text></View>
-              <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>ORDER AGE</Text><Text style={styles.detailsFactValue}>{relativeTime(selectedOrder?.placedTime ?? null, now)}</Text></View>
+              <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>ORDER AGE</Text><Text style={styles.detailsFactValue}>{relativeTime(selectedOrder?.placedTime ?? null, now) || '—'}</Text></View>
               <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>ITEMS</Text><Text style={styles.detailsFactValue}>{modalItems.length}</Text></View>
             </View>
 

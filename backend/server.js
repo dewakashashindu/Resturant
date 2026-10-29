@@ -349,6 +349,90 @@ const poolPromise = (async () => {
   }
 })();
 
+// ─── KDS/BDS business-date and timestamp helpers ─────────────────────────────
+// Tbl_KOTBOTHeder declares PlacedTime, ProStarted and ProDone as
+// `datetime NOT NULL`, so the POS stores "not reached yet" as the datetime zero
+// value (1900-01-01) instead of NULL. Those values must never reach a board:
+// they make every card look decades old and they overflow DATEDIFF(SECOND, ...)
+// (which returns int) inside the status update.
+const KDS_LEGACY_DATETIME_SQL = "'20000101'";
+const KDS_DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+// SQL Server datetime carries no timezone. The POS writes Sri Lankan wall-clock
+// values, so a raw datetime handed to JS Date is read as UTC by the mssql
+// driver and every card shifts by 5h30m. Render the wall clock as text and
+// append the real offset: JSON/JS Date then parse the exact instant.
+const KDS_MAX_TZ_OFFSET_HOURS = 14;
+const KDS_TIMEZONE_OFFSET = (() => {
+  const raw = String(process.env.KDS_TZ_OFFSET ?? '+05:30').trim();
+  const match = /^([+-])(\d{2}):(\d{2})$/.exec(raw);
+  if (!match) return '+05:30';
+  const hours = Number(match[2]);
+  const minutes = Number(match[3]);
+  if (!(hours <= KDS_MAX_TZ_OFFSET_HOURS) || !(minutes < 60)) return '+05:30';
+  // The business date is derived with the same offset, so it must stay in sync.
+  return raw;
+})();
+// The date fallback below must use the same offset as the timestamps.
+const KDS_TZ_OFFSET_MS = (() => {
+  const sign = KDS_TIMEZONE_OFFSET.startsWith('-') ? -1 : 1;
+  const [hours, minutes] = KDS_TIMEZONE_OFFSET.slice(1).split(':').map(Number);
+  return sign * ((hours * 60) + minutes) * 60 * 1000;
+})();
+
+/** Wall-clock text + offset for a datetime column, NULL for legacy zero dates. */
+const kdsIsoTimestamp = (column) => `CASE WHEN ${column} >= ${KDS_LEGACY_DATETIME_SQL}
+            THEN CONVERT(varchar(19), ${column}, 126) + N'${KDS_TIMEZONE_OFFSET}' END`;
+
+/** Arrival time: the recorded PlacedTime, otherwise the KOT/BOT print stamp. */
+const KDS_EFFECTIVE_PLACED_SQL = (alias = 'k') =>
+  `CASE WHEN ${alias}.PlacedTime >= ${KDS_LEGACY_DATETIME_SQL} THEN ${alias}.PlacedTime ELSE ${alias}.KBDate END`;
+
+/** Same arrival time, rendered as wall-clock text + offset (NULL when legacy). */
+const kdsEffectivePlacedIso = (alias = 'k') => `CASE
+            WHEN ${alias}.PlacedTime >= ${KDS_LEGACY_DATETIME_SQL}
+              THEN CONVERT(varchar(19), ${alias}.PlacedTime, 126) + N'${KDS_TIMEZONE_OFFSET}'
+            WHEN ${alias}.KBDate >= ${KDS_LEGACY_DATETIME_SQL}
+              THEN CONVERT(varchar(19), ${alias}.KBDate, 126) + N'${KDS_TIMEZONE_OFFSET}'
+            END`;
+
+/** SQL Server 2008 has no TRY_CONVERT: style 120 renders a datetime as text. */
+const kdsDayKeySql = (column) => `CONVERT(varchar(10), ${column}, 120)`;
+
+/** Today in Sri Lanka, used only when the POS business date is unavailable. */
+const kdsSriLankaTodayKey = () =>
+  new Date(Date.now() + KDS_TZ_OFFSET_MS).toISOString().slice(0, 10);
+
+/**
+ * The POS working day. Tbl_InvProfile is a single-row settings table whose
+ * CurDate is advanced at day end, so the KDS/BDS board and the station
+ * dashboard both follow the POS day instead of the phone calendar date.
+ * ?date=YYYY-MM-DD overrides it for review and testing.
+ */
+const kdsBusinessDateOf = async (pool, override) => {
+  const requested = String(override ?? '').trim();
+  if (KDS_DATE_KEY_PATTERN.test(requested)) return requested;
+  try {
+    const result = await pool.request().query(`
+      SELECT TOP (1) ${kdsDayKeySql('CurDate')} AS BusinessDate
+      FROM dbo.Tbl_InvProfile WITH (NOLOCK)
+    `);
+    const value = String(result.recordset?.[0]?.BusinessDate ?? '').trim();
+    if (KDS_DATE_KEY_PATTERN.test(value)) return value;
+  } catch (error) {
+    console.log('[KDS] business date lookup failed, using Sri Lanka today:', error?.message ?? error);
+  }
+  return kdsSriLankaTodayKey();
+};
+
+/** Millisecond value of a stored timestamp, with legacy zero dates removed. */
+const kdsMillisOf = (value) => {
+  if (value == null) return null;
+  const parsed = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).getFullYear() < 2000 ? null : parsed;
+};
+
 // ─── App notification queue ─────────────────────────────────────────────────
 // Kitchen/other local systems insert one row into this queue. The mobile app
 // polls through the LAN backend, so phones never connect to MSSQL directly.
@@ -1812,10 +1896,10 @@ app.post('/api/kds/menu-items/availability/batch', async (req, res) => {
 // Kitchen Display System order queue
 // Tbl_KOTBOTHeder.ProStatus is the source of truth:
 //   S = waiting / TO DO, P = IN PROGRESS, D = DONE.
-// The KDS reads the existing Vw_KOTBOTHder view; its [Type] value (KOT/BOT)
-// is returned unchanged and shown on each kitchen item.
-// DONE lines older than 30 minutes are not returned at all, so the KDS/BDS
-// DONE column only shows what was finished in the last half hour.
+// The KDS/BDS queue is now read straight from dbo.Tbl_KOTBOTHeder — the same
+// table the status update writes to — filtered to the POS business day held in
+// dbo.Tbl_InvProfile.CurDate. [Type] (KOT/BOT) is returned unchanged and shown
+// per line; the DONE column shows every line finished during that business day.
 const normalizeKdsProStatus = (value) => {
   const status = String(value ?? '').trim().toUpperCase();
   return status === 'P' || status === 'D' ? status : 'S';
@@ -1827,64 +1911,73 @@ app.get('/api/kds/orders', async (req, res) => {
     // This also accepts existing KOT/BOT values without mixing both queues.
     const requestedType = String(req.query.type ?? '').trim().toUpperCase().slice(0, 1);
     const pool = await poolPromise;
+    const businessDate = await kdsBusinessDateOf(pool, req.query.date);
+
+    // The physical KOT/BOT table is the only source. The live queue used to read
+    // Vw_KOTBOTHder, but that view repeats a line when its menu-assignment join
+    // matches more than once, and a view row that does not map back to exactly
+    // one physical row cannot be updated — the item silently jumped back on the
+    // next poll. Reading the same rows the UPDATE targets removes both problems.
     const result = await pool.request()
       .input('Type', sql.VarChar(2), requestedType)
+      .input('BusinessDate', sql.VarChar(10), businessDate)
       .query(`
-        SELECT DISTINCT
-          LTRIM(RTRIM(k.OrderNo)) AS OrderNo,
+        SELECT
+          LTRIM(RTRIM(k.OrderNo))   AS OrderNo,
           LTRIM(RTRIM(k.OrderMode)) AS OrderMode,
-          LTRIM(RTRIM(k.[Type])) AS KOTBOTType,
-          LTRIM(RTRIM(k.TableNo)) AS TableNo,
-          LTRIM(RTRIM(k.Steward)) AS Steward,
+          LTRIM(RTRIM(k.[Type]))    AS KOTBOTType,
+          LTRIM(RTRIM(k.TableNo))   AS TableNo,
+          LTRIM(RTRIM(k.Steward))   AS Steward,
           COALESCE(
             NULLIF(LTRIM(RTRIM(u.UserName)), ''),
             NULLIF(LTRIM(RTRIM(u.LoginName)), ''),
             LTRIM(RTRIM(k.Steward))
           ) AS StewardName,
-          LTRIM(RTRIM(k.Cashier)) AS Cashier,
-          k.KBDate,
-          -- SELECT DISTINCT requires every ORDER BY expression to be projected.
-          -- This keeps records with no PlacedTime after the dated orders.
-          CASE WHEN k.PlacedTime IS NULL THEN 1 ELSE 0 END AS SortMissingPlacedTime,
-          LTRIM(RTRIM(k.ItemCode)) AS ItemCode,
-          CAST(k.ItmQty AS float) AS ItmQty,
-          LTRIM(RTRIM(k.ItmRmks)) AS ItmRmks,
+          LTRIM(RTRIM(k.Cashier))   AS Cashier,
+          LTRIM(RTRIM(k.ItemCode))  AS ItemCode,
+          CAST(k.ItmQty AS float)   AS ItmQty,
+          LTRIM(RTRIM(k.ItmRmks))   AS ItmRmks,
           LTRIM(RTRIM(k.Invoiceno)) AS InvoiceNo,
-          LTRIM(RTRIM(k.LocCode)) AS LocCode,
+          LTRIM(RTRIM(k.LocCode))   AS LocCode,
           LTRIM(RTRIM(ISNULL(k.ProStatus, 'S'))) AS ProStatus,
-          k.PlacedTime,
-          k.ProStarted,
-          k.ProDone,
+          -- BirthNo separates two lines of the same item inside one order, so
+          -- the board can use it as a stable per-line identity.
+          CAST(ISNULL(k.BirthNo, 0) AS float) AS BirthNo,
+          -- Wall-clock text + offset: a raw POS datetime would be read as UTC
+          -- by the mssql driver and every card would shift by 5h30m.
+          ${kdsIsoTimestamp('k.PlacedTime')}  AS PlacedTime,
+          ${kdsIsoTimestamp('k.ProStarted')}  AS ProStarted,
+          ${kdsIsoTimestamp('k.ProDone')}     AS ProDone,
+          ${kdsIsoTimestamp('k.KBDate')}      AS KBDate,
+          ${kdsEffectivePlacedIso('k')} AS EffectivePlacedTime,
           CAST(ISNULL(m.PrepDuration, 0) AS float) AS PrepDuration,
-          LTRIM(RTRIM(ISNULL(k.MenuItmDes, k.ItemCode))) AS MenuItmDes
-        FROM dbo.Vw_KOTBOTHder k WITH (NOLOCK)
+          -- Tbl_KOTBOTHeder has no MenuItmDes column (the view supplied one), so
+          -- the description comes from the menu master with the code as fallback.
+          LTRIM(RTRIM(ISNULL(NULLIF(m.MenuItmDes, ''), k.ItemCode))) AS MenuItmDes
+        FROM dbo.Tbl_KOTBOTHeder k WITH (NOLOCK)
         LEFT JOIN dbo.Tbl_UserDetails u WITH (NOLOCK)
           ON LTRIM(RTRIM(u.UserId)) = LTRIM(RTRIM(k.Steward))
         LEFT JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
           ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(k.ItemCode))
         WHERE (@Type = ''
            OR LEFT(UPPER(LTRIM(RTRIM(k.[Type]))), 1) = @Type)
-          -- The DONE column is a live "just finished" view: only lines whose
-          -- ProDone timestamp falls within the last 30 minutes stay in the
-          -- queue. Older done lines (and legacy done rows with no ProDone)
-          -- drop out so the column never fills with the whole day's history.
-          -- ProDone and this cutoff both use the SQL Server clock, so the
-          -- window stays correct even when that clock drifts from real time.
+          -- The same "still open" filter the status update uses, so every card
+          -- shown on the board is actionable.
+          AND k.DocketPrinted = 'N'
+          -- The POS working day from Tbl_InvProfile.CurDate. TxnDate is also
+          -- accepted because a KOT printed just after midnight can carry the
+          -- next calendar day in KBDate while belonging to the open business day.
           AND (
-            LTRIM(RTRIM(ISNULL(k.ProStatus, 'S'))) <> 'D'
-            OR (
-              k.ProDone IS NOT NULL
-              AND k.ProDone >= DATEADD(MINUTE, -30, GETDATE())
-            )
+            ${kdsDayKeySql('k.KBDate')} = @BusinessDate
+            OR ${kdsDayKeySql('k.TxnDate')} = @BusinessDate
           )
-        -- Oldest received order always appears first. Rows without a usable
-        -- PlacedTime are kept behind timestamped orders, then KBDate breaks ties.
+        -- Oldest arrival first; arrival is PlacedTime when the POS recorded one,
+        -- otherwise the KBDate stamp.
         ORDER BY
-          SortMissingPlacedTime ASC,
-          PlacedTime ASC,
-          KBDate ASC,
-          OrderNo ASC,
-          ItemCode ASC
+          ${KDS_EFFECTIVE_PLACED_SQL('k')} ASC,
+          k.KBDate ASC,
+          k.OrderNo ASC,
+          k.ItemCode ASC
       `);
 
     const configResult = await pool.request().query(`
@@ -1909,15 +2002,21 @@ app.get('/api/kds/orders', async (req, res) => {
       itemName: String(row.MenuItmDes ?? row.ItemCode ?? '').trim(),
       quantity: Number(row.ItmQty ?? 0),
       remarks: String(row.ItmRmks ?? '').trim(),
+      birthNo: Number(row.BirthNo ?? 0) || 0,
       status: normalizeKdsProStatus(row.ProStatus),
-      placedTime: row.PlacedTime ?? row.KBDate ?? null,
+      // Legacy 1900-01-01 ("not set") is already NULL from SQL; this keeps the
+      // contract explicit for any cached or proxied response.
+      placedTime: row.EffectivePlacedTime ?? row.PlacedTime ?? row.KBDate ?? null,
       proStarted: row.ProStarted ?? null,
       proDone: row.ProDone ?? null,
+      kbDate: row.KBDate ?? null,
       prepDuration: Math.max(0, Number(row.PrepDuration ?? 0) || 0),
     })).filter((item) => item.orderNo && item.itemCode);
 
     return res.json({
       ok: true,
+      businessDate,
+      source: 'Tbl_KOTBOTHeder',
       items,
       waitingConfig: {
         toDoAmberMinutes: Math.max(0, Number(configRow.ToDoAmberWaitingDuration) || 0),
@@ -1943,17 +2042,11 @@ app.get('/api/kds/orders', async (req, res) => {
 // (defaults to today in Sri Lanka) or ?all=1 for every day on record. The
 // server is SQL Server 2008, so no TRY_CONVERT — calendar days are matched by
 // rendering datetimes with style 120 and comparing the first 10 characters.
-// Data sources are tried in order, each falling back to the next when it
-// errors or returns nothing:
-//   1. Tbl_KOTBOTHeder filtered to the window (KBDate OR PlacedTime) —
-//      preferred because it also includes lines already printed and removed
-//      from the live queue.
-//   2. Vw_KOTBOTHder (the live-queue view) filtered to the window — used when
-//      the base table keeps KBDate/PlacedTime empty and the view fills them in.
-//   3. Vw_KOTBOTHder without a date filter — only when the window includes
-//      today. The same rows the station queue shows; undated rows are kept
-//      only while still To Do / In Progress so old stuck lines never inflate
-//      the numbers.
+// Data source is dbo.Tbl_KOTBOTHeder only — the same physical table the live
+// board reads and the status update writes, so the dashboard can never disagree
+// with the queue. Vw_KOTBOTHder is no longer used: it repeats lines when its
+// menu join matches twice (inflating quantities) and hides the raw timestamps.
+// The default window is the POS business date (Tbl_InvProfile.CurDate).
 app.get('/api/kds/dashboard', async (req, res) => {
   try {
     // Station switch matches the live queue: first Type character K/B.
@@ -1977,12 +2070,6 @@ app.get('/api/kds/dashboard', async (req, res) => {
       return 'other';
     };
 
-    const toMillis = (value) => {
-      if (value == null) return null;
-      const parsed = value instanceof Date ? value.getTime() : new Date(value).getTime();
-      return Number.isFinite(parsed) ? parsed : null;
-    };
-
     // ── Reporting window ───────────────────────────────────────────────────
     const SRI_LANKA_OFFSET_MS = 330 * 60 * 1000;
     const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -1995,7 +2082,10 @@ app.get('/api/kds/dashboard', async (req, res) => {
     };
 
     const includeAll = String(req.query.all ?? '') === '1';
-    let fromDate = parseDateParam(req.query.from) ?? sriLankaTodayKey();
+    // Default window is the POS working day (Tbl_InvProfile.CurDate), not the
+    // phone calendar date, so the dashboard always matches the live board.
+    const businessDate = includeAll ? sriLankaTodayKey() : await kdsBusinessDateOf(pool, req.query.date);
+    let fromDate = parseDateParam(req.query.from) ?? businessDate;
     let toDate = parseDateParam(req.query.to) ?? fromDate;
     if (fromDate > toDate) {
       const swap = fromDate;
@@ -2009,9 +2099,6 @@ app.get('/api/kds/dashboard', async (req, res) => {
         toDate = new Date(Date.parse(`${fromDate}T00:00:00Z`) + 62 * MS_PER_DAY).toISOString().slice(0, 10);
       }
     }
-    const todayKey = sriLankaTodayKey();
-    const rangeIncludesToday = fromDate <= todayKey && toDate >= todayKey;
-
     const dashboardColumns = (src, itemNameExpr) => `
           LTRIM(RTRIM(${src}.OrderNo)) AS OrderNo,
           LTRIM(RTRIM(${src}.OrderMode)) AS OrderMode,
@@ -2032,7 +2119,9 @@ app.get('/api/kds/dashboard', async (req, res) => {
     // 'yyyy-mm-dd hh:mi:ss', so the first 10 characters are the calendar day
     // (and a varchar KBDate in ISO form is simply truncated). TRY_CONVERT is
     // NOT available on this server version.
-    const windowFilter = (src) => `(CONVERT(varchar(10), ${src}.KBDate, 120) BETWEEN @From AND @To OR CONVERT(varchar(10), ${src}.PlacedTime, 120) BETWEEN @From AND @To)`;
+    const windowFilter = (src) => `(CONVERT(varchar(10), ${src}.KBDate, 120) BETWEEN @From AND @To
+          OR (${src}.PlacedTime >= ${KDS_LEGACY_DATETIME_SQL}
+              AND CONVERT(varchar(10), ${src}.PlacedTime, 120) BETWEEN @From AND @To))`;
 
     const baseTableQuery = () => `
         SELECT${dashboardColumns('h', "LTRIM(RTRIM(COALESCE(NULLIF(m.MenuItmDes, ''), h.ItemCode)))")}
@@ -2041,14 +2130,6 @@ app.get('/api/kds/dashboard', async (req, res) => {
           ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(h.ItemCode))
         WHERE ${typeFilter('h')}${includeAll ? '' : ` AND ${windowFilter('h')}`}
         ORDER BY h.KBDate ASC, h.OrderNo ASC`;
-
-    const queueViewQuery = (withDateFilter) => `
-        SELECT${dashboardColumns('v', "LTRIM(RTRIM(COALESCE(NULLIF(v.MenuItmDes, ''), NULLIF(m.MenuItmDes, ''), v.ItemCode)))")}
-        FROM dbo.Vw_KOTBOTHder v WITH (NOLOCK)
-        LEFT JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
-          ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(v.ItemCode))
-        WHERE ${typeFilter('v')}${withDateFilter && !includeAll ? ` AND ${windowFilter('v')}` : ''}
-        ORDER BY v.KBDate ASC, v.OrderNo ASC`;
 
     const runDashboardQuery = async (queryText) => {
       const result = await pool.request()
@@ -2059,7 +2140,7 @@ app.get('/api/kds/dashboard', async (req, res) => {
       return result.recordset ?? [];
     };
 
-    // Strategy 1: base table inside the window.
+    // Single strategy: the physical table inside the window.
     let strategy = 'base-window';
     let rows = [];
     try {
@@ -2069,56 +2150,10 @@ app.get('/api/kds/dashboard', async (req, res) => {
       rows = [];
     }
 
-    // Strategy 2: live-queue view inside the window.
-    if (rows.length === 0) {
-      strategy = 'view-window';
-      try {
-        rows = await runDashboardQuery(queueViewQuery(true));
-      } catch (error) {
-        console.log('[KDS] dashboard view window query failed:', error?.message ?? error);
-        rows = [];
-      }
-    }
-
-    // Strategy 3: live-queue view without a date filter — only when the window
-    // includes today, because the queue reflects the current moment only.
-    if (rows.length === 0 && rangeIncludesToday && !includeAll) {
-      strategy = 'view-queue';
-      try {
-        rows = await runDashboardQuery(queueViewQuery(false));
-      } catch (error) {
-        console.log('[KDS] dashboard view queue query failed:', error?.message ?? error);
-        rows = [];
-      }
-      const localDateKey = (value) => {
-        const ms = toMillis(value);
-        if (ms == null) return null;
-        const date = new Date(ms);
-        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      };
-      rows = rows.filter((row) => {
-        const placedKey = localDateKey(row.PlacedTime);
-        if (placedKey && placedKey >= fromDate && placedKey <= toDate) return true;
-        const kbKey = localDateKey(row.KBDate);
-        if (kbKey && kbKey >= fromDate && kbKey <= toDate) return true;
-        // No usable timestamp: keep only rows still active in the live queue.
-        return normalizeKdsProStatus(row.ProStatus) !== 'D';
-      });
-    }
-
-    // The queue view can repeat a source line when its menu join matches more
-    // than once; the base table cannot hold the same line twice. Drop exact
-    // duplicates so quantities are never double counted.
-    const seenLines = new Set();
-    rows = rows.filter((row) => {
-      const orderNo = String(row.OrderNo ?? '').trim();
-      const itemCode = String(row.ItemCode ?? '').trim();
-      if (!orderNo || !itemCode) return false;
-      const lineKey = `${orderKeyOf(row)}|${itemCode}|${String(row.KOTBOTType ?? '').trim()}`;
-      if (seenLines.has(lineKey)) return false;
-      seenLines.add(lineKey);
-      return true;
-    });
+    // Rows without an order/item identity can never be aggregated meaningfully.
+    rows = rows.filter((row) => (
+      String(row.OrderNo ?? '').trim() && String(row.ItemCode ?? '').trim()
+    ));
 
     console.log(`[KDS] dashboard type=${requestedType || '*'} window=${includeAll ? 'all' : `${fromDate}..${toDate}`} strategy=${strategy} rows=${rows.length}`);
 
@@ -2154,10 +2189,11 @@ app.get('/api/kds/dashboard', async (req, res) => {
       else if (status === 'P') order.inProgressCount += 1;
       else order.doneCount += 1;
 
-      // Effective arrival: PlacedTime when present, otherwise the KBDate
-      // timestamp (legacy rows often keep PlacedTime empty).
-      const placedMs = toMillis(row.PlacedTime) ?? toMillis(row.KBDate);
-      const doneMs = toMillis(row.ProDone);
+      // Effective arrival: a real PlacedTime, otherwise the KBDate stamp.
+      // Legacy 1900-01-01 values ("not set" in this NOT NULL schema) are
+      // ignored so they can never produce a decades-old prep time.
+      const placedMs = kdsMillisOf(row.PlacedTime) ?? kdsMillisOf(row.KBDate);
+      const doneMs = kdsMillisOf(row.ProDone);
       if (placedMs != null && (order.placedTime == null || placedMs < order.placedTime)) order.placedTime = placedMs;
       if (doneMs != null && (order.doneTime == null || doneMs > order.doneTime)) order.doneTime = doneMs;
 
@@ -2243,7 +2279,7 @@ app.get('/api/kds/dashboard', async (req, res) => {
         .query(`
           SELECT TOP (12) CONVERT(varchar(10), KBDate, 120) AS [Day], COUNT(*) AS Lines
           FROM dbo.Tbl_KOTBOTHeder WITH (NOLOCK)
-          WHERE KBDate IS NOT NULL
+          WHERE KBDate >= ${KDS_LEGACY_DATETIME_SQL}
             AND (@Type = '' OR LEFT(UPPER(LTRIM(RTRIM([Type]))), 1) = @Type)
           GROUP BY CONVERT(varchar(10), KBDate, 120)
           ORDER BY CONVERT(varchar(10), KBDate, 120) DESC
@@ -2265,7 +2301,8 @@ app.get('/api/kds/dashboard', async (req, res) => {
       from: includeAll ? null : fromDate,
       to: includeAll ? null : toDate,
       includeAll,
-      date: todayKey,
+      date: businessDate,
+      businessDate,
       generatedAt: new Date().toISOString(),
       totals: {
         orders: orders.size,
@@ -2330,13 +2367,19 @@ app.post('/api/kds/orders/item-status', async (req, res) => {
             WHEN @ProStatus = 'D' AND ISNULL(ProStatus, 'S') <> 'D' THEN GETDATE()
             ELSE ProDone
           END,
+          -- DATEDIFF returns int, so a legacy 1900-01-01 stamp would overflow
+          -- it (~3.9 billion seconds) and fail the whole status change. Only a
+          -- real timestamp is measured; the effective arrival falls back to the
+          -- KBDate print stamp, and both are only used when they are real dates.
           PlacedToPickUpDuration = CASE
             WHEN @ProStatus = 'P' AND ISNULL(ProStatus, 'S') <> 'P'
-              THEN DATEDIFF(SECOND, PlacedTime, GETDATE()) / 60.0
+              AND (CASE WHEN PlacedTime >= '20000101' THEN PlacedTime ELSE KBDate END) >= '20000101'
+              THEN DATEDIFF(SECOND, CASE WHEN PlacedTime >= '20000101' THEN PlacedTime ELSE KBDate END, GETDATE()) / 60.0
             ELSE PlacedToPickUpDuration
           END,
           ProDuration = CASE
             WHEN @ProStatus = 'D' AND ISNULL(ProStatus, 'S') <> 'D'
+              AND ProStarted >= '20000101'
               THEN DATEDIFF(SECOND, ProStarted, GETDATE()) / 60.0
             ELSE ProDuration
           END
@@ -2497,13 +2540,19 @@ app.post('/api/kds/orders/bulk-status', async (req, res) => {
             WHEN @ProStatus = 'D' AND ISNULL(ProStatus, 'S') <> 'D' THEN GETDATE()
             ELSE ProDone
           END,
+          -- DATEDIFF returns int, so a legacy 1900-01-01 stamp would overflow
+          -- it (~3.9 billion seconds) and fail the whole status change. Only a
+          -- real timestamp is measured; the effective arrival falls back to the
+          -- KBDate print stamp, and both are only used when they are real dates.
           PlacedToPickUpDuration = CASE
             WHEN @ProStatus = 'P' AND ISNULL(ProStatus, 'S') <> 'P'
-              THEN DATEDIFF(SECOND, PlacedTime, GETDATE()) / 60.0
+              AND (CASE WHEN PlacedTime >= '20000101' THEN PlacedTime ELSE KBDate END) >= '20000101'
+              THEN DATEDIFF(SECOND, CASE WHEN PlacedTime >= '20000101' THEN PlacedTime ELSE KBDate END, GETDATE()) / 60.0
             ELSE PlacedToPickUpDuration
           END,
           ProDuration = CASE
             WHEN @ProStatus = 'D' AND ISNULL(ProStatus, 'S') <> 'D'
+              AND ProStarted >= '20000101'
               THEN DATEDIFF(SECOND, ProStarted, GETDATE()) / 60.0
             ELSE ProDuration
           END
