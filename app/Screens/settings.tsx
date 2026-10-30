@@ -28,6 +28,12 @@ import {
 } from '../../services/biometricAuth';
 import { useAuthStore } from '../../services/authStore';
 import useItemStore from '../../services/itemStore';
+import {
+  DONE_WINDOW_OPTIONS,
+  doneWindowOption,
+  useKdsSettingsStore,
+  type DoneWindowMinutes,
+} from '../../services/kdsSettings';
 import { useNotificationStore } from '../../services/notificationStore';
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -46,6 +52,7 @@ export default function SettingsScreen() {
   const [biometricEnabled,   setBiometricEnabled]   = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricBusy,      setBiometricBusy]      = useState(false);
+  const [donePickerVisible,  setDonePickerVisible]  = useState(false);
 
   // ── Store ──────────────────────────────────────────────────────────────────
   const isSyncing    = useItemStore((s) => s.isSyncing);
@@ -56,6 +63,9 @@ export default function SettingsScreen() {
   const syncMenuData = useItemStore((s) => s.syncMenuData);
   const hydrateItems = useItemStore((s) => s.hydrateItems);
   const isHydrated   = useItemStore((s) => s.isHydrated);
+  const doneWindowMinutes      = useKdsSettingsStore((s) => s.doneWindowMinutes);
+  const setDoneWindowMinutes   = useKdsSettingsStore((s) => s.setDoneWindowMinutes);
+  const doneWindowLabel        = doneWindowOption(doneWindowMinutes).label;
   const user         = useAuthStore((s) => s.user);
   const token        = useAuthStore((s) => s.token);
   const updatePicture= useAuthStore((s) => s.updatePicture);
@@ -447,6 +457,32 @@ export default function SettingsScreen() {
         ) : (
           /* ════ SYSTEM TAB ════ */
           <>
+            <Text style={s.sectionLabel}>System Setting</Text>
+            <View style={s.notificationSettingsCard}>
+              <TouchableOpacity
+                style={s.notificationSettingRow}
+                onPress={() => setDonePickerVisible(true)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Done column time window, currently ${doneWindowLabel}`}
+              >
+                <View style={s.notificationSettingIcon}>
+                  <Ionicons name="timer-outline" size={21} color={OperationalColors.primary} />
+                </View>
+                <View style={s.notificationSettingText}>
+                  <Text style={s.notificationSettingLabel}>Done Column Time</Text>
+                  <Text style={s.notificationSettingSub}>
+                    How long a finished item stays in the KDS / BDS DONE column
+                  </Text>
+                </View>
+                {/* Drop-down trigger: shows the value the board is using now. */}
+                <View style={s.dropdownValue}>
+                  <Text style={s.dropdownValueText}>{doneWindowLabel}</Text>
+                  <Ionicons name="chevron-down" size={16} color={OperationalColors.primary} />
+                </View>
+              </TouchableOpacity>
+            </View>
+
             <Text style={s.sectionLabel}>Data Synchronization</Text>
 
             <TouchableOpacity
@@ -549,6 +585,61 @@ export default function SettingsScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* ── Done window picker ── */}
+      <Modal
+        transparent
+        animationType="fade"
+        visible={donePickerVisible}
+        onRequestClose={() => setDonePickerVisible(false)}
+      >
+        <TouchableOpacity
+          style={s.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setDonePickerVisible(false)}
+        >
+          <View style={s.pickerSheet}>
+            <View style={s.pickerHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.pickerTitle}>Done Column Time</Text>
+                <Text style={s.pickerSubtitle}>Applies to this display only</Text>
+              </View>
+              <TouchableOpacity onPress={() => setDonePickerVisible(false)} accessibilityLabel="Close">
+                <Ionicons name="close" size={22} color={OperationalColors.primary} />
+              </TouchableOpacity>
+            </View>
+
+            {DONE_WINDOW_OPTIONS.map((option) => {
+              const selected = option.value === doneWindowMinutes;
+              return (
+                <TouchableOpacity
+                  key={String(option.value)}
+                  style={[s.pickerOption, selected && s.pickerOptionSelected]}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    setDoneWindowMinutes(option.value as DoneWindowMinutes);
+                    setDonePickerVisible(false);
+                  }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={option.label}
+                >
+                  <Text style={[s.pickerOptionText, selected && s.pickerOptionTextSelected]}>
+                    {option.label}
+                  </Text>
+                  {selected
+                    ? <Ionicons name="checkmark-circle" size={20} color={OperationalColors.primary} />
+                    : <Ionicons name="ellipse-outline" size={20} color={OperationalColors.border} />}
+                </TouchableOpacity>
+              );
+            })}
+
+            <Text style={s.pickerHint}>
+              The DONE column shows a small “LAST …” label so staff can see which window is active.
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -1081,6 +1172,18 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     notificationSettingLabel: { fontSize: scale(isSmall ? 13 : 15), fontWeight: '700', color: OperationalColors.primary },
     notificationSettingSub: { fontSize: scale(isSmall ? 10 : 12), color: OperationalColors.muted, marginTop: scale(3) },
     notificationSettingsDivider: { height: StyleSheet.hairlineWidth, backgroundColor: OperationalColors.canvas },
+    dropdownValue: { flexDirection: 'row', alignItems: 'center', gap: scale(6), paddingHorizontal: scale(10), paddingVertical: scale(7), borderRadius: scale(9), borderWidth: 1, borderColor: OperationalColors.border, backgroundColor: OperationalColors.surface },
+    dropdownValueText: { fontSize: scale(isSmall ? 11 : 13), fontWeight: '800', color: OperationalColors.primary },
+    pickerOverlay: { flex: 1, justifyContent: 'center', paddingHorizontal: scale(22), backgroundColor: 'rgba(0,0,0,0.45)' },
+    pickerSheet: { borderRadius: scale(20), padding: scale(18), backgroundColor: OperationalColors.surface },
+    pickerHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: scale(10) },
+    pickerTitle: { fontSize: scale(isSmall ? 15 : 18), fontWeight: '900', color: OperationalColors.primary },
+    pickerSubtitle: { fontSize: scale(isSmall ? 10 : 12), color: OperationalColors.muted, marginTop: scale(2) },
+    pickerOption: { minHeight: scale(46), marginTop: scale(7), paddingHorizontal: scale(13), flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: scale(12), borderWidth: 1, borderColor: OperationalColors.border, backgroundColor: OperationalColors.canvas },
+    pickerOptionSelected: { borderColor: OperationalColors.primary, borderWidth: 1.5, backgroundColor: OperationalColors.selected },
+    pickerOptionText: { fontSize: scale(isSmall ? 12 : 14), fontWeight: '700', color: OperationalColors.text },
+    pickerOptionTextSelected: { fontWeight: '900', color: OperationalColors.primary },
+    pickerHint: { fontSize: scale(isSmall ? 9 : 11), lineHeight: scale(isSmall ? 13 : 16), color: OperationalColors.muted, marginTop: scale(12) },
 
     // ── Photo Action Sheet ───────────────────────────────────────────────────
     sheetOverlay: {

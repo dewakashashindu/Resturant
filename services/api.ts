@@ -897,10 +897,12 @@ export const apiClient = {
     }
   },
 
-  getKdsOrders: async (type?: string) => {
+  getKdsOrders: async (type?: string, options?: { doneMinutes?: number }) => {
     try {
       const query = new URLSearchParams();
       if (String(type ?? '').trim()) query.set('type', String(type).trim());
+      // DONE column window chosen in Settings > System Setting (0 = full day).
+      if (options?.doneMinutes != null) query.set('doneMinutes', String(Math.max(0, Math.floor(options.doneMinutes))));
       const response = await fetch(`${getDynamicApiBaseUrl()}/api/kds/orders?${query.toString()}`);
       const data = await response.json().catch(() => null);
       return { ok: response.ok, data };

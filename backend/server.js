@@ -356,6 +356,10 @@ const poolPromise = (async () => {
 // they make every card look decades old and they overflow DATEDIFF(SECOND, ...)
 // (which returns int) inside the status update.
 const KDS_LEGACY_DATETIME_SQL = "'20000101'";
+// DONE column window defaults. The display sends ?doneMinutes= from its own
+// System Setting; these values only guard the API.
+const KDS_DONE_WINDOW_DEFAULT = 30;
+const KDS_DONE_WINDOW_MAX_MINUTES = 24 * 60;
 const KDS_DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 // SQL Server datetime carries no timezone. The POS writes Sri Lankan wall-clock
@@ -431,6 +435,39 @@ const kdsMillisOf = (value) => {
   const parsed = value instanceof Date ? value.getTime() : new Date(value).getTime();
   if (!Number.isFinite(parsed)) return null;
   return new Date(parsed).getFullYear() < 2000 ? null : parsed;
+};
+
+/**
+ * The menu card hides an item through a DisplayInFront flag that lives on the
+ * assignment table behind Vw_MenuAssignment, not on Tbl_MenuItems. Rather than
+ * hard-coding one table name, the base tables are discovered at run time: every
+ * table that owns both DisplayInFront and an item-code column is updated, so
+ * this keeps working if the POS renames or splits the table.
+ * A no-op (not an error) when the flag lives somewhere else.
+ */
+const setMenuItemDisplayInFront = async (request, menuItemId, frontValue) => {
+  const result = await request
+    .input('MenuItmId', sql.VarChar(10), String(menuItemId ?? '').trim())
+    .input('Front', sql.VarChar(1), frontValue)
+    .query(`
+      DECLARE @sql nvarchar(max);
+      SELECT @sql = ISNULL(@sql, N'') + N'UPDATE ' + QUOTENAME(SCHEMA_NAME(t.schema_id)) + N'.' + QUOTENAME(t.name)
+        + N' SET [DisplayInFront] = @Front WHERE LTRIM(RTRIM(' + QUOTENAME(code.CodeColumn) + N')) = @MenuItmId;'
+      FROM sys.tables t WITH (NOLOCK)
+      INNER JOIN sys.columns c WITH (NOLOCK)
+        ON c.object_id = t.object_id AND c.name = 'DisplayInFront'
+      CROSS APPLY (
+        SELECT TOP (1) c2.name AS CodeColumn
+        FROM sys.columns c2 WITH (NOLOCK)
+        WHERE c2.object_id = t.object_id
+          AND c2.name IN ('MenuItemCode', 'MenuItmId', 'ItemCode')
+        ORDER BY CASE c2.name WHEN 'MenuItemCode' THEN 1 WHEN 'MenuItmId' THEN 2 ELSE 3 END
+      ) code;
+
+      IF @sql IS NOT NULL
+        EXEC sp_executesql @sql, N'@MenuItmId varchar(10), @Front varchar(1)', @MenuItmId = @MenuItmId, @Front = @Front;
+    `);
+  return result.rowsAffected?.[0] ?? 0;
 };
 
 // ─── App notification queue ─────────────────────────────────────────────────
@@ -1657,23 +1694,55 @@ app.get('/api/kds/menu-items', async (req, res) => {
         -- Vw_MenuItems can contain more than one assignment row for the same
         -- menu item. KDS availability is maintained by MenuItmId, so return
         -- one stable row per item rather than duplicate checkbox rows.
-        WITH UniqueMenuItems AS (
+        --
+        -- Category is the single-letter main group used by the menu card tabs
+        -- (F = Foods, B = Beverages, S = Siga, O = Others). The sub-category is
+        -- Level1 / L1Des from Vw_MenuAssignment, the same pair the menu card
+        -- lists under each main tab; OUTER APPLY keeps it to one row per item
+        -- and never drops an item that has no assignment row.
+        WITH ItemRows AS (
           SELECT
             LTRIM(RTRIM(v.MenuItmId)) AS MenuItmId,
-            MAX(LTRIM(RTRIM(v.MenuItmDes))) AS MenuItmDes,
-            MAX(v.Category) AS Category,
-            MAX(v.SalesPrice) AS SalesPrice,
-            CAST(MIN(CAST(CASE WHEN ISNULL(m.ItemNotAvailable, 0) = 1 THEN 0 ELSE 1 END AS tinyint)) AS bit) AS ItemAvailable
+            LTRIM(RTRIM(v.MenuItmDes)) AS MenuItmDes,
+            LTRIM(RTRIM(v.Category)) AS Category,
+            v.SalesPrice AS SalesPrice,
+            CASE WHEN ISNULL(m.ItemNotAvailable, 0) = 1 THEN 0 ELSE 1 END AS ItemAvailable,
+            ISNULL(sub.SubCategory, '') AS SubCategory,
+            ISNULL(sub.SubCategoryOrder, 0) AS SubCategoryOrder
           FROM dbo.Vw_MenuItems v WITH (NOLOCK)
           INNER JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
             ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(v.MenuItmId))
+          OUTER APPLY (
+            SELECT TOP (1)
+              LTRIM(RTRIM(a.L1Des)) AS SubCategory,
+              ISNULL(a.L1LitingOrder, 0) AS SubCategoryOrder
+            FROM dbo.Vw_MenuAssignment a WITH (NOLOCK)
+            WHERE LTRIM(RTRIM(a.MenuItemCode)) = LTRIM(RTRIM(v.MenuItmId))
+              AND a.DisplayInFront = '1'
+              AND a.MenuAssiEnable = '1'
+              AND a.MenuItemEnable = '1'
+              AND NULLIF(LTRIM(RTRIM(ISNULL(a.L1Des, ''))), '') IS NOT NULL
+            ORDER BY ISNULL(a.L1LitingOrder, 0), LTRIM(RTRIM(a.Level1))
+          ) sub
           WHERE @Search = ''
              OR LTRIM(RTRIM(v.MenuItmId)) LIKE '%' + @Search + '%'
              OR v.MenuItmDes LIKE '%' + @Search + '%'
-          GROUP BY LTRIM(RTRIM(v.MenuItmId))
+        ),
+        UniqueMenuItems AS (
+          SELECT
+            MenuItmId,
+            MAX(MenuItmDes) AS MenuItmDes,
+            MAX(Category) AS Category,
+            MAX(SalesPrice) AS SalesPrice,
+            CAST(MIN(ItemAvailable) AS bit) AS ItemAvailable,
+            MAX(SubCategory) AS SubCategory,
+            MAX(SubCategoryOrder) AS SubCategoryOrder
+          FROM ItemRows
+          GROUP BY MenuItmId
         )
         SELECT TOP (@Limit)
-          MenuItmId, MenuItmDes, Category, SalesPrice, ItemAvailable
+          MenuItmId, MenuItmDes, Category, SalesPrice, ItemAvailable,
+          SubCategory, SubCategoryOrder
         FROM UniqueMenuItems
         ORDER BY MenuItmDes ASC, MenuItmId ASC
       `);
@@ -1747,6 +1816,14 @@ app.patch('/api/kds/menu-items/:menuItemId/availability', async (req, res) => {
       return res.status(404).json({ ok: false, message: 'Menu item was not found.' });
     }
 
+    // Keep the menu card in step with the order screens: an unavailable item is
+    // hidden from the card by clearing DisplayInFront, and restored with it.
+    try {
+      await setMenuItemDisplayInFront(pool.request(), menuItemId, itemAvailable ? '1' : '0');
+    } catch (displayError) {
+      console.log('[KDS] DisplayInFront update failed for', menuItemId, displayError?.message ?? displayError);
+    }
+
     return res.json({ ok: true, item });
   } catch (error) {
     console.log('[KDS] update menu availability error', error?.message ?? error);
@@ -1810,6 +1887,18 @@ app.post('/api/kds/menu-items/availability/batch', async (req, res) => {
         `);
       const item = result.recordset?.[0];
       if (!item) throw new Error(`Menu item ${menuItemId} was not found.`);
+
+      // The unavailable flag alone only affects the order screens. The menu card
+      // additionally hides the item through DisplayInFront, so both are written
+      // here: 0 when the item is marked unavailable, 1 when it comes back.
+      try {
+        await setMenuItemDisplayInFront(transaction.request(), menuItemId, itemAvailable ? '1' : '0');
+      } catch (displayError) {
+        // Never lose the availability change because the menu-card flag could
+        // not be written; the failure is logged for the supervisor instead.
+        console.log('[KDS] DisplayInFront update failed for', menuItemId, displayError?.message ?? displayError);
+      }
+
       savedItems.push(item);
     }
 
@@ -1912,6 +2001,14 @@ app.get('/api/kds/orders', async (req, res) => {
     const requestedType = String(req.query.type ?? '').trim().toUpperCase().slice(0, 1);
     const pool = await poolPromise;
     const businessDate = await kdsBusinessDateOf(pool, req.query.date);
+    // How long a finished line stays in the DONE column. The device picks this in
+    // Settings > System Setting; 0 (or a missing value) keeps the whole POS
+    // business day. Anything else is a rolling minute window measured with the
+    // SQL Server clock, the same clock ProDone is written with.
+    const requestedDoneMinutes = Number(req.query.doneMinutes ?? KDS_DONE_WINDOW_DEFAULT);
+    const doneWindowMinutes = Number.isFinite(requestedDoneMinutes)
+      ? Math.min(KDS_DONE_WINDOW_MAX_MINUTES, Math.max(0, Math.floor(requestedDoneMinutes)))
+      : KDS_DONE_WINDOW_DEFAULT;
 
     // The physical KOT/BOT table is the only source. The live queue used to read
     // Vw_KOTBOTHder, but that view repeats a line when its menu-assignment join
@@ -1921,6 +2018,7 @@ app.get('/api/kds/orders', async (req, res) => {
     const result = await pool.request()
       .input('Type', sql.VarChar(2), requestedType)
       .input('BusinessDate', sql.VarChar(10), businessDate)
+      .input('DoneMinutes', sql.Int, doneWindowMinutes)
       .query(`
         SELECT
           LTRIM(RTRIM(k.OrderNo))   AS OrderNo,
@@ -1955,10 +2053,28 @@ app.get('/api/kds/orders', async (req, res) => {
           -- the description comes from the menu master with the code as fallback.
           LTRIM(RTRIM(ISNULL(NULLIF(m.MenuItmDes, ''), k.ItemCode))) AS MenuItmDes
         FROM dbo.Tbl_KOTBOTHeder k WITH (NOLOCK)
-        LEFT JOIN dbo.Tbl_UserDetails u WITH (NOLOCK)
-          ON LTRIM(RTRIM(u.UserId)) = LTRIM(RTRIM(k.Steward))
-        LEFT JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
-          ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(k.ItemCode))
+        -- Exactly one lookup row per KOT/BOT line. Tbl_MenuItems can hold more
+        -- than one row for the same MenuItmId (per location / price version) and
+        -- Tbl_UserDetails can repeat a UserId, and a plain LEFT JOIN then repeats
+        -- the kitchen line once per match — the board showed the same dish twice
+        -- while the table held it only once. TOP (1) with a deterministic ORDER
+        -- BY keeps the line single and stable between polls.
+        OUTER APPLY (
+          SELECT TOP (1)
+            LTRIM(RTRIM(m.MenuItmDes)) AS MenuItmDes,
+            CAST(ISNULL(m.PrepDuration, 0) AS float) AS PrepDuration
+          FROM dbo.Tbl_MenuItems m WITH (NOLOCK)
+          WHERE LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(k.ItemCode))
+          ORDER BY LTRIM(RTRIM(m.MenuItmDes)) ASC
+        ) m
+        OUTER APPLY (
+          SELECT TOP (1)
+            LTRIM(RTRIM(u.UserName)) AS UserName,
+            LTRIM(RTRIM(u.LoginName)) AS LoginName
+          FROM dbo.Tbl_UserDetails u WITH (NOLOCK)
+          WHERE LTRIM(RTRIM(u.UserId)) = LTRIM(RTRIM(k.Steward))
+          ORDER BY LTRIM(RTRIM(u.UserName)) ASC
+        ) u
         WHERE (@Type = ''
            OR LEFT(UPPER(LTRIM(RTRIM(k.[Type]))), 1) = @Type)
           -- The same "still open" filter the status update uses, so every card
@@ -1970,6 +2086,14 @@ app.get('/api/kds/orders', async (req, res) => {
           AND (
             ${kdsDayKeySql('k.KBDate')} = @BusinessDate
             OR ${kdsDayKeySql('k.TxnDate')} = @BusinessDate
+          )
+          -- DONE window chosen on the display: only recently finished lines are
+          -- returned. To Do and In Progress lines are never affected.
+          AND (
+            @DoneMinutes = 0
+            OR ISNULL(k.ProStatus, 'S') <> 'D'
+            OR (k.ProDone >= ${KDS_LEGACY_DATETIME_SQL}
+                AND k.ProDone >= DATEADD(MINUTE, -@DoneMinutes, GETDATE()))
           )
         -- Oldest arrival first; arrival is PlacedTime when the POS recorded one,
         -- otherwise the KBDate stamp.
@@ -2016,11 +2140,17 @@ app.get('/api/kds/orders', async (req, res) => {
     return res.json({
       ok: true,
       businessDate,
+      doneWindowMinutes,
       source: 'Tbl_KOTBOTHeder',
       items,
       waitingConfig: {
+        // To Do thresholds are absolute minutes.
         toDoAmberMinutes: Math.max(0, Number(configRow.ToDoAmberWaitingDuration) || 0),
         toDoRedMinutes: Math.max(0, Number(configRow.ToDoRedWaitingDuration) || 0),
+        // In Progress is a PERCENTAGE of the item's own prep time
+        // (Tbl_MenuItems.PrepDuration): amber at InProAmberWaitingDuration %,
+        // red at 100 %. It is not a minute value, so it is reported as such.
+        inProgressAmberPercent: Math.max(0, Number(configRow.InProAmberWaitingDuration) || 0),
         inProgressAmberMinutes: Math.max(0, Number(configRow.InProAmberWaitingDuration) || 0),
       },
     });
@@ -2126,8 +2256,15 @@ app.get('/api/kds/dashboard', async (req, res) => {
     const baseTableQuery = () => `
         SELECT${dashboardColumns('h', "LTRIM(RTRIM(COALESCE(NULLIF(m.MenuItmDes, ''), h.ItemCode)))")}
         FROM dbo.Tbl_KOTBOTHeder h WITH (NOLOCK)
-        LEFT JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
-          ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(h.ItemCode))
+        -- TOP (1) for the same reason as the live queue: a repeated MenuItmId
+        -- in the menu master would otherwise duplicate rows and double-count
+        -- quantities in the station dashboard totals.
+        OUTER APPLY (
+          SELECT TOP (1) LTRIM(RTRIM(m.MenuItmDes)) AS MenuItmDes
+          FROM dbo.Tbl_MenuItems m WITH (NOLOCK)
+          WHERE LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(h.ItemCode))
+          ORDER BY LTRIM(RTRIM(m.MenuItmDes)) ASC
+        ) m
         WHERE ${typeFilter('h')}${includeAll ? '' : ` AND ${windowFilter('h')}`}
         ORDER BY h.KBDate ASC, h.OrderNo ASC`;
 

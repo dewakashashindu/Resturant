@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   AppState,
   AppStateStatus,
   FlatList,
@@ -26,6 +27,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Tts from 'react-native-tts';
 
 import { apiClient } from '../../services/api';
+import { doneWindowOption, useKdsSettingsStore } from '../../services/kdsSettings';
 import { useNotificationStore } from '../../services/notificationStore';
 
 type KdsStatus = 'S' | 'P' | 'D';
@@ -33,7 +35,8 @@ type KdsQueueType = 'K' | 'B';
 type KdsWaitingConfig = {
   toDoAmberMinutes: number;
   toDoRedMinutes: number;
-  inProgressAmberMinutes: number;
+  /** Percentage of the item's own prep time at which In Progress turns amber. */
+  inProgressAmberPercent: number;
 };
 
 type KdsItem = {
@@ -188,6 +191,47 @@ const ageLabel = (value: string | null, now: number) => {
   return relative ? `${relative} ago` : 'time unknown';
 };
 
+// In Progress is measured from the moment the line moved to In Progress
+// (ProStarted), NOT from when the order arrived. The target is the item's own
+// preparation time from Tbl_MenuItems.PrepDuration, and
+// Tbl_KduBduPhp.InProAmberWaitingDuration is the PERCENTAGE of that time at
+// which the line turns amber; 100 % of the prep time turns it red.
+const DEFAULT_IN_PROGRESS_AMBER_PERCENT = 80;
+
+type InProgressTiming = {
+  startedAt: string | null;
+  elapsedMinutes: number;
+  targetMinutes: number;
+  amberAtMinutes: number;
+  percentOfTarget: number;
+  level: AlertLevel;
+};
+
+const inProgressTiming = (item: KdsItem, now: number, waitingConfig: KdsWaitingConfig): InProgressTiming => {
+  const startedAt = isUsableTimestamp(item.proStarted) ? item.proStarted : null;
+  const elapsed = startedAt ? elapsedMinutes(startedAt, now) : 0;
+  // The item's own prep time is the red threshold; a kitchen setting can never
+  // stand in for it, because every dish has a different preparation window.
+  const target = Math.max(0, Number(item.prepDuration) || 0);
+  if (target <= 0) {
+    return { startedAt, elapsedMinutes: elapsed, targetMinutes: 0, amberAtMinutes: 0, percentOfTarget: 0, level: 'normal' };
+  }
+  const configuredPercent = Number(waitingConfig.inProgressAmberPercent) || 0;
+  const amberPercent = configuredPercent > 0
+    ? Math.min(100, configuredPercent)
+    : DEFAULT_IN_PROGRESS_AMBER_PERCENT;
+  const amberAt = target * (amberPercent / 100);
+  const level: AlertLevel = elapsed >= target ? 'red' : elapsed >= amberAt ? 'amber' : 'normal';
+  return {
+    startedAt,
+    elapsedMinutes: elapsed,
+    targetMinutes: target,
+    amberAtMinutes: amberAt,
+    percentOfTarget: Math.min(100, Math.round((elapsed / target) * 100)),
+    level,
+  };
+};
+
 const itemAlertLevel = (item: KdsItem, now: number, waitingConfig: KdsWaitingConfig): AlertLevel => {
   // A line without a usable arrival time cannot be "late" — guessing would make
   // a legacy 1900-01-01 row (or a KBDate-only row) trigger red alert speech.
@@ -199,13 +243,8 @@ const itemAlertLevel = (item: KdsItem, now: number, waitingConfig: KdsWaitingCon
     return 'normal';
   }
   if (item.status === 'P') {
-    const prepDuration = waitingConfig.inProgressAmberMinutes > 0
-      ? waitingConfig.inProgressAmberMinutes
-      : Math.max(0, Number(item.prepDuration) || 0);
-    if (prepDuration <= 0) return 'normal';
-    const progressing = elapsedMinutes(item.proStarted || item.placedTime, now);
-    if (progressing >= prepDuration) return 'red';
-    if (progressing >= prepDuration * 0.95) return 'amber';
+    const timing = inProgressTiming(item, now, waitingConfig);
+    return timing.level;
   }
   return 'normal';
 };
@@ -355,8 +394,23 @@ const sameKdsItem = (left: KdsItem, right: KdsItem) => (
 // The backend orders rows oldest-first, so the numbering does not move between
 // polls and card identity survives background refreshes.
 const finalizeKdsItems = (incoming: KdsItem[]): KdsItem[] => {
+  // 1) Drop a repeated projection row. Two lookups on the same key (menu master
+  //    per location, a repeated steward id) can return the identical physical
+  //    KOT/BOT line twice; that is one dish, so it is shown once. A genuinely
+  //    separate line for the same dish carries its own BirthNo, which is part of
+  //    the id, so real repeats above are never removed here.
+  const seenRows = new Set<string>();
+  const uniqueRows = incoming.filter((item) => {
+    const rowKey = `${item.id}|${item.quantity}|${item.remarks}|${item.status}`;
+    if (seenRows.has(rowKey)) return false;
+    seenRows.add(rowKey);
+    return true;
+  });
+
+  // 2) Any remaining id collision (two lines that differ only in quantity or
+  //    remarks) still needs a unique React key, so it gets a stable suffix.
   const idUseCount = new Map<string, number>();
-  return incoming.map((item) => {
+  return uniqueRows.map((item) => {
     const useCount = idUseCount.get(item.id) ?? 0;
     idUseCount.set(item.id, useCount + 1);
     return useCount === 0 ? item : { ...item, id: `${item.id}#${useCount + 1}` };
@@ -376,6 +430,18 @@ const mergeKdsItems = (current: KdsItem[], incoming: KdsItem[]) => {
     });
 };
 
+// The POS working day is the day the kitchen actually serves; the phone's own
+// calendar date can differ just after midnight or when the POS clock drifts.
+const formatBusinessDate = (value: string | null) => {
+  if (!value) return '';
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return '';
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(date.getTime())) return '';
+  const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+};
+
 const cardStyleForAlertLevel = (level: AlertLevel, styles: any) =>
   level === 'red' ? styles.orderCardRed : level === 'amber' ? styles.orderCardAmber : null;
 
@@ -389,25 +455,75 @@ const summarizeOrderAlerts = (orders: KdsOrderGroup[], now: number, waitingConfi
   return summary;
 }, { normal: 0, amber: 0, red: 0 });
 
-type SeveritySummaryProps = { title: string; summary: AlertSummary };
-function SeveritySummary({ title, summary }: SeveritySummaryProps) {
+const SEVERITY_KEYS: AlertLevel[] = ['normal', 'amber', 'red'];
+
+// Blink cadence for a pill that actually carries a warning value.
+const SEVERITY_BLINK_MS = 620;
+
+type SeverityPillProps = { styles: any; severity: AlertLevel; count: number };
+
+/**
+ * One severity counter.
+ *   count = 0  -> outline only: the severity colour on the border and on a
+ *                 centred "0", no fill and no animation.
+ *   count > 0  -> the filled pill blinks as a whole, so a warning count can
+ *                 never sit on screen unnoticed.
+ * NORMAL never blinks: it is the calm state and every board always has some.
+ */
+function SeverityPill({ styles, severity, count }: SeverityPillProps) {
+  const hasValue = count > 0;
+  const shouldBlink = hasValue && severity !== 'normal';
+  const pulse = React.useRef(new Animated.Value(1)).current;
+
+  React.useEffect(() => {
+    if (!shouldBlink) {
+      pulse.stopAnimation();
+      pulse.setValue(1);
+      return undefined;
+    }
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 0.28, duration: SEVERITY_BLINK_MS, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1, duration: SEVERITY_BLINK_MS, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => {
+      loop.stop();
+      pulse.setValue(1);
+    };
+  }, [pulse, shouldBlink]);
+
+  const filledStyle = severity === 'red'
+    ? styles.severityPillRed
+    : severity === 'amber' ? styles.severityPillAmber : styles.severityPillNormal;
+  const emptyStyle = severity === 'red'
+    ? styles.severityPillEmptyRed
+    : severity === 'amber' ? styles.severityPillEmptyAmber : styles.severityPillEmptyNormal;
+  const emptyTextStyle = severity === 'red'
+    ? styles.severityPillTextRed
+    : severity === 'amber' ? styles.severityPillTextAmber : styles.severityPillTextNormal;
+
+  return (
+    <Animated.View
+      style={[styles.severityPill, hasValue ? filledStyle : emptyStyle, { opacity: pulse }]}
+      accessibilityRole="text"
+      accessibilityLabel={`${severity.toUpperCase()} ${count}`}
+    >
+      <Text style={[styles.severityPillLabel, !hasValue && emptyTextStyle]}>{severity.toUpperCase()}</Text>
+      <Text style={[styles.severityPillCount, !hasValue && emptyTextStyle]}>{count}</Text>
+    </Animated.View>
+  );
+}
+
+type SeveritySummaryProps = { title: string; titleColor?: string; summary: AlertSummary };
+function SeveritySummary({ title, titleColor, summary }: SeveritySummaryProps) {
   const { styles } = React.useContext(KdsUiContext);
   return (
     <View style={styles.severitySummary}>
-      <Text style={styles.severitySummaryTitle}>{title}</Text>
+      <Text style={[styles.severitySummaryTitle, titleColor ? { color: titleColor } : null]}>{title}</Text>
       <View style={styles.severityPills}>
-        <View style={[styles.severityPill, styles.severityPillNormal]}>
-          <Text style={styles.severityPillLabel}>NORMAL</Text>
-          <Text style={styles.severityPillCount}>{summary.normal}</Text>
-        </View>
-        <View style={[styles.severityPill, styles.severityPillAmber]}>
-          <Text style={styles.severityPillLabel}>AMBER</Text>
-          <Text style={styles.severityPillCount}>{summary.amber}</Text>
-        </View>
-        <View style={[styles.severityPill, styles.severityPillRed]}>
-          <Text style={styles.severityPillLabel}>RED</Text>
-          <Text style={styles.severityPillCount}>{summary.red}</Text>
-        </View>
+        {SEVERITY_KEYS.map((key) => (
+          <SeverityPill key={key} styles={styles} severity={key} count={summary[key]} />
+        ))}
       </View>
     </View>
   );
@@ -558,6 +674,17 @@ function OrderGroup({
   const takeAway = order.orderMode.toUpperCase().includes('TAKE') || order.tableNo.toUpperCase().startsWith('TA');
   const cardAlertLevel = orderAlertLevel(order, now, waitingConfig);
   const isTodo = status === 'S';
+  const isInProgress = status === 'P';
+  // Every In Progress card is timed from the moment work started, so the card
+  // reports the longest-running line in that order against its own prep time.
+  const inProgressMeta = isInProgress
+    ? order.items.reduce<InProgressTiming | null>((slowest, item) => {
+      const timing = inProgressTiming(item, now, waitingConfig);
+      if (timing.targetMinutes <= 0 && !slowest) return timing;
+      if (!slowest) return timing;
+      return timing.elapsedMinutes > slowest.elapsedMinutes ? timing : slowest;
+    }, null)
+    : null;
   return (
     <View style={[styles.orderCard, cardStyleForAlertLevel(cardAlertLevel, styles)]}>
       <View style={styles.orderHeader}>
@@ -580,9 +707,30 @@ function OrderGroup({
       </View>
       <View style={styles.orderMeta}>
         <Ionicons name="time-outline" size={Math.round(12 * scale)} color={COLORS.textMuted} />
-        <Text style={styles.orderMetaText}>TIME {ageLabel(order.placedTime, now)}</Text>
+        {isInProgress ? (
+          <Text style={[styles.orderMetaText, inProgressMeta?.level === 'red' && styles.orderMetaTextRed, inProgressMeta?.level === 'amber' && styles.orderMetaTextAmber]}>
+            {inProgressMeta && inProgressMeta.targetMinutes > 0
+              ? `IN PROGRESS ${Math.floor(inProgressMeta.elapsedMinutes)} min · TARGET ${Math.round(inProgressMeta.targetMinutes)} min`
+              : 'IN PROGRESS · no prep time set'}
+          </Text>
+        ) : (
+          <Text style={styles.orderMetaText}>TIME {ageLabel(order.placedTime, now)}</Text>
+        )}
         {order.orderMode ? <><View style={styles.orderDot} /><Text style={styles.orderMetaText}>TYPE {order.orderMode}</Text></> : null}
       </View>
+      {/* Elapsed vs the item's own prep time, so the cook can see the window closing. */}
+      {isInProgress && inProgressMeta && inProgressMeta.targetMinutes > 0 ? (
+        <View style={styles.preparationTrack}>
+          <View
+            style={[
+              styles.preparationFill,
+              { width: `${Math.max(3, inProgressMeta.percentOfTarget)}%` },
+              inProgressMeta.level === 'red' ? styles.preparationFillRed
+                : inProgressMeta.level === 'amber' ? styles.preparationFillAmber : null,
+            ]}
+          />
+        </View>
+      ) : null}
       <View style={styles.itemsList}>
         {order.items.map((item) => (
           <KdsOrderItemRow
@@ -834,7 +982,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const [waitingConfig, setWaitingConfig] = useState<KdsWaitingConfig>({
     toDoAmberMinutes: 0,
     toDoRedMinutes: 0,
-    inProgressAmberMinutes: 0,
+    inProgressAmberPercent: 0,
   });
   const kdsQueueType = stationType;
   const [searchQuery, setSearchQuery] = useState('');
@@ -843,6 +991,11 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const voiceAllowedRef = useRef(false);
   const loadRequestRef = useRef(0);
   const soundEnabled = useNotificationStore((state) => state.preferences.soundEnabled);
+  // DONE column window, shared with Settings > System Setting.
+  const doneWindowMinutes = useKdsSettingsStore((state) => state.doneWindowMinutes);
+  const doneWindow = doneWindowOption(doneWindowMinutes);
+  // Business date (Tbl_InvProfile.CurDate) reported by the queue API.
+  const [businessDate, setBusinessDate] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
@@ -887,7 +1040,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
     try {
       // This is a direct API/database request. It does not reload or remount
       // the screen, so manual refresh leaves the active board in place.
-      const response = await apiClient.getKdsOrders(kdsQueueType);
+      const response = await apiClient.getKdsOrders(kdsQueueType, { doneMinutes: doneWindowMinutes });
       if (!response.ok || !response.data?.ok) {
         throw new Error(response.data?.message || `Unable to load the ${stationName.toLowerCase()} queue.`);
       }
@@ -901,12 +1054,16 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         .filter((item: KdsItem) => queueTypeFor(item.type) === kdsQueueType);
       // Every rendered line needs a unique key, whatever the database returns.
       const nextItems = finalizeKdsItems(mappedItems);
+      const reportedBusinessDate = String(response.data?.businessDate ?? '').trim();
+      if (reportedBusinessDate) setBusinessDate(reportedBusinessDate);
       const nextConfig = response.data.waitingConfig;
       if (nextConfig) {
         setWaitingConfig({
           toDoAmberMinutes: Math.max(0, Number(nextConfig.toDoAmberMinutes) || 0),
           toDoRedMinutes: Math.max(0, Number(nextConfig.toDoRedMinutes) || 0),
-          inProgressAmberMinutes: Math.max(0, Number(nextConfig.inProgressAmberMinutes) || 0),
+          inProgressAmberPercent: Math.max(0, Number(
+            nextConfig.inProgressAmberPercent ?? nextConfig.inProgressAmberMinutes,
+          ) || 0),
         });
       }
       setItems((current) => mergeKdsItems(current, nextItems));
@@ -922,7 +1079,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         if (mode === 'manual') setIsRefreshing(false);
       }
     }
-  }, [kdsQueueType, stationName]);
+  }, [doneWindowMinutes, kdsQueueType, stationName]);
 
   useEffect(() => {
     // No background database work is needed when this screen is hidden. On
@@ -1143,6 +1300,11 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
 
   const bulkTodoAllSelected = bulkTodoItems.length > 0
     && bulkTodoItems.every((item) => bulkSelectedTodoIds.includes(item.id));
+
+  // What the supervisor is about to send: how many orders and how many dishes.
+  const bulkSelectedItems = bulkTodoItems.filter((item) => bulkSelectedTodoIds.includes(item.id));
+  const bulkSelectedQuantity = bulkSelectedItems.reduce((total, item) => total + (Number(item.quantity) || 0), 0);
+  const bulkTotalQuantity = bulkTodoItems.reduce((total, item) => total + (Number(item.quantity) || 0), 0);
 
   // Item view: every To Do line, grouped by item (oldest line first). In
   // Progress and Done keep the order layout.
@@ -1431,7 +1593,12 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         <View style={styles.headerCopy}>
           <Text style={styles.headerEyebrow}>LIVE {displayName} QUEUE</Text>
           <Text style={styles.headerTitle}>{stationName} Display</Text>
-          <Text style={styles.headerSub}>Station locked to {stationName} · S = To Do · P = In Progress · D = Done</Text>
+          <View style={styles.headerDateRow}>
+            <Ionicons name="calendar-outline" size={iconSize(12)} color={OperationalColors.accentSoft} />
+            <Text style={styles.headerDateText}>
+              {businessDate ? `BUSINESS DATE ${formatBusinessDate(businessDate)}` : 'BUSINESS DATE —'}
+            </Text>
+          </View>
         </View>
         <TouchableOpacity
           style={styles.dashboardButton}
@@ -1554,7 +1721,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
       </View>
 
       <View style={styles.summaryHeader} pointerEvents={hasTodoSearch ? 'none' : 'auto'}>
-        <SeveritySummary title="TO DO" summary={todoSummary} />
+        <SeveritySummary title="TO DO" titleColor={COLORS.todo} summary={todoSummary} />
         <View style={styles.summaryDivider} />
         <SeveritySummary title="IN PROGRESS" summary={inProgressSummary} />
       </View>
@@ -1573,7 +1740,14 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
             <View key={column.id} style={styles.column}>
               <View style={[styles.columnHeader, { borderBottomColor: `${column.color}45` }]}>
                 <View style={[styles.columnIcon, { backgroundColor: `${column.color}20` }]}><Ionicons name={column.icon} size={iconSize(16)} color={column.color} /></View>
-                <Text style={[styles.columnTitle, { color: column.color }]}>{column.title}</Text>
+                <View style={styles.columnTitleBlock}>
+                  <Text style={[styles.columnTitle, { color: column.color }]}>{column.title}</Text>
+                  {/* The DONE column states the window it is showing, so nobody
+                      has to guess how far back the finished list goes. */}
+                  {column.id === 'D' ? (
+                    <Text style={styles.columnSubtitle}>LAST {doneWindow.short}</Text>
+                  ) : null}
+                </View>
                 <View style={[styles.columnCount, { backgroundColor: column.color }]}><Text style={styles.columnCountText}>{itemCount}</Text></View>
               </View>
               {isLoading && items.length === 0 ? (
@@ -1666,7 +1840,24 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
             >
               <Ionicons name={bulkTodoAllSelected ? 'checkbox' : 'square-outline'} size={iconSize(19)} color={COLORS.blue} />
               <Text style={styles.bulkSelectAllText}>{bulkTodoAllSelected ? 'Clear all' : 'Select all'} ({bulkTodoItems.length})</Text>
+              <View style={styles.bulkTotalChip}>
+                <Text style={styles.bulkTotalChipText}>ALL QTY {bulkTotalQuantity}</Text>
+              </View>
             </TouchableOpacity>
+
+            {/* Live total of the ticked orders, so the quantity is known before sending. */}
+            <View style={[styles.bulkSelectionBar, bulkSelectedItems.length > 0 && styles.bulkSelectionBarActive]}>
+              <Ionicons name="layers-outline" size={iconSize(14)} color={COLORS.blue} />
+              <Text style={styles.bulkSelectionText}>
+                {bulkSelectedItems.length === 0
+                  ? 'Nothing selected yet'
+                  : `${bulkSelectedItems.length} order${bulkSelectedItems.length === 1 ? '' : 's'} selected`}
+              </Text>
+              <View style={styles.bulkSelectionQty}>
+                <Text style={styles.bulkSelectionQtyLabel}>TOTAL QTY</Text>
+                <Text style={styles.bulkSelectionQtyValue}>{bulkSelectedQuantity}</Text>
+              </View>
+            </View>
 
             <ScrollView style={styles.bulkTodoList} contentContainerStyle={styles.bulkTodoListContent} showsVerticalScrollIndicator={false}>
               {bulkTodoItems.map((item) => {
@@ -1704,7 +1895,9 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
               accessibilityLabel="Move selected matching To Do items to In Progress"
             >
               {isBulkTodoMoving ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="play-forward" size={iconSize(18)} color={COLORS.white} />}
-              <Text style={styles.bulkMoveButtonText}>Move {bulkSelectedTodoIds.length} to In Progress</Text>
+              <Text style={styles.bulkMoveButtonText}>
+                Move {bulkSelectedTodoIds.length}{bulkSelectedQuantity > 0 ? ` (${bulkSelectedQuantity} qty)` : ''} to In Progress
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1836,6 +2029,8 @@ const baseStyles = StyleSheet.create({
   headerEyebrow: { color: OperationalColors.border, fontSize: 9, fontWeight: '900', letterSpacing: 0.9 },
   headerTitle: { color: COLORS.white, fontSize: 22, fontWeight: '900', marginTop: 3 },
   headerSub: { color: 'rgba(248,247,245,0.68)', fontSize: 10, lineHeight: 15, marginTop: 3 },
+  headerDateRow: { marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  headerDateText: { color: OperationalColors.accentSoft, fontSize: 10, fontWeight: '900', letterSpacing: 0.7 },
   dashboardButton: { width: 40, height: 40, marginRight: 7, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(248,247,245,0.13)', borderWidth: 1, borderColor: 'rgba(248,247,245,0.16)' },
   refreshButton: { width: 40, height: 40, marginRight: 7, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(248,247,245,0.13)', borderWidth: 1, borderColor: 'rgba(248,247,245,0.16)' },
   unavailableButton: { minHeight: 40, paddingHorizontal: 9, gap: 4, borderRadius: 13, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(248,247,245,0.13)', borderWidth: 1, borderColor: 'rgba(248,247,245,0.16)' },
@@ -1877,17 +2072,28 @@ const baseStyles = StyleSheet.create({
   severitySummary: { flex: 1, minWidth: 0 },
   severitySummaryTitle: { color: COLORS.navy, fontSize: 10, fontWeight: '900', letterSpacing: 0.45 },
   severityPills: { marginTop: 5, flexDirection: 'row', gap: 4 },
-  severityPill: { flex: 1, minWidth: 0, minHeight: 42, paddingHorizontal: 3, paddingVertical: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 7 },
+  // The border is always reserved so filled and outlined pills keep exactly the
+  // same size; only its colour changes between the two states.
+  severityPill: { flex: 1, minWidth: 0, minHeight: 42, paddingHorizontal: 3, paddingVertical: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 7, borderWidth: 1.5, borderColor: 'transparent' },
   severityPillNormal: { backgroundColor: OperationalColors.muted },
   severityPillAmber: { backgroundColor: '#E8A93F' },
   severityPillRed: { backgroundColor: COLORS.danger },
+  // count = 0: outline only, the number sits centred in the severity colour.
+  severityPillEmptyNormal: { backgroundColor: 'transparent', borderColor: '#C9BEB0' },
+  severityPillEmptyAmber: { backgroundColor: 'transparent', borderColor: '#E8A93F' },
+  severityPillEmptyRed: { backgroundColor: 'transparent', borderColor: COLORS.danger },
+  severityPillTextNormal: { color: '#9C8E7A' },
+  severityPillTextAmber: { color: '#B87A16' },
+  severityPillTextRed: { color: COLORS.danger },
   severityPillLabel: { color: COLORS.white, fontSize: 6, fontWeight: '900', letterSpacing: 0.2 },
   severityPillCount: { color: COLORS.white, fontSize: 17, lineHeight: 20, fontWeight: '900', marginTop: 1 },
   board: { flex: 1, flexDirection: 'row', gap: 7, paddingHorizontal: 7, paddingBottom: 7 },
   column: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, backgroundColor: OperationalColors.canvas },
   columnHeader: { minHeight: 49, paddingHorizontal: 7, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1 },
   columnIcon: { width: 27, height: 27, justifyContent: 'center', alignItems: 'center', borderRadius: 9, marginRight: 5 },
-  columnTitle: { flex: 1, fontSize: 10, fontWeight: '900', letterSpacing: 0.15 },
+  columnTitleBlock: { flex: 1, minWidth: 0 },
+  columnTitle: { fontSize: 10, fontWeight: '900', letterSpacing: 0.15 },
+  columnSubtitle: { color: COLORS.textMuted, fontSize: 7, fontWeight: '900', letterSpacing: 0.4, marginTop: 1 },
   columnCount: { minWidth: 21, height: 21, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', borderRadius: 11 },
   columnCountText: { color: COLORS.white, fontSize: 10, fontWeight: '900' },
   columnScroll: { flex: 1 },
@@ -1926,6 +2132,12 @@ const baseStyles = StyleSheet.create({
   tableLabel: { color: COLORS.textMuted, fontSize: 6, fontWeight: '900', letterSpacing: 0.25 },
   tableNumber: { maxWidth: 55, color: COLORS.navy, fontSize: 15, fontWeight: '900', marginTop: 1 },
   orderMeta: { paddingHorizontal: 8, paddingVertical: 6, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
+  orderMetaTextRed: { color: COLORS.danger, fontWeight: '900' },
+  orderMetaTextAmber: { color: '#A86B12', fontWeight: '900' },
+  preparationTrack: { height: 5, marginHorizontal: 8, marginBottom: 7, borderRadius: 3, overflow: 'hidden', backgroundColor: OperationalColors.surfaceAlt },
+  preparationFill: { height: 5, borderRadius: 3, backgroundColor: COLORS.done },
+  preparationFillAmber: { backgroundColor: '#E8A93F' },
+  preparationFillRed: { backgroundColor: COLORS.danger },
   orderMetaText: { color: COLORS.textMuted, fontSize: 8, fontWeight: '600' },
   orderDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: OperationalColors.muted, marginHorizontal: 2 },
   itemsList: { borderTopWidth: 1, borderTopColor: OperationalColors.surfaceAlt },
@@ -1948,6 +2160,14 @@ const baseStyles = StyleSheet.create({
   bulkTodoTitle: { color: COLORS.navy, fontSize: 21, fontWeight: '900', marginTop: 2 },
   bulkTodoHint: { color: COLORS.textMuted, fontSize: 10, lineHeight: 14, marginTop: 4, paddingRight: 8 },
   bulkSelectAllButton: { alignSelf: 'flex-start', minHeight: 33, marginTop: 11, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 9, backgroundColor: COLORS.blueSoft },
+  bulkTotalChip: { marginLeft: 'auto', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, backgroundColor: OperationalColors.surfaceAlt },
+  bulkTotalChipText: { color: COLORS.textMuted, fontSize: 8.5, fontWeight: '900', letterSpacing: 0.3 },
+  bulkSelectionBar: { marginTop: 8, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 10, backgroundColor: OperationalColors.canvas, borderWidth: 1, borderColor: OperationalColors.border },
+  bulkSelectionBarActive: { backgroundColor: OperationalColors.surfaceAlt, borderColor: COLORS.blue },
+  bulkSelectionText: { flex: 1, minWidth: 0, color: COLORS.navy, fontSize: 11, fontWeight: '900' },
+  bulkSelectionQty: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  bulkSelectionQtyLabel: { color: COLORS.textMuted, fontSize: 8, fontWeight: '900', letterSpacing: 0.3 },
+  bulkSelectionQtyValue: { color: COLORS.blue, fontSize: 17, fontWeight: '900' },
   bulkSelectAllText: { color: COLORS.blue, fontSize: 10, fontWeight: '900' },
   bulkTodoList: { marginTop: 10, flexGrow: 0 },
   bulkTodoListContent: { gap: 7, paddingBottom: 8 },

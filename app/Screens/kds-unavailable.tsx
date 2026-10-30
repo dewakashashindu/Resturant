@@ -7,6 +7,7 @@ import {
   Alert,
   FlatList,
   SafeAreaView,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -22,9 +23,32 @@ import { useAuthStore } from '../../services/authStore';
 type MenuAvailabilityItem = {
   menuItemId: string;
   description: string;
+  /** Single-letter main group: F = Foods, B = Beverages, S = Siga, O = Others. */
   category: string;
+  /** Level1 description from the menu card (Vw_MenuAssignment.L1Des). */
+  subCategory: string;
+  subCategoryOrder: number;
   itemAvailable: boolean;
 };
+
+// Main-category tabs, in the same order the menu card uses
+// (/api/menu/main-categories): F, B, S, O, then anything unexpected.
+const MAIN_CATEGORIES: { code: string; label: string; order: number }[] = [
+  { code: 'F', label: 'Foods', order: 1 },
+  { code: 'B', label: 'Beverages', order: 2 },
+  { code: 'S', label: 'Siga', order: 3 },
+  { code: 'O', label: 'Others', order: 4 },
+];
+
+const mainCategoryOf = (category: string) => String(category ?? '').trim().toUpperCase().slice(0, 1);
+
+const mainCategoryLabel = (code: string) => (
+  MAIN_CATEGORIES.find((entry) => entry.code === code)?.label ?? (code || 'Uncategorised')
+);
+
+const mainCategoryOrder = (code: string) => (
+  MAIN_CATEGORIES.find((entry) => entry.code === code)?.order ?? 99
+);
 
 type PendingAvailability = Record<string, boolean>;
 
@@ -52,7 +76,9 @@ const asItem = (row: any): MenuAvailabilityItem | null => {
   return {
     menuItemId,
     description,
-    category: String(row?.Category ?? row?.category ?? '').trim(),
+    category: mainCategoryOf(String(row?.Category ?? row?.category ?? '').trim()),
+    subCategory: String(row?.SubCategory ?? row?.subCategory ?? row?.L1Des ?? '').trim(),
+    subCategoryOrder: Number(row?.SubCategoryOrder ?? row?.subCategoryOrder ?? 0) || 0,
     itemAvailable: hasUnavailableFlag
       ? !(rawUnavailable === true || rawUnavailable === 1 || rawUnavailable === '1')
       : rawAvailable === true || rawAvailable === 1 || rawAvailable === '1',
@@ -165,6 +191,100 @@ export default function KdsUnavailableScreen() {
   );
   const pendingCount = Object.keys(pendingChanges).length;
 
+  // ── Tabs (main category) + accordions (sub-category) ──────────────────────
+  const [activeCategory, setActiveCategory] = useState('');
+  // Every sub-category accordion starts closed, as asked: the supervisor opens
+  // only the group they are working on.
+  const [openSubCategories, setOpenSubCategories] = useState<Record<string, boolean>>({});
+  const hasSearch = searchText.trim().length > 0;
+
+  const itemsByMainCategory = useMemo(() => {
+    const groups = new Map<string, MenuAvailabilityItem[]>();
+    items.forEach((item) => {
+      const code = mainCategoryOf(item.category);
+      const group = groups.get(code);
+      if (group) group.push(item);
+      else groups.set(code, [item]);
+    });
+    return groups;
+  }, [items]);
+
+  const categoryTabs = useMemo(() => [...itemsByMainCategory.entries()]
+    .map(([code, rows]) => ({
+      code,
+      label: mainCategoryLabel(code),
+      count: rows.length,
+      unavailableCount: rows.filter((item) => !(pendingChanges[item.menuItemId] ?? item.itemAvailable)).length,
+    }))
+    .sort((left, right) => mainCategoryOrder(left.code) - mainCategoryOrder(right.code) || left.code.localeCompare(right.code)),
+  [itemsByMainCategory, pendingChanges]);
+
+  // The selected tab falls back to the first tab whenever the current one has
+  // no rows (first load, or a search that only matches another category).
+  const selectedCategory = categoryTabs.some((tab) => tab.code === activeCategory)
+    ? activeCategory
+    : categoryTabs[0]?.code ?? '';
+
+  const subCategoryGroups = useMemo(() => {
+    const rows = itemsByMainCategory.get(selectedCategory) ?? [];
+    const groups = new Map<string, MenuAvailabilityItem[]>();
+    rows.forEach((item) => {
+      const name = item.subCategory || 'Other items';
+      const group = groups.get(name);
+      if (group) group.push(item);
+      else groups.set(name, [item]);
+    });
+    return [...groups.entries()]
+      .map(([name, groupRows]) => ({
+        name,
+        rows: groupRows,
+        // Menu-card listing order first, alphabetical only as a tie-break.
+        order: Math.min(...groupRows.map((item) => item.subCategoryOrder || Number.MAX_SAFE_INTEGER)),
+        unavailableCount: groupRows.filter((item) => !(pendingChanges[item.menuItemId] ?? item.itemAvailable)).length,
+      }))
+      .sort((left, right) => (left.order - right.order) || left.name.localeCompare(right.name));
+  }, [itemsByMainCategory, pendingChanges, selectedCategory]);
+
+  const subCategoryKey = (name: string) => `${selectedCategory}|${name}`;
+
+  // A search always expands every matching sub-category, otherwise the result
+  // would stay folded inside a closed accordion.
+  const isSubCategoryOpen = (name: string) => hasSearch || Boolean(openSubCategories[subCategoryKey(name)]);
+
+  const toggleSubCategory = (name: string) => {
+    if (hasSearch) return;
+    const key = subCategoryKey(name);
+    setOpenSubCategories((current) => ({ ...current, [key]: !current[key] }));
+  };
+
+  type AvailabilityRow =
+    | { kind: 'header'; key: string; name: string; count: number; unavailableCount: number; open: boolean }
+    | { kind: 'item'; key: string; item: MenuAvailabilityItem };
+
+  // A flat render list keeps the FlatList (and its recycling) while still
+  // drawing one collapsible header per sub-category.
+  const availabilityRows = useMemo<AvailabilityRow[]>(() => {
+    const rows: AvailabilityRow[] = [];
+    subCategoryGroups.forEach((group) => {
+      const open = isSubCategoryOpen(group.name);
+      rows.push({
+        kind: 'header',
+        key: `sub:${group.name}`,
+        name: group.name,
+        count: group.rows.length,
+        unavailableCount: group.unavailableCount,
+        open,
+      });
+      if (!open) return;
+      group.rows.forEach((item) => {
+        rows.push({ kind: 'item', key: `item:${item.menuItemId}`, item });
+      });
+    });
+    return rows;
+  }, [subCategoryGroups, hasSearch, openSubCategories, selectedCategory]);
+
+  const selectedTab = categoryTabs.find((tab) => tab.code === selectedCategory);
+
   return (
     <SafeAreaView style={styles.screen}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.navy} />
@@ -214,19 +334,79 @@ export default function KdsUnavailableScreen() {
         ) : null}
       </View>
 
+      <View style={styles.tabBar}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabBarContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {categoryTabs.map((tab) => {
+            const isActive = tab.code === selectedCategory;
+            return (
+              <TouchableOpacity
+                key={tab.code}
+                style={[styles.tab, isActive && styles.tabActive]}
+                activeOpacity={0.82}
+                onPress={() => setActiveCategory(tab.code)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={`${tab.label}, ${tab.count} items`}
+              >
+                <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
+                <View style={[styles.tabCount, isActive && styles.tabCountActive]}>
+                  <Text style={[styles.tabCountText, isActive && styles.tabCountTextActive]}>{tab.count}</Text>
+                </View>
+                {tab.unavailableCount > 0 ? <View style={styles.tabAlertDot} /> : null}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
       <View style={styles.listCaption}>
-        <Text style={styles.listCaptionText}>{isLoading ? 'Loading items…' : `${items.length} menu item${items.length === 1 ? '' : 's'}`}</Text>
+        <Text style={styles.listCaptionText}>
+          {isLoading
+            ? 'Loading items…'
+            : `${selectedTab?.count ?? 0} menu item${(selectedTab?.count ?? 0) === 1 ? '' : 's'} · ${subCategoryGroups.length} sub-categor${subCategoryGroups.length === 1 ? 'y' : 'ies'}`}
+        </Text>
         {visibleUnavailableCount > 0 ? <Text style={styles.unavailableCount}>{visibleUnavailableCount} unavailable</Text> : null}
       </View>
 
       <FlatList
-        data={items}
-        keyExtractor={(item) => item.menuItemId}
+        data={availabilityRows}
+        keyExtractor={(row) => row.key}
         contentContainerStyle={items.length === 0 && !isLoading ? styles.emptyList : styles.listContent}
         keyboardShouldPersistTaps="handled"
         refreshing={isRefreshing}
         onRefresh={() => void loadItems(searchText, true)}
-        renderItem={({ item }) => {
+        renderItem={({ item: row }) => {
+          if (row.kind === 'header') {
+            return (
+              <TouchableOpacity
+                style={[styles.categoryHeader, row.open && styles.categoryHeaderOpen]}
+                activeOpacity={0.8}
+                onPress={() => toggleSubCategory(row.name)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: row.open }}
+                accessibilityLabel={`${row.name}, ${row.count} items, ${row.open ? 'collapse' : 'expand'}`}
+              >
+                <Ionicons
+                  name={row.open ? 'chevron-down' : 'chevron-forward'}
+                  size={16}
+                  color={COLORS.blue}
+                />
+                <Text style={styles.categoryName} numberOfLines={1}>{row.name}</Text>
+                <View style={styles.categoryCount}><Text style={styles.categoryCountText}>{row.count}</Text></View>
+                {row.unavailableCount > 0 ? (
+                  <View style={styles.categoryUnavailable}>
+                    <Text style={styles.categoryUnavailableText}>{row.unavailableCount} unavailable</Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            );
+          }
+          const item = row.item;
           const itemAvailable = pendingChanges[item.menuItemId] ?? item.itemAvailable;
           const isUnavailable = !itemAvailable;
           const hasPendingChange = Object.prototype.hasOwnProperty.call(pendingChanges, item.menuItemId);
@@ -247,7 +427,6 @@ export default function KdsUnavailableScreen() {
                 <Text style={[styles.itemName, isUnavailable && styles.itemNameUnavailable]}>{item.description}</Text>
                 <View style={styles.itemDetailRow}>
                   <Text style={styles.itemCode}>{item.menuItemId}</Text>
-                  {item.category ? <Text style={styles.itemCategory}>{item.category}</Text> : null}
                   {hasPendingChange ? <Text style={styles.pendingText}>NOT SAVED</Text> : null}
                 </View>
               </View>
@@ -309,6 +488,24 @@ const styles = StyleSheet.create({
   unavailableCount: { marginLeft: 'auto', color: COLORS.unavailable, fontSize: 11, fontWeight: '900' },
   listContent: { paddingHorizontal: 14, paddingBottom: 122, gap: 8 },
   emptyList: { flexGrow: 1, justifyContent: 'center', paddingBottom: 130 },
+  tabBar: { paddingTop: 11, borderBottomWidth: 1, borderBottomColor: OperationalColors.border, backgroundColor: COLORS.white },
+  tabBarContent: { paddingHorizontal: 14, paddingBottom: 9, gap: 7 },
+  tab: { minHeight: 36, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 10, backgroundColor: COLORS.background, borderWidth: 1, borderColor: OperationalColors.border },
+  tabActive: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
+  tabLabel: { color: COLORS.text, fontSize: 12, fontWeight: '900' },
+  tabLabelActive: { color: COLORS.white },
+  tabCount: { minWidth: 20, paddingHorizontal: 5, paddingVertical: 1, alignItems: 'center', borderRadius: 6, backgroundColor: OperationalColors.surfaceAlt },
+  tabCountActive: { backgroundColor: 'rgba(248,247,245,0.22)' },
+  tabCountText: { color: COLORS.muted, fontSize: 9, fontWeight: '900' },
+  tabCountTextActive: { color: COLORS.white },
+  tabAlertDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.unavailable },
+  categoryHeader: { minHeight: 42, marginTop: 4, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 11, backgroundColor: OperationalColors.surfaceAlt, borderWidth: 1, borderColor: OperationalColors.border },
+  categoryHeaderOpen: { backgroundColor: COLORS.white },
+  categoryName: { flex: 1, minWidth: 0, color: COLORS.text, fontSize: 11, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+  categoryCount: { minWidth: 22, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, alignItems: 'center', backgroundColor: COLORS.white, borderWidth: 1, borderColor: OperationalColors.border },
+  categoryCountText: { color: COLORS.muted, fontSize: 9, fontWeight: '900' },
+  categoryUnavailable: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: COLORS.unavailableSoft },
+  categoryUnavailableText: { color: COLORS.unavailable, fontSize: 8, fontWeight: '900' },
   itemRow: { minHeight: 69, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: OperationalColors.border, borderRadius: 14, backgroundColor: COLORS.white },
   itemRowUnavailable: { borderColor: '#F0C9C4', backgroundColor: '#FFF8F7' },
   itemRowPending: { borderColor: '#E7B978', borderWidth: 1.5 },
