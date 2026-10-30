@@ -1583,6 +1583,10 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
       const failed = results.find((response) => !response.ok || !response.data?.ok);
       if (failed) throw new Error(failed.data?.message || 'One or more selected item statuses could not be saved.');
       setSelectedItemIds([]);
+      // The move is what the supervisor opened the popup for, so close it as
+      // soon as the server confirms — no extra tap. The board behind it has
+      // already been updated optimistically and is refreshed just below.
+      setSelectedOrderKey(null);
       await loadOrders('background');
     } catch (error) {
       console.log('[KDS] selected status update failed', error);
@@ -1625,6 +1629,9 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
             </Text>
           </View>
         </View>
+        {/* Statistics dashboard: a separate read-only screen, so the live board
+            itself keeps polling untouched. The older day-end report button was
+            removed — the dashboard covers it with its date presets. */}
         <TouchableOpacity
           style={styles.dashboardButton}
           onPress={() => router.push({ pathname: '/Screens/kds-dashboard', params: { type: kdsQueueType } })}

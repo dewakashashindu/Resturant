@@ -239,6 +239,10 @@ function AuthGate() {
           options={{ headerShown: false, ...((largeDisplayDevice ? {} : { orientation: 'default' }) as any) }}
         />
         <Stack.Screen
+          name="Screens/kds-day-report"
+          options={{ headerShown: false, ...((largeDisplayDevice ? {} : { orientation: 'default' }) as any) }}
+        />
+        <Stack.Screen
           name="Screens/kds-dashboard"
           options={{ headerShown: false, ...((largeDisplayDevice ? {} : { orientation: 'default' }) as any) }}
         />

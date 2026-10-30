@@ -1994,6 +1994,231 @@ const normalizeKdsProStatus = (value) => {
   return status === 'P' || status === 'D' ? status : 'S';
 };
 
+
+// ─── KDS / BDS day-end historical report ────────────────────────────────────
+// A read-only analysis of ONE business day: every KOT/BOT line of that day is
+// classified with the same rules the live board uses (To Do thresholds in
+// minutes, In Progress in % of the item's own prep time), then rolled up to
+// order level. Nothing here touches the live queue, and every read is NOLOCK so
+// the report can never block a steward who is saving a bill.
+const KDS_REPORT_AMBER_FALLBACK_PERCENT = 80;
+
+/** Round to one decimal without dragging floating point noise along. */
+const kdsRound1 = (value) => Math.round((Number(value) || 0) * 10) / 10;
+
+const kdsDayReportHandler = async (req, res) => {
+  try {
+    const requestedType = String(req.query.type ?? '').trim().toUpperCase().slice(0, 1);
+    if (!['K', 'B'].includes(requestedType)) {
+      return res.status(400).json({ ok: false, message: "type must be 'K' (kitchen) or 'B' (bar)." });
+    }
+
+    const pool = await poolPromise;
+    // Default is the POS working day, ?date=YYYY-MM-DD reads any earlier day.
+    const businessDate = await kdsBusinessDateOf(pool, req.query.date);
+
+    const configResult = await pool.request().query(`
+      SELECT TOP (1)
+        CAST(ToDoAmberWaitingDuration AS float) AS ToDoAmberWaitingDuration,
+        CAST(ToDoRedWaitingDuration AS float)   AS ToDoRedWaitingDuration,
+        CAST(InProAmberWaitingDuration AS float) AS InProAmberWaitingDuration
+      FROM dbo.Tbl_KduBduPhp WITH (NOLOCK)
+    `);
+    const configRow = configResult.recordset?.[0] ?? {};
+    const toDoAmberMinutes = Math.max(0, Number(configRow.ToDoAmberWaitingDuration) || 0);
+    const toDoRedMinutes = Math.max(0, Number(configRow.ToDoRedWaitingDuration) || 0);
+    const rawAmberPercent = Math.max(0, Number(configRow.InProAmberWaitingDuration) || 0);
+    const amberPercent = rawAmberPercent > 0 ? rawAmberPercent : KDS_REPORT_AMBER_FALLBACK_PERCENT;
+
+    const effectivePlaced = KDS_EFFECTIVE_PLACED_SQL('k');
+    const result = await pool.request()
+      .input('Type', sql.VarChar(2), requestedType)
+      .input('BusinessDate', sql.VarChar(10), businessDate)
+      .query(`
+        SELECT
+          LTRIM(RTRIM(k.OrderNo))   AS OrderNo,
+          LTRIM(RTRIM(k.TableNo))   AS TableNo,
+          LTRIM(RTRIM(k.Invoiceno)) AS InvoiceNo,
+          LTRIM(RTRIM(ISNULL(k.ProStatus, 'S'))) AS ProStatus,
+          -- Minutes spent waiting for the kitchen to start the line.
+          CAST(CASE
+            WHEN ${effectivePlaced} >= ${KDS_LEGACY_DATETIME_SQL}
+             AND k.ProStarted >= ${KDS_LEGACY_DATETIME_SQL}
+              THEN DATEDIFF(SECOND, ${effectivePlaced}, k.ProStarted) / 60.0
+            WHEN ${effectivePlaced} >= ${KDS_LEGACY_DATETIME_SQL}
+              THEN DATEDIFF(SECOND, ${effectivePlaced},
+                     CASE WHEN k.ProDone >= ${KDS_LEGACY_DATETIME_SQL} THEN k.ProDone ELSE GETDATE() END) / 60.0
+            ELSE NULL
+          END AS float) AS WaitMinutes,
+          -- Minutes spent actually preparing it (start -> done).
+          CAST(CASE
+            WHEN k.ProStarted >= ${KDS_LEGACY_DATETIME_SQL}
+             AND k.ProDone >= ${KDS_LEGACY_DATETIME_SQL}
+              THEN DATEDIFF(SECOND, k.ProStarted, k.ProDone) / 60.0
+            WHEN k.ProStarted >= ${KDS_LEGACY_DATETIME_SQL}
+              THEN DATEDIFF(SECOND, k.ProStarted, GETDATE()) / 60.0
+            ELSE ISNULL(k.ProDuration, 0)
+          END AS float) AS ExecMinutes,
+          CAST(ISNULL(m.PrepDuration, 0) AS float) AS PrepDuration
+        FROM dbo.Tbl_KOTBOTHeder k WITH (NOLOCK)
+        -- One deterministic menu row per item code; a plain JOIN would repeat
+        -- the line once per price/location version and double the counts.
+        OUTER APPLY (
+          SELECT TOP (1) CAST(ISNULL(mi.PrepDuration, 0) AS float) AS PrepDuration
+          FROM dbo.Tbl_MenuItems mi WITH (NOLOCK)
+          WHERE LTRIM(RTRIM(mi.MenuItmId)) = LTRIM(RTRIM(k.ItemCode))
+          ORDER BY LTRIM(RTRIM(mi.MenuItmDes)) ASC
+        ) m
+        WHERE (@Type = '' OR LEFT(UPPER(LTRIM(RTRIM(k.[Type]))), 1) = @Type)
+          -- Historical day: the live board's DocketPrinted = 'N' guard is NOT
+          -- applied here, because a settled docket is exactly what we want.
+          AND (
+            ${kdsDayKeySql('k.KBDate')} = @BusinessDate
+            OR ${kdsDayKeySql('k.TxnDate')} = @BusinessDate
+          )
+      `);
+
+    const lines = result.recordset ?? [];
+    const orders = new Map();
+    const RANK = { normal: 0, amber: 1, red: 2 };
+
+    lines.forEach((row) => {
+      const orderKey = `${String(row.OrderNo ?? '').trim()}|${String(row.TableNo ?? '').trim()}|${String(row.InvoiceNo ?? '').trim()}`;
+      const waitMinutes = Number(row.WaitMinutes);
+      const execMinutes = Number(row.ExecMinutes);
+      const prepMinutes = Math.max(0, Number(row.PrepDuration) || 0);
+      const hasWait = Number.isFinite(waitMinutes);
+      const hasExec = Number.isFinite(execMinutes);
+
+      // ── Phase 1: how long the line sat in TO DO ───────────────────────────
+      // Absolute minute thresholds from Tbl_KduBduPhp, exactly like the board.
+      const waitRed = toDoRedMinutes > 0 && hasWait && waitMinutes >= toDoRedMinutes;
+      const waitAmber = toDoAmberMinutes > 0 && hasWait && waitMinutes >= toDoAmberMinutes;
+      const todoLevel = waitRed ? 'red' : waitAmber ? 'amber' : 'normal';
+
+      // ── Phase 2: how long it took once IN PROGRESS ────────────────────────
+      // Percentage of the dish's own prep time, exactly like the board.
+      const execRed = prepMinutes > 0 && hasExec && execMinutes >= prepMinutes;
+      const execAmber = prepMinutes > 0 && hasExec && execMinutes >= (prepMinutes * amberPercent) / 100;
+      const progressLevel = execRed ? 'red' : execAmber ? 'amber' : 'normal';
+
+      const level = RANK[todoLevel] > RANK[progressLevel] ? todoLevel : progressLevel;
+
+      // How far past its own target the line finished: prep time when the dish
+      // has one, otherwise the To Do red threshold.
+      const target = prepMinutes > 0 ? prepMinutes : toDoRedMinutes > 0 ? toDoRedMinutes : toDoAmberMinutes;
+      const spent = (hasWait ? waitMinutes : 0) + (hasExec ? execMinutes : 0);
+      const overdueMinutes = target > 0 ? Math.max(0, spent - target) : 0;
+
+      const previous = orders.get(orderKey) ?? {
+        orderNo: String(row.OrderNo ?? '').trim(),
+        tableNo: String(row.TableNo ?? '').trim(),
+        invoiceNo: String(row.InvoiceNo ?? '').trim(),
+        level: 'normal',
+        todoLevel: 'normal',
+        progressLevel: 'normal',
+        completed: true,
+        maxWaitMinutes: 0,
+        maxExecMinutes: 0,
+        overdueMinutes: 0,
+        lines: 0,
+      };
+      previous.lines += 1;
+      // Each phase keeps its own worst line, so "amber in To Do" and "amber in
+      // In Progress" are measured independently — an order can be amber in
+      // both, or red in one and clean in the other.
+      previous.todoLevel = RANK[todoLevel] > RANK[previous.todoLevel] ? todoLevel : previous.todoLevel;
+      previous.progressLevel = RANK[progressLevel] > RANK[previous.progressLevel] ? progressLevel : previous.progressLevel;
+      previous.level = RANK[level] > RANK[previous.level] ? level : previous.level;
+      previous.completed = previous.completed && String(row.ProStatus ?? '').toUpperCase() === 'D';
+      previous.maxWaitMinutes = Math.max(previous.maxWaitMinutes, hasWait ? waitMinutes : 0);
+      previous.maxExecMinutes = Math.max(previous.maxExecMinutes, hasExec ? execMinutes : 0);
+      previous.overdueMinutes = Math.max(previous.overdueMinutes, overdueMinutes);
+      orders.set(orderKey, previous);
+    });
+
+    const orderList = [...orders.values()];
+    const totalOrders = orderList.length;
+    const percentOf = (value, total) => (total > 0 ? Math.round((value / total) * 1000) / 10 : 0);
+    const countLevel = (phase, level) => orderList.filter((order) => order[phase] === level).length;
+
+    // The four KPI numbers the board asks for: amber/red split by phase.
+    const todoAmber = countLevel('todoLevel', 'amber');
+    const todoRed = countLevel('todoLevel', 'red');
+    const progressAmber = countLevel('progressLevel', 'amber');
+    const progressRed = countLevel('progressLevel', 'red');
+
+    const escalated = orderList.filter((order) => order.level !== 'normal');
+    const completedOrders = orderList.filter((order) => order.completed).length;
+    const completedUnderAlert = escalated.filter((order) => order.completed).length;
+    const overdueSum = escalated.reduce((total, order) => total + order.overdueMinutes, 0);
+
+    const worstOrders = [...escalated]
+      .sort((a, b) => b.overdueMinutes - a.overdueMinutes || b.maxWaitMinutes - a.maxWaitMinutes)
+      .slice(0, 8)
+      .map((order) => ({
+        orderNo: order.orderNo,
+        tableNo: order.tableNo,
+        level: order.level,
+        todoLevel: order.todoLevel,
+        progressLevel: order.progressLevel,
+        completed: order.completed,
+        waitMinutes: kdsRound1(order.maxWaitMinutes),
+        prepMinutes: kdsRound1(order.maxExecMinutes),
+        overdueMinutes: kdsRound1(order.overdueMinutes),
+      }));
+
+    return res.json({
+      ok: true,
+      type: requestedType,
+      date: businessDate,
+      source: 'Tbl_KOTBOTHeder (NOLOCK)',
+      waitingConfig: {
+        toDoAmberMinutes,
+        toDoRedMinutes,
+        inProgressAmberPercent: amberPercent,
+      },
+      totals: {
+        orders: totalOrders,
+        lines: lines.length,
+        completedOrders,
+        completedNotDone: totalOrders - completedOrders,
+      },
+      kpi: {
+        // ── the four cards ────────────────────────────────────────────────
+        todo: {
+          amberOrders: todoAmber,
+          amberPercent: percentOf(todoAmber, totalOrders),
+          redOrders: todoRed,
+          redPercent: percentOf(todoRed, totalOrders),
+          normalOrders: totalOrders - todoAmber - todoRed,
+          normalPercent: percentOf(totalOrders - todoAmber - todoRed, totalOrders),
+        },
+        inProgress: {
+          amberOrders: progressAmber,
+          amberPercent: percentOf(progressAmber, totalOrders),
+          redOrders: progressRed,
+          redPercent: percentOf(progressRed, totalOrders),
+          normalOrders: totalOrders - progressAmber - progressRed,
+          normalPercent: percentOf(totalOrders - progressAmber - progressRed, totalOrders),
+        },
+        // ── day context used by the summary row and the footnotes ─────────
+        escalatedOrders: escalated.length,
+        escalatedPercent: percentOf(escalated.length, totalOrders),
+        completedUnderAlert,
+        completedUnderAlertPercent: percentOf(completedUnderAlert, escalated.length),
+        avgOverdueMinutes: escalated.length > 0 ? kdsRound1(overdueSum / escalated.length) : 0,
+      },
+      worstOrders,
+    });
+  } catch (error) {
+    console.log('[KDS] day report error', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+};
+
+app.get('/api/kds/day-report', kdsDayReportHandler);
+
 app.get('/api/kds/orders', async (req, res) => {
   try {
     // KDS queue switch uses the first Type character: K = Kitchen, B = Bar.
@@ -2229,7 +2454,7 @@ app.get('/api/kds/dashboard', async (req, res) => {
         toDate = new Date(Date.parse(`${fromDate}T00:00:00Z`) + 62 * MS_PER_DAY).toISOString().slice(0, 10);
       }
     }
-    const dashboardColumns = (src, itemNameExpr) => `
+    const dashboardColumns = (src, itemNameExpr, prepExpr = '0') => `
           LTRIM(RTRIM(${src}.OrderNo)) AS OrderNo,
           LTRIM(RTRIM(${src}.OrderMode)) AS OrderMode,
           LTRIM(RTRIM(${src}.TableNo)) AS TableNo,
@@ -2239,6 +2464,7 @@ app.get('/api/kds/dashboard', async (req, res) => {
           ${itemNameExpr} AS ItemName,
           CAST(${src}.ItmQty AS float) AS ItmQty,
           LTRIM(RTRIM(ISNULL(${src}.ProStatus, 'S'))) AS ProStatus,
+          CAST(${prepExpr} AS float) AS PrepDuration,
           ${src}.KBDate,
           ${src}.PlacedTime,
           ${src}.ProStarted,
@@ -2254,13 +2480,14 @@ app.get('/api/kds/dashboard', async (req, res) => {
               AND CONVERT(varchar(10), ${src}.PlacedTime, 120) BETWEEN @From AND @To))`;
 
     const baseTableQuery = () => `
-        SELECT${dashboardColumns('h', "LTRIM(RTRIM(COALESCE(NULLIF(m.MenuItmDes, ''), h.ItemCode)))")}
+        SELECT${dashboardColumns('h', "LTRIM(RTRIM(COALESCE(NULLIF(m.MenuItmDes, ''), h.ItemCode)))", 'ISNULL(m.PrepDuration, 0)')}
         FROM dbo.Tbl_KOTBOTHeder h WITH (NOLOCK)
         -- TOP (1) for the same reason as the live queue: a repeated MenuItmId
         -- in the menu master would otherwise duplicate rows and double-count
         -- quantities in the station dashboard totals.
         OUTER APPLY (
-          SELECT TOP (1) LTRIM(RTRIM(m.MenuItmDes)) AS MenuItmDes
+          SELECT TOP (1) LTRIM(RTRIM(m.MenuItmDes)) AS MenuItmDes,
+                 ISNULL(m.PrepDuration, 0) AS PrepDuration
           FROM dbo.Tbl_MenuItems m WITH (NOLOCK)
           WHERE LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(h.ItemCode))
           ORDER BY LTRIM(RTRIM(m.MenuItmDes)) ASC
@@ -2393,6 +2620,114 @@ app.get('/api/kds/dashboard', async (req, res) => {
       }
     }
 
+    // ── Amber / Red severity ──────────────────────────────────────────────
+    // Same two rules as the live board, so the dashboard can never disagree
+    // with what the kitchen actually saw:
+    //   TO DO        : waiting minutes vs the absolute To Do thresholds
+    //   IN PROGRESS  : prep minutes vs a % of the dish's own PrepDuration
+    // Both phases are measured for every order, because an order can be amber
+    // while waiting AND red while being prepared.
+    let toDoAmberMinutes = 0;
+    let toDoRedMinutes = 0;
+    let inProAmberPercent = KDS_REPORT_AMBER_FALLBACK_PERCENT;
+    try {
+      const configResult = await pool.request().query(`
+        SELECT TOP (1)
+          CAST(ToDoAmberWaitingDuration AS float) AS ToDoAmberWaitingDuration,
+          CAST(ToDoRedWaitingDuration AS float)   AS ToDoRedWaitingDuration,
+          CAST(InProAmberWaitingDuration AS float) AS InProAmberWaitingDuration
+        FROM dbo.Tbl_KduBduPhp WITH (NOLOCK)
+      `);
+      const configRow = configResult.recordset?.[0] ?? {};
+      toDoAmberMinutes = Math.max(0, Number(configRow.ToDoAmberWaitingDuration) || 0);
+      toDoRedMinutes = Math.max(0, Number(configRow.ToDoRedWaitingDuration) || 0);
+      const configuredPercent = Math.max(0, Number(configRow.InProAmberWaitingDuration) || 0);
+      inProAmberPercent = configuredPercent > 0 ? configuredPercent : KDS_REPORT_AMBER_FALLBACK_PERCENT;
+    } catch (error) {
+      console.log('[KDS] dashboard severity config failed:', error?.message ?? error);
+    }
+
+    const SEVERITY_RANK = { normal: 0, amber: 1, red: 2 };
+    const severityByOrder = new Map();
+    const nowMs = Date.now();
+
+    for (const row of rows) {
+      const key = orderKeyOf(row);
+      const waitStartMs = kdsMillisOf(row.PlacedTime) ?? kdsMillisOf(row.KBDate);
+      const startedMs = kdsMillisOf(row.ProStarted);
+      const doneMs = kdsMillisOf(row.ProDone);
+      const prepMinutes = Math.max(0, Number(row.PrepDuration ?? 0) || 0);
+
+      // Waiting time: arrival → start. A line that never started is still
+      // waiting, so "now" is used and it can legitimately turn amber/red.
+      const waitMinutes = waitStartMs != null
+        ? ((startedMs ?? nowMs) - waitStartMs) / 60000
+        : null;
+      const execMinutes = startedMs != null ? ((doneMs ?? nowMs) - startedMs) / 60000 : null;
+
+      const waitRed = toDoRedMinutes > 0 && waitMinutes != null && waitMinutes >= toDoRedMinutes;
+      const waitAmber = toDoAmberMinutes > 0 && waitMinutes != null && waitMinutes >= toDoAmberMinutes;
+      const todoLevel = waitRed ? 'red' : waitAmber ? 'amber' : 'normal';
+
+      const execRed = prepMinutes > 0 && execMinutes != null && execMinutes >= prepMinutes;
+      const execAmber = prepMinutes > 0 && execMinutes != null && execMinutes >= (prepMinutes * inProAmberPercent) / 100;
+      const progressLevel = execRed ? 'red' : execAmber ? 'amber' : 'normal';
+
+      // "Completed" is per order, decided in the loop below; here the line
+      // records whether it is still open, which is what the stuck counter needs.
+      const previous = severityByOrder.get(key) ?? {
+        todoLevel: 'normal',
+        progressLevel: 'normal',
+        openLines: 0,
+      };
+      previous.todoLevel = SEVERITY_RANK[todoLevel] > SEVERITY_RANK[previous.todoLevel] ? todoLevel : previous.todoLevel;
+      previous.progressLevel = SEVERITY_RANK[progressLevel] > SEVERITY_RANK[previous.progressLevel] ? progressLevel : previous.progressLevel;
+      if (normalizeKdsProStatus(row.ProStatus) !== 'D') previous.openLines += 1;
+      severityByOrder.set(key, previous);
+    }
+
+    const severityOrders = [...severityByOrder.values()];
+    const severityTotal = severityOrders.length;
+    const finishedOrders = severityOrders.filter((order) => order.openLines === 0).length;
+    // Percentages are a share of EVERY order in the selected range (the day the
+    // user picked), not of the finished ones — so the four numbers add up to
+    // "how much of that day's work went wrong".
+    const percentOfTotal = (value) => (severityTotal > 0 ? Math.round((value / severityTotal) * 1000) / 10 : 0);
+
+    // Per phase the two colours are MUTUALLY EXCLUSIVE: the card shows the
+    // order's worst level in that phase, so an order that reached red appears
+    // only in the red card. (An order can still be amber in To Do and red in
+    // In Progress — those are two different cards, not a duplicate.)
+    const severityBucket = (phase, level) => {
+      const matched = severityOrders.filter((order) => order[phase] === level);
+      const completed = matched.filter((order) => order.openLines === 0).length;
+      return {
+        completed,
+        open: matched.length - completed,
+        total: matched.length,
+        percent: percentOfTotal(matched.length),
+      };
+    };
+
+    const alertHistory = {
+      totalOrders: severityTotal,
+      completedOrders: finishedOrders,
+      openOrders: severityTotal - finishedOrders,
+      thresholds: {
+        toDoAmberMinutes,
+        toDoRedMinutes,
+        inProgressAmberPercent: inProAmberPercent,
+      },
+      todo: {
+        amber: severityBucket('todoLevel', 'amber'),
+        red: severityBucket('todoLevel', 'red'),
+      },
+      inProgress: {
+        amber: severityBucket('progressLevel', 'amber'),
+        red: severityBucket('progressLevel', 'red'),
+      },
+    };
+
     const topItems = [...itemTotals.values()]
       .sort((left, right) => right.quantity - left.quantity || left.itemName.localeCompare(right.itemName))
       .slice(0, 8)
@@ -2447,6 +2782,7 @@ app.get('/api/kds/dashboard', async (req, res) => {
         lines: rows.length,
       },
       statusCounts,
+      alertHistory,
       modeCounts,
       otherModes: [...rawModeCounts.entries()]
         .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))

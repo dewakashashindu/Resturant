@@ -26,6 +26,7 @@ export const ROTATABLE_ROUTES = [
   // Pages reached from the board keep the board's behaviour.
   '/Screens/kds-unavailable',
   '/Screens/kds-dashboard',
+  '/Screens/kds-day-report',
   // Sign-in flow — a steward can type the password in either position.
   '/auth/login',
   '/auth/signup',

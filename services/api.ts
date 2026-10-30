@@ -912,6 +912,25 @@ export const apiClient = {
     }
   },
 
+  /**
+   * Day-end historical KPI report for one business day.
+   * `type` is 'K' (kitchen) or 'B' (bar); `date` is a YYYY-MM-DD POS business
+   * date. Omit `date` to read the current business day (Tbl_InvProfile.CurDate).
+   */
+  getKdsDayReport: async (type: 'K' | 'B', date?: string) => {
+    try {
+      const query = new URLSearchParams();
+      query.set('type', type);
+      if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) query.set('date', date);
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/kds/day-report?${query.toString()}`);
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] getKdsDayReport failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
   getKdsDashboard: async (type?: string, range?: { from?: string; to?: string; all?: boolean }) => {
     try {
       const query = new URLSearchParams();

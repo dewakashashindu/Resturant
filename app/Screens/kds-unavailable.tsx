@@ -13,6 +13,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -185,10 +186,6 @@ export default function KdsUnavailableScreen() {
     }
   };
 
-  const visibleUnavailableCount = useMemo(
-    () => items.filter((item) => !(pendingChanges[item.menuItemId] ?? item.itemAvailable)).length,
-    [items, pendingChanges],
-  );
   const pendingCount = Object.keys(pendingChanges).length;
 
   // ── Tabs (main category) + accordions (sub-category) ──────────────────────
@@ -197,6 +194,9 @@ export default function KdsUnavailableScreen() {
   // only the group they are working on.
   const [openSubCategories, setOpenSubCategories] = useState<Record<string, boolean>>({});
   const hasSearch = searchText.trim().length > 0;
+  // "Unavailable only": a one-tap filter so the supervisor can pull out just the
+  // items that are currently marked unavailable (saved or not-yet-saved).
+  const [onlyUnavailable, setOnlyUnavailable] = useState(false);
 
   const itemsByMainCategory = useMemo(() => {
     const groups = new Map<string, MenuAvailabilityItem[]>();
@@ -245,14 +245,30 @@ export default function KdsUnavailableScreen() {
       .sort((left, right) => (left.order - right.order) || left.name.localeCompare(right.name));
   }, [itemsByMainCategory, pendingChanges, selectedCategory]);
 
+  // With the filter on, a group only survives if it still holds an unavailable
+  // item, and it only lists those items.
+  const visibleGroups = useMemo(() => {
+    if (!onlyUnavailable) return subCategoryGroups;
+    return subCategoryGroups
+      .map((group) => {
+        const rows = group.rows.filter((item) => !(pendingChanges[item.menuItemId] ?? item.itemAvailable));
+        return { ...group, rows, unavailableCount: 0 };
+      })
+      .filter((group) => group.rows.length > 0);
+  }, [subCategoryGroups, onlyUnavailable, pendingChanges]);
+
   const subCategoryKey = (name: string) => `${selectedCategory}|${name}`;
 
   // A search always expands every matching sub-category, otherwise the result
   // would stay folded inside a closed accordion.
-  const isSubCategoryOpen = (name: string) => hasSearch || Boolean(openSubCategories[subCategoryKey(name)]);
+  const isSubCategoryOpen = (name: string) => (
+    hasSearch || onlyUnavailable || Boolean(openSubCategories[subCategoryKey(name)])
+  );
 
   const toggleSubCategory = (name: string) => {
-    if (hasSearch) return;
+    // While a search or the unavailable-only filter is on, every group is
+    // already forced open, so there is nothing to fold.
+    if (hasSearch || onlyUnavailable) return;
     const key = subCategoryKey(name);
     setOpenSubCategories((current) => ({ ...current, [key]: !current[key] }));
   };
@@ -265,7 +281,7 @@ export default function KdsUnavailableScreen() {
   // drawing one collapsible header per sub-category.
   const availabilityRows = useMemo<AvailabilityRow[]>(() => {
     const rows: AvailabilityRow[] = [];
-    subCategoryGroups.forEach((group) => {
+    visibleGroups.forEach((group) => {
       const open = isSubCategoryOpen(group.name);
       rows.push({
         kind: 'header',
@@ -281,9 +297,22 @@ export default function KdsUnavailableScreen() {
       });
     });
     return rows;
-  }, [subCategoryGroups, hasSearch, openSubCategories, selectedCategory]);
+  }, [visibleGroups, hasSearch, onlyUnavailable, openSubCategories, selectedCategory]);
 
   const selectedTab = categoryTabs.find((tab) => tab.code === selectedCategory);
+  // Unavailable items in the tab that is open right now — the button's number.
+  const categoryUnavailableCount = selectedTab?.unavailableCount ?? 0;
+  const canFilter = categoryUnavailableCount > 0 || onlyUnavailable;
+
+  // ── Tablet sizing ──────────────────────────────────────────────────────
+  // The screen was drawn for a phone: on a tablet the rows stretched edge to
+  // edge with phone-sized text. The list now sits in a centred column and every
+  // font / tap target is multiplied by `f` (1.0 on a phone, up to 1.7).
+  const { width, height } = useWindowDimensions();
+  const shortSide = Math.min(width, height);
+  const isTablet = shortSide >= 600;
+  const f = Math.min(1.7, Math.max(1, Math.round((shortSide / 460) * 100) / 100));
+  const shellStyle = isTablet ? styles.shellWide : null;
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -295,26 +324,27 @@ export default function KdsUnavailableScreen() {
           accessibilityRole="button"
           accessibilityLabel="Back to Kitchen Display"
         >
-          <Ionicons name="arrow-back" size={22} color={COLORS.white} />
+          <Ionicons name="arrow-back" size={Math.round(22 * f)} color={COLORS.white} />
         </TouchableOpacity>
         <View style={styles.headerText}>
-          <Text style={styles.eyebrow}>KITCHEN DISPLAY</Text>
-          <Text style={styles.title}>Unavailable Items</Text>
+          <Text style={[styles.eyebrow, { fontSize: 10 * f }]}>KITCHEN DISPLAY</Text>
+          <Text style={[styles.title, { fontSize: 23 * f, lineHeight: 28 * f }]}>Unavailable Items</Text>
         </View>
       </View>
 
+      <View style={[styles.shell, shellStyle]}>
       <View style={styles.introCard}>
-        <View style={styles.introIcon}>
-          <Ionicons name="notifications-outline" size={21} color={COLORS.unavailable} />
+        <View style={[styles.introIcon, { width: 37 * f, height: 37 * f }]}>
+          <Ionicons name="notifications-outline" size={Math.round(21 * f)} color={COLORS.unavailable} />
         </View>
         <View style={styles.introCopy}>
-          <Text style={styles.introTitle}>Select first, then save once</Text>
-          <Text style={styles.introText}>A checked item means unavailable. Save creates one IT item notification containing the full selected-item list for every device.</Text>
+          <Text style={[styles.introTitle, { fontSize: 13 * f }]}>Select first, then save once</Text>
+          <Text style={[styles.introText, { fontSize: 11 * f, lineHeight: 16 * f }]}>A checked item means unavailable. Save creates one IT item notification containing the full selected-item list for every device.</Text>
         </View>
       </View>
 
-      <View style={styles.searchWrap}>
-        <Ionicons name="search-outline" size={21} color={COLORS.muted} />
+      <View style={[styles.searchWrap, { minHeight: 51 * f }]}>
+        <Ionicons name="search-outline" size={Math.round(21 * f)} color={COLORS.muted} />
         <TextInput
           value={searchText}
           onChangeText={setSearchText}
@@ -322,14 +352,14 @@ export default function KdsUnavailableScreen() {
           placeholderTextColor={OperationalColors.muted}
           autoCapitalize="none"
           autoCorrect={false}
-          style={styles.searchInput}
+          style={[styles.searchInput, { fontSize: 14 * f }]}
           returnKeyType="search"
           clearButtonMode="while-editing"
           accessibilityLabel="Search menu items"
         />
         {searchText ? (
           <TouchableOpacity onPress={() => setSearchText('')} style={styles.clearSearch} accessibilityLabel="Clear search">
-            <Ionicons name="close-circle" size={19} color={OperationalColors.muted} />
+            <Ionicons name="close-circle" size={Math.round(19 * f)} color={OperationalColors.muted} />
           </TouchableOpacity>
         ) : null}
       </View>
@@ -346,16 +376,16 @@ export default function KdsUnavailableScreen() {
             return (
               <TouchableOpacity
                 key={tab.code}
-                style={[styles.tab, isActive && styles.tabActive]}
+                style={[styles.tab, { minHeight: 36 * f }, isActive && styles.tabActive]}
                 activeOpacity={0.82}
                 onPress={() => setActiveCategory(tab.code)}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: isActive }}
                 accessibilityLabel={`${tab.label}, ${tab.count} items`}
               >
-                <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
+                <Text style={[styles.tabLabel, { fontSize: 12 * f }, isActive && styles.tabLabelActive]}>{tab.label}</Text>
                 <View style={[styles.tabCount, isActive && styles.tabCountActive]}>
-                  <Text style={[styles.tabCountText, isActive && styles.tabCountTextActive]}>{tab.count}</Text>
+                  <Text style={[styles.tabCountText, { fontSize: 9 * f }, isActive && styles.tabCountTextActive]}>{tab.count}</Text>
                 </View>
                 {tab.unavailableCount > 0 ? <View style={styles.tabAlertDot} /> : null}
               </TouchableOpacity>
@@ -365,12 +395,42 @@ export default function KdsUnavailableScreen() {
       </View>
 
       <View style={styles.listCaption}>
-        <Text style={styles.listCaptionText}>
+        <Text style={[styles.listCaptionText, { fontSize: 11 * f }]} numberOfLines={1}>
           {isLoading
             ? 'Loading items…'
-            : `${selectedTab?.count ?? 0} menu item${(selectedTab?.count ?? 0) === 1 ? '' : 's'} · ${subCategoryGroups.length} sub-categor${subCategoryGroups.length === 1 ? 'y' : 'ies'}`}
+            : onlyUnavailable
+              ? `${categoryUnavailableCount} unavailable · ${visibleGroups.length} sub-categor${visibleGroups.length === 1 ? 'y' : 'ies'}`
+              : `${selectedTab?.count ?? 0} menu item${(selectedTab?.count ?? 0) === 1 ? '' : 's'} · ${subCategoryGroups.length} sub-categor${subCategoryGroups.length === 1 ? 'y' : 'ies'}`}
         </Text>
-        {visibleUnavailableCount > 0 ? <Text style={styles.unavailableCount}>{visibleUnavailableCount} unavailable</Text> : null}
+        {/* Unavailable-only filter: pull out just the items that are marked
+            unavailable right now (saved or still pending). */}
+        <TouchableOpacity
+          style={[
+            styles.filterChip,
+            { minHeight: 26 * f, paddingHorizontal: 8 * f, gap: 4 * f },
+            onlyUnavailable && styles.filterChipActive,
+            !canFilter && styles.filterChipDisabled,
+          ]}
+          onPress={() => setOnlyUnavailable((current) => !current)}
+          disabled={!canFilter}
+          accessibilityRole="button"
+          accessibilityState={{ selected: onlyUnavailable, disabled: !canFilter }}
+          accessibilityLabel={onlyUnavailable
+            ? `Show all items, ${categoryUnavailableCount} unavailable`
+            : `Show only the ${categoryUnavailableCount} unavailable items`}
+        >
+          <Ionicons
+            name={onlyUnavailable ? 'close' : 'alert-circle-outline'}
+            size={Math.round(12 * f)}
+            color={onlyUnavailable ? COLORS.white : COLORS.unavailable}
+          />
+          <Text
+            style={[styles.filterChipText, { fontSize: 9 * f }, onlyUnavailable && styles.filterChipTextActive]}
+            numberOfLines={1}
+          >
+            {onlyUnavailable ? 'SHOW ALL' : `${categoryUnavailableCount} UNAVAILABLE`}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       <FlatList
@@ -384,7 +444,7 @@ export default function KdsUnavailableScreen() {
           if (row.kind === 'header') {
             return (
               <TouchableOpacity
-                style={[styles.categoryHeader, row.open && styles.categoryHeaderOpen]}
+                style={[styles.categoryHeader, { minHeight: 42 * f, paddingHorizontal: 11 * f }, row.open && styles.categoryHeaderOpen]}
                 activeOpacity={0.8}
                 onPress={() => toggleSubCategory(row.name)}
                 accessibilityRole="button"
@@ -393,14 +453,14 @@ export default function KdsUnavailableScreen() {
               >
                 <Ionicons
                   name={row.open ? 'chevron-down' : 'chevron-forward'}
-                  size={16}
+                  size={Math.round(16 * f)}
                   color={COLORS.blue}
                 />
-                <Text style={styles.categoryName} numberOfLines={1}>{row.name}</Text>
-                <View style={styles.categoryCount}><Text style={styles.categoryCountText}>{row.count}</Text></View>
+                <Text style={[styles.categoryName, { fontSize: 11 * f }]} numberOfLines={1}>{row.name}</Text>
+                <View style={styles.categoryCount}><Text style={[styles.categoryCountText, { fontSize: 9 * f }]}>{row.count}</Text></View>
                 {row.unavailableCount > 0 ? (
                   <View style={styles.categoryUnavailable}>
-                    <Text style={styles.categoryUnavailableText}>{row.unavailableCount} unavailable</Text>
+                    <Text style={[styles.categoryUnavailableText, { fontSize: 8 * f }]}>{row.unavailableCount} unavailable</Text>
                   </View>
                 ) : null}
               </TouchableOpacity>
@@ -413,25 +473,25 @@ export default function KdsUnavailableScreen() {
           return (
             <TouchableOpacity
               activeOpacity={0.82}
-              style={[styles.itemRow, isUnavailable && styles.itemRowUnavailable, hasPendingChange && styles.itemRowPending]}
+              style={[styles.itemRow, { minHeight: 69 * f, paddingHorizontal: 12 * f }, isUnavailable && styles.itemRowUnavailable, hasPendingChange && styles.itemRowPending]}
               onPress={() => toggleItem(item)}
               disabled={isSaving}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: isUnavailable, disabled: isSaving }}
               accessibilityLabel={`${item.description}, ${isUnavailable ? 'unavailable' : 'available'}`}
             >
-              <View style={[styles.checkbox, isUnavailable && styles.checkboxChecked]}>
-                {isUnavailable ? <Ionicons name="checkmark" size={18} color={COLORS.white} /> : null}
+              <View style={[styles.checkbox, { width: 28 * f, height: 28 * f }, isUnavailable && styles.checkboxChecked]}>
+                {isUnavailable ? <Ionicons name="checkmark" size={Math.round(18 * f)} color={COLORS.white} /> : null}
               </View>
               <View style={styles.itemInfo}>
-                <Text style={[styles.itemName, isUnavailable && styles.itemNameUnavailable]}>{item.description}</Text>
+                <Text style={[styles.itemName, { fontSize: 14 * f }, isUnavailable && styles.itemNameUnavailable]}>{item.description}</Text>
                 <View style={styles.itemDetailRow}>
-                  <Text style={styles.itemCode}>{item.menuItemId}</Text>
-                  {hasPendingChange ? <Text style={styles.pendingText}>NOT SAVED</Text> : null}
+                  <Text style={[styles.itemCode, { fontSize: 10 * f }]}>{item.menuItemId}</Text>
+                  {hasPendingChange ? <Text style={[styles.pendingText, { fontSize: 8 * f }]}>NOT SAVED</Text> : null}
                 </View>
               </View>
               <View style={[styles.statusPill, isUnavailable ? styles.statusPillUnavailable : styles.statusPillAvailable]}>
-                <Text style={[styles.statusText, isUnavailable ? styles.statusTextUnavailable : styles.statusTextAvailable]}>
+                <Text style={[styles.statusText, { fontSize: 9 * f }, isUnavailable ? styles.statusTextUnavailable : styles.statusTextAvailable]}>
                   {isUnavailable ? 'Unavailable' : 'Available'}
                 </Text>
               </View>
@@ -440,28 +500,39 @@ export default function KdsUnavailableScreen() {
         }}
         ListEmptyComponent={!isLoading ? (
           <View style={styles.emptyState}>
-            <Ionicons name="search-outline" size={34} color={OperationalColors.muted} />
-            <Text style={styles.emptyTitle}>No menu items found</Text>
-            <Text style={styles.emptyText}>Try a different item name or code.</Text>
+            <Ionicons
+              name={onlyUnavailable ? 'checkmark-circle-outline' : 'search-outline'}
+              size={Math.round(34 * f)}
+              color={OperationalColors.muted}
+            />
+            <Text style={[styles.emptyTitle, { fontSize: 15 * f }]}>
+              {onlyUnavailable ? 'No unavailable items' : 'No menu items found'}
+            </Text>
+            <Text style={[styles.emptyText, { fontSize: 12 * f }]}>
+              {onlyUnavailable
+                ? 'Everything in this category is available right now.'
+                : 'Try a different item name or code.'}
+            </Text>
           </View>
         ) : null}
         ListFooterComponent={isLoading ? <ActivityIndicator style={styles.loader} color={COLORS.blue} /> : null}
       />
+      </View>
 
       <View style={[styles.saveBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <View style={styles.saveCopy}>
-          <Text style={styles.saveCount}>{pendingCount === 0 ? 'No pending changes' : `${pendingCount} change${pendingCount === 1 ? '' : 's'} ready`}</Text>
-          <Text style={styles.saveDescription}>Notification sends only after Save.</Text>
+          <Text style={[styles.saveCount, { fontSize: 12 * f }]}>{pendingCount === 0 ? 'No pending changes' : `${pendingCount} change${pendingCount === 1 ? '' : 's'} ready`}</Text>
+          <Text style={[styles.saveDescription, { fontSize: 10 * f }]}>Notification sends only after Save.</Text>
         </View>
         <TouchableOpacity
-          style={[styles.saveButton, (pendingCount === 0 || isSaving) && styles.saveButtonDisabled]}
+          style={[styles.saveButton, { minWidth: 94 * f, minHeight: 43 * f }, (pendingCount === 0 || isSaving) && styles.saveButtonDisabled]}
           onPress={() => void saveChanges()}
           disabled={pendingCount === 0 || isSaving}
           accessibilityRole="button"
           accessibilityLabel="Save unavailable item changes"
         >
-          {isSaving ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="save-outline" size={18} color={COLORS.white} />}
-          <Text style={styles.saveButtonText}>{isSaving ? 'Saving…' : 'Save'}</Text>
+          {isSaving ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="save-outline" size={Math.round(18 * f)} color={COLORS.white} />}
+          <Text style={[styles.saveButtonText, { fontSize: 13 * f }]}>{isSaving ? 'Saving…' : 'Save'}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -470,6 +541,10 @@ export default function KdsUnavailableScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: COLORS.background },
+  // Phone: the list owns the whole width. Tablet: it is capped and centred so
+  // rows do not stretch across a 1000 dp screen.
+  shell: { flex: 1 },
+  shellWide: { width: '100%', maxWidth: 980, alignSelf: 'center' },
   header: { minHeight: 82, paddingHorizontal: 16, paddingBottom: 13, flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.navy },
   backButton: { width: 42, height: 42, marginRight: 11, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(248,247,245,0.13)' },
   headerText: { flex: 1 },
@@ -485,7 +560,11 @@ const styles = StyleSheet.create({
   clearSearch: { padding: 3 },
   listCaption: { minHeight: 39, paddingHorizontal: 17, flexDirection: 'row', alignItems: 'center' },
   listCaptionText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
-  unavailableCount: { marginLeft: 'auto', color: COLORS.unavailable, fontSize: 11, fontWeight: '900' },
+  filterChip: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', borderRadius: 9, backgroundColor: COLORS.unavailableSoft, borderWidth: 1, borderColor: '#F0C9C4' },
+  filterChipActive: { backgroundColor: COLORS.unavailable, borderColor: COLORS.unavailable },
+  filterChipDisabled: { opacity: 0.5 },
+  filterChipText: { color: COLORS.unavailable, fontWeight: '900', letterSpacing: 0.35 },
+  filterChipTextActive: { color: COLORS.white },
   listContent: { paddingHorizontal: 14, paddingBottom: 122, gap: 8 },
   emptyList: { flexGrow: 1, justifyContent: 'center', paddingBottom: 130 },
   tabBar: { paddingTop: 11, borderBottomWidth: 1, borderBottomColor: OperationalColors.border, backgroundColor: COLORS.white },

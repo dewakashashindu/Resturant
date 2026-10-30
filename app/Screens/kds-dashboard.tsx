@@ -27,6 +27,23 @@ type KdsDashboardTopItem = { itemCode: string; itemName: string; quantity: numbe
 
 type DateRange = { from: string; to: string; all: boolean };
 
+/**
+ * What HAPPENED during the selected day — not what is sitting on the board now.
+ * `completed` = orders that are fully done and stayed at this level all day;
+ * `open` = the same level but with at least one line still unfinished.
+ */
+type KdsAlertBucket = { completed: number; open: number; total: number; percent: number };
+
+type KdsAlertHistory = {
+  totalOrders: number;
+  completedOrders: number;
+  openOrders: number;
+  thresholds?: { toDoAmberMinutes: number; toDoRedMinutes: number; inProgressAmberPercent: number };
+  todo?: { amber?: KdsAlertBucket; red?: KdsAlertBucket };
+  inProgress?: { amber?: KdsAlertBucket; red?: KdsAlertBucket };
+};
+
+
 type KdsDashboardPayload = {
   ok?: boolean;
   stationType?: string;
@@ -38,6 +55,7 @@ type KdsDashboardPayload = {
   generatedAt?: string;
   totals?: { orders?: number; items?: number; lines?: number };
   statusCounts?: KdsDashboardStatusCounts;
+  alertHistory?: KdsAlertHistory;
   modeCounts?: KdsDashboardModeCounts;
   otherModes?: { mode: string; count: number }[];
   averagePrepMinutes?: number | null;
@@ -74,6 +92,11 @@ const COLORS = {
   deliverySoft: '#F7EAE7',
   other: '#B4A591',
   accent: OperationalColors.accent,
+  amber: '#E8A93F',
+  amberText: '#B87A16',
+  amberSoft: '#FFF6E3',
+  red: '#D85A52',
+  redSoft: '#FFF2F1',
 };
 
 const AUTO_REFRESH_SECONDS = 30;
@@ -158,18 +181,24 @@ const formatClockTime = (iso: string | undefined) => {
 };
 
 // ─── Shared card blocks (module level so refreshes never remount the charts) ──
+// A tablet draws the same card on a much wider canvas — the fixed phone font
+// sizes then look tiny from a metre away. Every text size on this screen is
+// multiplied by this factor instead (1 on a phone, up to 1.7 on a tablet).
+const TextScaleContext = React.createContext(1);
+const useTextScale = () => React.useContext(TextScaleContext);
 function SectionCard({ title, hint, accessory, children }: {
   title: string;
   hint?: string;
   accessory?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const f = useTextScale();
   return (
     <View style={styles.sectionCard}>
       <View style={styles.sectionHeader}>
         <View style={styles.sectionHeaderCopy}>
-          <Text style={styles.sectionTitle}>{title}</Text>
-          {hint ? <Text style={styles.sectionHint}>{hint}</Text> : null}
+          <Text style={[styles.sectionTitle, { fontSize: 12 * f }]}>{title}</Text>
+          {hint ? <Text style={[styles.sectionHint, { fontSize: 9 * f }]}>{hint}</Text> : null}
         </View>
         {accessory}
       </View>
@@ -186,16 +215,76 @@ function StatCard({ value, label, caption, icon, color, soft }: {
   color: string;
   soft: string;
 }) {
+  const f = useTextScale();
   const { width } = useWindowDimensions();
   const isTablet = width >= 600;
   return (
-    <View style={[styles.statCard, { backgroundColor: soft }]} accessibilityLabel={`${label}: ${value}`}>
-      <View style={[styles.statIconChip, { backgroundColor: color }]}>
-        <Ionicons name={icon} size={isTablet ? 17 : 14} color={COLORS.white} />
+    <View style={[styles.statCard, { backgroundColor: soft, paddingVertical: 11 * f }]} accessibilityLabel={`${label}: ${value}`}>
+      <View
+        style={[
+          styles.statIconChip,
+          { backgroundColor: color, width: 27 * f, height: 27 * f, borderRadius: 9 * f },
+        ]}
+      >
+        <Ionicons name={icon} size={isTablet ? 17 * f : 14} color={COLORS.white} />
       </View>
-      <Text style={[styles.statValue, { color }]} allowFontScaling={false}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statCaption}>{caption}</Text>
+      <Text style={[styles.statValue, { color, fontSize: 26 * f, lineHeight: 30 * f }]} allowFontScaling={false}>{value}</Text>
+      <Text style={[styles.statLabel, { fontSize: 8.5 * f }]}>{label}</Text>
+      <Text style={[styles.statCaption, { fontSize: 8 * f }]}>{caption}</Text>
+    </View>
+  );
+}
+
+/**
+ * One amber/red KPI. The PERCENTAGE is the headline (share of that day's
+ * orders), with the raw count and the still-open split underneath.
+ */
+function SeverityCard({ label, phase, tone, bucket, totalOrders }: {
+  label: string;
+  phase: string;
+  tone: 'amber' | 'red';
+  bucket: KdsAlertBucket;
+  totalOrders: number;
+}) {
+  const f = useTextScale();
+  const { width, height } = useWindowDimensions();
+  // Tablet: all four cards on one row. Phone (any orientation): 2 × 2.
+  const isWide = Math.min(width, height) >= 600;
+  const color = tone === 'amber' ? COLORS.amberText : COLORS.red;
+  const soft = tone === 'amber' ? COLORS.amberSoft : COLORS.redSoft;
+  const border = tone === 'amber' ? COLORS.amber : COLORS.red;
+  const empty = bucket.total === 0;
+  return (
+    <View
+      style={[
+        styles.severityCard,
+        {
+          backgroundColor: soft,
+          borderColor: empty ? COLORS.border : border,
+          flexBasis: isWide ? 0 : '47%',
+          paddingVertical: 10 * f,
+          paddingHorizontal: 10 * f,
+          gap: 2 * f,
+        },
+      ]}
+      accessibilityLabel={`${label} ${phase}: ${bucket.percent} percent, ${bucket.total} orders, ${bucket.open} still open`}
+    >
+      <View style={styles.severityTopRow}>
+        <Text style={[styles.severityLabel, { color, fontSize: 8 * f }]} numberOfLines={1}>{label}</Text>
+        <View style={[styles.severityDot, { backgroundColor: color, width: 7 * f, height: 7 * f }]} />
+      </View>
+      <Text style={[styles.severityValue, { color, fontSize: 26 * f, lineHeight: 30 * f }]} allowFontScaling={false}>
+        {empty ? '—' : `${bucket.percent}%`}
+      </Text>
+      <Text style={[styles.severityPhase, { fontSize: 8.5 * f }]} numberOfLines={1}>{phase}</Text>
+      <Text style={[styles.severityCount, { color, fontSize: 8.5 * f }]} numberOfLines={1}>
+        {empty
+          ? 'no orders'
+          : `${formatCount(bucket.total)} of ${formatCount(totalOrders)} orders`}
+      </Text>
+      <Text style={[styles.severitySplit, { fontSize: 8 * f }]} numberOfLines={1}>
+        {empty ? '' : `${formatCount(bucket.open)} still open`}
+      </Text>
     </View>
   );
 }
@@ -210,9 +299,19 @@ export default function KdsDashboardScreen() {
   const displayName = isKitchen ? 'KDS' : 'BDS';
 
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const isTablet = width >= 600;
+  const { width, height } = useWindowDimensions();
+  const shortSide = Math.min(width, height);
+  const isTablet = width >= 600;   // unchanged: drives icon / bar sizing only
   const contentWidth = Math.min(width - 24, 900);
+
+  // Readable from a distance on a tablet without touching the phone layout.
+  // Keyed on the SHORTER side, so a phone in landscape keeps phone-sized text
+  // (it is only 360-430 dp tall) while a real tablet scales up, capped at 1.7.
+  const uiScale = useMemo(
+    () => Math.min(1.7, Math.max(1, Math.round((shortSide / 460) * 100) / 100)),
+    [shortSide],
+  );
+  const f = uiScale;
 
   const isFocused = useIsFocused();
   const requestSequence = useRef(0);
@@ -310,6 +409,30 @@ export default function KdsDashboardScreen() {
   }, [pickerStage, range.to, applyRange]);
 
   // ── Derived numbers ────────────────────────────────────────────────────────
+  // Amber / Red as an EVENT of the selected day: how many of that day's orders
+  // went amber / red while they were being handled, split by phase.
+  const alertHistory = data?.alertHistory;
+  const severityCards = useMemo(() => {
+    const empty = { completed: 0, open: 0, total: 0, percent: 0 };
+    const todoAmber = alertHistory?.todo?.amber ?? empty;
+    const todoRed = alertHistory?.todo?.red ?? empty;
+    const progressAmber = alertHistory?.inProgress?.amber ?? empty;
+    const progressRed = alertHistory?.inProgress?.red ?? empty;
+    return {
+      todoAmber,
+      todoRed,
+      progressAmber,
+      progressRed,
+      todoTotal: todoAmber.total + todoRed.total,
+      progressTotal: progressAmber.total + progressRed.total,
+      alerts: todoAmber.total + todoRed.total + progressAmber.total + progressRed.total,
+      totalOrders: alertHistory?.totalOrders ?? 0,
+      completedOrders: alertHistory?.completedOrders ?? 0,
+      openOrders: alertHistory?.openOrders ?? 0,
+      thresholds: alertHistory?.thresholds ?? { toDoAmberMinutes: 0, toDoRedMinutes: 0, inProgressAmberPercent: 80 },
+    };
+  }, [alertHistory]);
+
   const statusCounts = useMemo<KdsDashboardStatusCounts>(() => ({
     pending: Number(data?.statusCounts?.pending ?? 0) || 0,
     inProgress: Number(data?.statusCounts?.inProgress ?? 0) || 0,
@@ -435,7 +558,7 @@ export default function KdsDashboardScreen() {
       return (
         <View style={styles.stateBlock}>
           <ActivityIndicator size="large" color={COLORS.navy} />
-          <Text style={styles.stateText}>Loading {stationName.toLowerCase()} performance · {rangeLabel}…</Text>
+          <Text style={[styles.stateText, { fontSize: 11 * f }]}>Loading {stationName.toLowerCase()} performance · {rangeLabel}…</Text>
         </View>
       );
     }
@@ -444,11 +567,11 @@ export default function KdsDashboardScreen() {
       return (
         <View style={styles.stateBlock}>
           <Ionicons name="cloud-offline-outline" size={isTablet ? 40 : 32} color={COLORS.muted} />
-          <Text style={styles.stateTitle}>{stationName} dashboard unavailable</Text>
-          <Text style={styles.stateText}>{error}</Text>
+          <Text style={[styles.stateTitle, { fontSize: 14 * f }]}>{stationName} dashboard unavailable</Text>
+          <Text style={[styles.stateText, { fontSize: 11 * f }]}>{error}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={() => void loadDashboard('manual')} accessibilityRole="button" accessibilityLabel="Retry loading the dashboard">
             <Ionicons name="refresh" size={16} color={COLORS.white} />
-            <Text style={styles.retryButtonText}>RETRY</Text>
+            <Text style={[styles.retryButtonText, { fontSize: 11 * f }]}>RETRY</Text>
           </TouchableOpacity>
         </View>
       );
@@ -463,7 +586,7 @@ export default function KdsDashboardScreen() {
         {error ? (
           <View style={styles.staleNotice}>
             <Ionicons name="warning-outline" size={13} color={COLORS.todo} />
-            <Text style={styles.staleNoticeText}>Showing last loaded numbers — {error}</Text>
+            <Text style={[styles.staleNoticeText, { fontSize: 10 * f }]}>Showing last loaded numbers — {error}</Text>
           </View>
         ) : null}
 
@@ -473,7 +596,7 @@ export default function KdsDashboardScreen() {
           hint={`Order count by preparation state · ${rangeLabel}`}
           accessory={(
             <View style={styles.totalChip}>
-              <Text style={styles.totalChipText}>{formatCount(totalOrders)} ORDERS</Text>
+              <Text style={[styles.totalChipText, { fontSize: 9 * f }]}>{formatCount(totalOrders)} ORDERS</Text>
             </View>
           )}
         >
@@ -490,6 +613,77 @@ export default function KdsDashboardScreen() {
               />
             ))}
           </View>
+        </SectionCard>
+
+        {/* A2. Amber / Red as a day event — what happened, not what is on the board */}
+        <SectionCard
+          title="AMBER / RED ALERTS"
+          hint={`Orders that went amber / red that day · ${rangeLabel}`}
+          accessory={(
+            <View style={styles.totalChip}>
+              <Text style={[styles.totalChipText, { fontSize: 9 * f }]}>
+                {formatCount(severityCards.alerts)} ALERTS
+              </Text>
+            </View>
+          )}
+        >
+          <View style={styles.severityRow}>
+            <SeverityCard
+              label="AMBER"
+              phase="TO DO"
+              tone="amber"
+              bucket={severityCards.todoAmber}
+              totalOrders={severityCards.totalOrders}
+            />
+            <SeverityCard
+              label="AMBER"
+              phase="IN PROGRESS"
+              tone="amber"
+              bucket={severityCards.progressAmber}
+              totalOrders={severityCards.totalOrders}
+            />
+            <SeverityCard
+              label="RED"
+              phase="TO DO"
+              tone="red"
+              bucket={severityCards.todoRed}
+              totalOrders={severityCards.totalOrders}
+            />
+            <SeverityCard
+              label="RED"
+              phase="IN PROGRESS"
+              tone="red"
+              bucket={severityCards.progressRed}
+              totalOrders={severityCards.totalOrders}
+            />
+          </View>
+
+          {/* How the alerts ended: finished that day, or still unfinished. */}
+          <View style={styles.severityOutcomeRow}>
+            <View style={styles.severityOutcomeItem}>
+              <Text style={[styles.severityOutcomeTitle, { color: COLORS.amberText, fontSize: 7.5 * f }]}>
+                TO DO ALERTS
+              </Text>
+              <Text style={[styles.severityOutcomeValue, { fontSize: 9.5 * f }]} numberOfLines={1}>
+                {formatCount(severityCards.todoTotal)} orders · {formatCount(severityCards.todoAmber.completed + severityCards.todoRed.completed)} done
+              </Text>
+            </View>
+            <View style={styles.severityOutcomeDivider} />
+            <View style={styles.severityOutcomeItem}>
+              <Text style={[styles.severityOutcomeTitle, { color: COLORS.red, fontSize: 7.5 * f }]}>
+                IN PROGRESS ALERTS
+              </Text>
+              <Text style={[styles.severityOutcomeValue, { fontSize: 9.5 * f }]} numberOfLines={1}>
+                {formatCount(severityCards.progressTotal)} orders · {formatCount(severityCards.progressAmber.completed + severityCards.progressRed.completed)} done
+              </Text>
+            </View>
+          </View>
+
+          <Text style={[styles.severityFootnote, { fontSize: 7.5 * f, lineHeight: 11.5 * f }]}>
+            To Do: amber ≥ {formatCount(severityCards.thresholds.toDoAmberMinutes)} min · red ≥ {formatCount(severityCards.thresholds.toDoRedMinutes)} min
+            {'   ·   '}In Progress: amber ≥ {formatCount(severityCards.thresholds.inProgressAmberPercent)}% of prep time · red ≥ 100%
+            {'   ·   '}{formatCount(severityCards.completedOrders)} done · {formatCount(severityCards.openOrders)} still open of {formatCount(severityCards.totalOrders)} orders
+          </Text>
         </SectionCard>
 
         {/* B. Order modes + pie chart */}
@@ -540,8 +734,8 @@ export default function KdsDashboardScreen() {
                   strokeColor={COLORS.surface}
                 />
                 <View style={styles.pieCenter} pointerEvents="none">
-                  <Text style={styles.pieCenterValue} allowFontScaling={false}>{formatCount(modeTotal)}</Text>
-                  <Text style={styles.pieCenterLabel}>ORDERS</Text>
+                  <Text style={[styles.pieCenterValue, { fontSize: 20 * f, lineHeight: 22 * f }]} allowFontScaling={false}>{formatCount(modeTotal)}</Text>
+                  <Text style={[styles.pieCenterLabel, { fontSize: 7.5 * f }]}>ORDERS</Text>
                 </View>
               </View>
               <View style={styles.pieLegend}>
@@ -551,8 +745,8 @@ export default function KdsDashboardScreen() {
                   return (
                     <View key={entry.key} style={styles.pieLegendItem}>
                       <View style={[styles.pieLegendSquare, { backgroundColor: entry.color }]} />
-                      <Text style={styles.pieLegendLabel}>{entry.label}</Text>
-                      <Text style={styles.pieLegendValue}>{formatCount(value)} · {pct}%</Text>
+                      <Text style={[styles.pieLegendLabel, { fontSize: 10 * f }]}>{entry.label}</Text>
+                      <Text style={[styles.pieLegendValue, { fontSize: 10 * f }]}>{formatCount(value)} · {pct}%</Text>
                     </View>
                   );
                 })}
@@ -561,12 +755,12 @@ export default function KdsDashboardScreen() {
           ) : (
             <View style={styles.chartEmpty}>
               <Ionicons name="pie-chart-outline" size={isTablet ? 30 : 24} color={COLORS.muted} />
-              <Text style={styles.chartEmptyText}>No orders with a recognisable mode in this period.</Text>
+              <Text style={[styles.chartEmptyText, { fontSize: 10 * f }]}>No orders with a recognisable mode in this period.</Text>
             </View>
           )}
 
           {modeCounts.other > 0 && otherModesSummary ? (
-            <Text style={styles.modeOtherNote}>Unmatched modes: {otherModesSummary}</Text>
+            <Text style={[styles.modeOtherNote, { fontSize: 9 * f }]}>Unmatched modes: {otherModesSummary}</Text>
           ) : null}
         </SectionCard>
 
@@ -577,11 +771,11 @@ export default function KdsDashboardScreen() {
               <Ionicons name="timer-outline" size={isTablet ? 26 : 22} color={COLORS.white} />
             </View>
             <View style={styles.avgCopy}>
-              <Text style={styles.avgValue} allowFontScaling={false}>{formatMinutes(data?.averagePrepMinutes)}</Text>
-              <Text style={styles.avgCaption}>
+              <Text style={[styles.avgValue, { fontSize: 30 * f, lineHeight: 34 * f }]} allowFontScaling={false}>{formatMinutes(data?.averagePrepMinutes)}</Text>
+              <Text style={[styles.avgCaption, { fontSize: 10 * f }]}>
                 Average across {formatCount(data?.averagePrepOrderCount ?? 0)} completed order(s) · {rangeLabel}
               </Text>
-              <Text style={styles.avgSub}>
+              <Text style={[styles.avgSub, { fontSize: 9 * f }]}>
                 Per item average: {formatMinutes(data?.averageItemPrepMinutes)} · Total items: {formatQty(totalItems)}
               </Text>
             </View>
@@ -593,7 +787,7 @@ export default function KdsDashboardScreen() {
           {topItems.length === 0 ? (
             <View style={styles.chartEmpty}>
               <Ionicons name="list-outline" size={isTablet ? 30 : 24} color={COLORS.muted} />
-              <Text style={styles.chartEmptyText}>No {stationName.toLowerCase()} items prepared in this period.</Text>
+              <Text style={[styles.chartEmptyText, { fontSize: 10 * f }]}>No {stationName.toLowerCase()} items prepared in this period.</Text>
             </View>
           ) : (
             <View style={styles.topItemList}>
@@ -602,17 +796,17 @@ export default function KdsDashboardScreen() {
                 return (
                   <View key={`${item.itemCode}-${index}`} style={styles.topItemRow}>
                     <View style={[styles.topItemRank, index === 0 && styles.topItemRankFirst]}>
-                      <Text style={[styles.topItemRankText, index === 0 && styles.topItemRankTextFirst]} allowFontScaling={false}>{index + 1}</Text>
+                      <Text style={[styles.topItemRankText, { fontSize: 10 * f }, index === 0 && styles.topItemRankTextFirst]} allowFontScaling={false}>{index + 1}</Text>
                     </View>
                     <View style={styles.topItemCopy}>
-                      <Text style={styles.topItemName} numberOfLines={1}>{item.itemName || item.itemCode}</Text>
+                      <Text style={[styles.topItemName, { fontSize: 10.5 * f }]} numberOfLines={1}>{item.itemName || item.itemCode}</Text>
                       <View style={styles.topItemBarTrack}>
                         <View style={[styles.topItemBarFill, { width: `${Math.round(ratio * 100)}%`, backgroundColor: index === 0 ? COLORS.accent : COLORS.navy }]} />
                       </View>
                     </View>
                     <View style={styles.topItemQty}>
-                      <Text style={styles.topItemQtyText} allowFontScaling={false}>{formatQty(item.quantity)}</Text>
-                      <Text style={styles.topItemQtyCaption}>{item.orderCount} ord.</Text>
+                      <Text style={[styles.topItemQtyText, { fontSize: 13 * f }]} allowFontScaling={false}>{formatQty(item.quantity)}</Text>
+                      <Text style={[styles.topItemQtyCaption, { fontSize: 8 * f }]}>{item.orderCount} ord.</Text>
                     </View>
                   </View>
                 );
@@ -628,14 +822,14 @@ export default function KdsDashboardScreen() {
           accessory={hourly.peak ? (
             <View style={styles.peakChip}>
               <Ionicons name="trending-up" size={12} color={COLORS.white} />
-              <Text style={styles.peakChipText}>PEAK {hourLabelLong(hourly.peak.hour)} · {formatCount(hourly.peak.count)}</Text>
+              <Text style={[styles.peakChipText, { fontSize: 8 * f }]}>PEAK {hourLabelLong(hourly.peak.hour)} · {formatCount(hourly.peak.count)}</Text>
             </View>
           ) : undefined}
         >
           {hourly.bars.length === 0 ? (
             <View style={styles.chartEmpty}>
               <Ionicons name="bar-chart-outline" size={isTablet ? 30 : 24} color={COLORS.muted} />
-              <Text style={styles.chartEmptyText}>No orders received in this period.</Text>
+              <Text style={[styles.chartEmptyText, { fontSize: 10 * f }]}>No orders received in this period.</Text>
             </View>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} bounces={false}>
@@ -665,14 +859,14 @@ export default function KdsDashboardScreen() {
               />
             </ScrollView>
           )}
-          <Text style={styles.trendNote}>
+          <Text style={[styles.trendNote, { fontSize: 9 * f }]}>
             {hourly.peak
               ? `Busiest hour is ${hourLabelLong(hourly.peak.hour)} with ${formatCount(hourly.peak.count)} order(s). Bars update every ${AUTO_REFRESH_SECONDS} seconds.`
               : `Bars update every ${AUTO_REFRESH_SECONDS} seconds.`}
           </Text>
         </SectionCard>
 
-        <Text style={styles.footerNote}>
+        <Text style={[styles.footerNote, { fontSize: 9 * f, lineHeight: 13 * f }]}>
           {stationName} performance · {rangeLabel} · {displayName} station · Data refreshes automatically while this screen is open.
         </Text>
       </ScrollView>
@@ -680,6 +874,7 @@ export default function KdsDashboardScreen() {
   };
 
   return (
+    <TextScaleContext.Provider value={uiScale}>
     <SafeAreaView style={styles.screen}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.navy} />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 10) }]}>
@@ -692,9 +887,9 @@ export default function KdsDashboardScreen() {
           <Ionicons name="arrow-back" size={isTablet ? 24 : 22} color={COLORS.white} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerEyebrow}>STATION PERFORMANCE</Text>
-          <Text style={styles.headerTitle}>{stationName} Dashboard</Text>
-          <Text style={styles.headerSub}>
+          <Text style={[styles.headerEyebrow, { fontSize: 9 * f }]}>STATION PERFORMANCE</Text>
+          <Text style={[styles.headerTitle, { fontSize: 19 * f }]}>{stationName} Dashboard</Text>
+          <Text style={[styles.headerSub, { fontSize: 9 * f }]}>
             {displayName} station · {rangeLabel} · auto refresh {AUTO_REFRESH_SECONDS}s{lastUpdatedAt ? ` · ${formatClockTime(lastUpdatedAt)}` : ''}
           </Text>
         </View>
@@ -716,7 +911,7 @@ export default function KdsDashboardScreen() {
         <View style={styles.dateBarHead}>
           <View style={styles.dateBarLabel}>
             <Ionicons name="calendar-outline" size={13} color={COLORS.navy} />
-            <Text style={styles.dateBarText} numberOfLines={1}>{rangeLabel}</Text>
+            <Text style={[styles.dateBarText, { fontSize: 12 * f }]} numberOfLines={1}>{rangeLabel}</Text>
           </View>
           <TouchableOpacity
             style={styles.datePickButton}
@@ -725,7 +920,7 @@ export default function KdsDashboardScreen() {
             accessibilityLabel="Pick a custom date or date range"
           >
             <Ionicons name="swap-vertical" size={12} color={COLORS.white} />
-            <Text style={styles.datePickButtonText}>PICK DATES</Text>
+            <Text style={[styles.datePickButtonText, { fontSize: 8.5 * f }]}>PICK DATES</Text>
           </TouchableOpacity>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
@@ -738,13 +933,13 @@ export default function KdsDashboardScreen() {
               accessibilityState={{ selected: activeQuickId === quick.id }}
               accessibilityLabel={quick.label}
             >
-              <Text style={[styles.chipText, activeQuickId === quick.id && styles.chipTextActive]}>{quick.label}</Text>
+              <Text style={[styles.chipText, { fontSize: 8.5 * f }, activeQuickId === quick.id && styles.chipTextActive]}>{quick.label}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
         {availableDates.length > 0 ? (
           <View>
-            <Text style={styles.dateGroupLabel}>DAYS WITH DATA</Text>
+            <Text style={[styles.dateGroupLabel, { fontSize: 7.5 * f }]}>DAYS WITH DATA</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
               {availableDates.map((entry) => {
                 const selected = !range.all && range.from === entry.date && range.to === entry.date;
@@ -757,7 +952,7 @@ export default function KdsDashboardScreen() {
                     accessibilityState={{ selected }}
                     accessibilityLabel={`Show ${formatShortDate(entry.date)}`}
                   >
-                    <Text style={[styles.chipText, styles.chipTextSmall, selected && styles.chipTextActive]}>{formatShortDate(entry.date)}</Text>
+                    <Text style={[styles.chipText, styles.chipTextSmall, { fontSize: 8 * f }, selected && styles.chipTextActive]}>{formatShortDate(entry.date)}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -778,6 +973,7 @@ export default function KdsDashboardScreen() {
         />
       ) : null}
     </SafeAreaView>
+    </TextScaleContext.Provider>
   );
 }
 
@@ -826,6 +1022,22 @@ const styles = StyleSheet.create({
 
   cardRow: { flexDirection: 'row', gap: 8 },
   statCard: { flex: 1, minWidth: 0, borderRadius: 13, borderWidth: 1, borderColor: 'rgba(107,80,56,0.10)', paddingVertical: 11, paddingHorizontal: 7, alignItems: 'center', gap: 3 },
+  // Amber / Red severity cards: two per row on a phone, four on a tablet.
+  severityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  severityCard: { flexGrow: 1, flexShrink: 1, flexBasis: '47%', minWidth: 0, borderRadius: 13, borderWidth: 1, paddingVertical: 9, paddingHorizontal: 9, gap: 1 },
+  severityTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  severityLabel: { fontSize: 8, fontWeight: '900', letterSpacing: 0.6 },
+  severityDot: { width: 7, height: 7, borderRadius: 4 },
+  severityValue: { fontSize: 24, fontWeight: '900', lineHeight: 27, letterSpacing: 0.2 },
+  severityPhase: { fontSize: 8, fontWeight: '900', letterSpacing: 0.5, color: COLORS.text },
+  severityCount: { fontSize: 8.5, fontWeight: '800' },
+  severitySplit: { fontSize: 7.5, fontWeight: '700', color: COLORS.muted, marginTop: 1 },
+  severityOutcomeRow: { flexDirection: 'row', alignItems: 'center', marginTop: 9, borderRadius: 11, backgroundColor: COLORS.surfaceAlt, paddingVertical: 7, paddingHorizontal: 9 },
+  severityOutcomeItem: { flex: 1, minWidth: 0, gap: 1 },
+  severityOutcomeDivider: { width: 1, alignSelf: 'stretch', backgroundColor: COLORS.border, marginHorizontal: 8 },
+  severityOutcomeTitle: { fontSize: 7.5, fontWeight: '900', letterSpacing: 0.5 },
+  severityOutcomeValue: { fontSize: 9, fontWeight: '700', color: COLORS.text },
+  severityFootnote: { fontSize: 7.5, lineHeight: 11, color: COLORS.muted, marginTop: 7 },
   statIconChip: { width: 27, height: 27, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   statValue: { fontSize: 26, fontWeight: '900', lineHeight: 30, letterSpacing: 0.3 },
   statLabel: { color: COLORS.text, fontSize: 8.5, fontWeight: '900', letterSpacing: 0.5, textAlign: 'center' },
