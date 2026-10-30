@@ -34,6 +34,14 @@ import {
   useKdsSettingsStore,
   type DoneWindowMinutes,
 } from '../../services/kdsSettings';
+import {
+  SCREEN_MODE_OPTIONS,
+  screenModeOption,
+  useKdsLayout,
+  useKdsLayoutStore,
+  type ScreenMode,
+  type KdsLayout,
+} from '../../services/kdsLayout';
 import { useNotificationStore } from '../../services/notificationStore';
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -41,7 +49,11 @@ export default function SettingsScreen() {
   const router  = useRouter();
   const { width, height } = useWindowDimensions();
   const insets  = useSafeAreaInsets();
-  const s       = getDynamicStyles(width, height, insets.bottom);
+  // Landscape / TV aware styling: same page, two different geometries.
+  const layout  = useKdsLayout();
+  const s       = getDynamicStyles(width, height, insets.bottom, layout);
+  // One style for every content block once the page switches to two columns.
+  const landscapeCell = layout.compactChrome ? s.cell : undefined;
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [activeTab,          setActiveTab]          = useState<'personal' | 'system'>('personal');
@@ -53,6 +65,7 @@ export default function SettingsScreen() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricBusy,      setBiometricBusy]      = useState(false);
   const [donePickerVisible,  setDonePickerVisible]  = useState(false);
+  const [modePickerVisible,  setModePickerVisible]  = useState(false);
 
   // ── Store ──────────────────────────────────────────────────────────────────
   const isSyncing    = useItemStore((s) => s.isSyncing);
@@ -66,6 +79,9 @@ export default function SettingsScreen() {
   const doneWindowMinutes      = useKdsSettingsStore((s) => s.doneWindowMinutes);
   const setDoneWindowMinutes   = useKdsSettingsStore((s) => s.setDoneWindowMinutes);
   const doneWindowLabel        = doneWindowOption(doneWindowMinutes).label;
+  const screenMode             = useKdsLayoutStore((s) => s.screenMode);
+  const setScreenMode          = useKdsLayoutStore((s) => s.setScreenMode);
+  const screenModeLabel        = screenModeOption(screenMode).label;
   const user         = useAuthStore((s) => s.user);
   const token        = useAuthStore((s) => s.token);
   const updatePicture= useAuthStore((s) => s.updatePicture);
@@ -363,7 +379,7 @@ export default function SettingsScreen() {
             </Modal>
 
             {/* ── Profile Card ── */}
-            <View style={s.profileCard}>
+            <View style={[s.profileCard, landscapeCell]}>
               <TouchableOpacity
                 style={s.avatarWrapper}
                 activeOpacity={0.88}
@@ -418,7 +434,7 @@ export default function SettingsScreen() {
 
             {/* ── Manage Access (admin only) ── */}
             {(user?.groupId == 3 || String(user?.groupId) === '3') && (
-              <View>
+              <View style={landscapeCell}>
                 <Text style={s.sectionLabel}>Administration</Text>
                 <TouchableOpacity
                   style={s.actionCard}
@@ -438,25 +454,28 @@ export default function SettingsScreen() {
             )}
 
             {/* ── Assigned Floors ── */}
-            <Text style={s.sectionLabel}>Assigned Floors</Text>
-            {floors.length === 0 ? (
-              <View style={s.emptyBox}>
-                <Text style={s.emptyText}>No floors assigned yet.</Text>
-              </View>
-            ) : (
-              <View style={s.chipGrid}>
-                {floors.map((floor, i) => (
-                  <View key={i} style={s.chip}>
-                    <Text style={s.chipText}>✓  {floor}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
+            <View style={landscapeCell}>
+              <Text style={s.sectionLabel}>Assigned Floors</Text>
+              {floors.length === 0 ? (
+                <View style={s.emptyBox}>
+                  <Text style={s.emptyText}>No floors assigned yet.</Text>
+                </View>
+              ) : (
+                <View style={s.chipGrid}>
+                  {floors.map((floor, i) => (
+                    <View key={i} style={s.chip}>
+                      <Text style={s.chipText}>✓  {floor}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
           </>
 
         ) : (
           /* ════ SYSTEM TAB ════ */
           <>
+            <View style={landscapeCell}>
             <Text style={s.sectionLabel}>System Setting</Text>
             <View style={s.notificationSettingsCard}>
               <TouchableOpacity
@@ -481,8 +500,32 @@ export default function SettingsScreen() {
                   <Ionicons name="chevron-down" size={16} color={OperationalColors.primary} />
                 </View>
               </TouchableOpacity>
+              <View style={s.notificationSettingsDivider} />
+              <TouchableOpacity
+                style={s.notificationSettingRow}
+                onPress={() => setModePickerVisible(true)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Screen mode, currently ${screenModeLabel}`}
+              >
+                <View style={s.notificationSettingIcon}>
+                  <Ionicons name="tv-outline" size={21} color={OperationalColors.primary} />
+                </View>
+                <View style={s.notificationSettingText}>
+                  <Text style={s.notificationSettingLabel}>Screen Mode</Text>
+                  <Text style={s.notificationSettingSub}>
+                    Phone, or the kitchen TV driven by an Android box
+                  </Text>
+                </View>
+                <View style={s.dropdownValue}>
+                  <Text style={s.dropdownValueText}>{screenModeLabel}</Text>
+                  <Ionicons name="chevron-down" size={16} color={OperationalColors.primary} />
+                </View>
+              </TouchableOpacity>
+            </View>
             </View>
 
+            <View style={landscapeCell}>
             <Text style={s.sectionLabel}>Data Synchronization</Text>
 
             <TouchableOpacity
@@ -523,7 +566,9 @@ export default function SettingsScreen() {
               <Text style={s.syncInfoLabel}>Last Sync</Text>
               <Text style={s.syncInfoValue}>{lastSyncTime}</Text>
             </View>
+            </View>
 
+            <View style={landscapeCell}>
             <Text style={s.sectionLabel}>Security</Text>
             <View style={s.notificationSettingsCard}>
               <View style={s.notificationSettingRow}>
@@ -548,6 +593,9 @@ export default function SettingsScreen() {
               </View>
             </View>
 
+            </View>
+
+            <View style={landscapeCell}>
             <Text style={s.sectionLabel}>Notification Alerts</Text>
             <View style={s.notificationSettingsCard}>
               <View style={s.notificationSettingRow}>
@@ -582,6 +630,7 @@ export default function SettingsScreen() {
                 />
               </View>
             </View>
+            </View>
           </>
         )}
       </ScrollView>
@@ -598,7 +647,7 @@ export default function SettingsScreen() {
           activeOpacity={1}
           onPress={() => setDonePickerVisible(false)}
         >
-          <View style={s.pickerSheet}>
+          <View style={[s.pickerSheet, layout.compactChrome && s.pickerSheetLandscape]}>
             <View style={s.pickerHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={s.pickerTitle}>Done Column Time</Text>
@@ -609,12 +658,17 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
 
+            <ScrollView
+              style={layout.compactChrome ? s.pickerOptionsLandscape : undefined}
+              contentContainerStyle={layout.compactChrome ? s.pickerOptionsGrid : undefined}
+              showsVerticalScrollIndicator={false}
+            >
             {DONE_WINDOW_OPTIONS.map((option) => {
               const selected = option.value === doneWindowMinutes;
               return (
                 <TouchableOpacity
                   key={String(option.value)}
-                  style={[s.pickerOption, selected && s.pickerOptionSelected]}
+                  style={[s.pickerOption, layout.compactChrome && s.pickerOptionLandscape, selected && s.pickerOptionSelected]}
                   activeOpacity={0.8}
                   onPress={() => {
                     setDoneWindowMinutes(option.value as DoneWindowMinutes);
@@ -633,9 +687,67 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               );
             })}
+            </ScrollView>
 
             <Text style={s.pickerHint}>
               The DONE column shows a small “LAST …” label so staff can see which window is active.
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Screen mode picker (phone / TV) ── */}
+      <Modal
+        transparent
+        animationType="fade"
+        visible={modePickerVisible}
+        onRequestClose={() => setModePickerVisible(false)}
+      >
+        <TouchableOpacity
+          style={s.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setModePickerVisible(false)}
+        >
+          <View style={[s.pickerSheet, layout.compactChrome && s.pickerSheetLandscape]}>
+            <View style={s.pickerHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.pickerTitle}>Screen Mode</Text>
+                <Text style={s.pickerSubtitle}>How this display lays itself out</Text>
+              </View>
+              <TouchableOpacity onPress={() => setModePickerVisible(false)} accessibilityLabel="Close">
+                <Ionicons name="close" size={22} color={OperationalColors.primary} />
+              </TouchableOpacity>
+            </View>
+
+            {SCREEN_MODE_OPTIONS.map((option) => {
+              const selected = option.value === screenMode;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[s.pickerOption, layout.compactChrome && s.pickerOptionLandscape, selected && s.pickerOptionSelected]}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    setScreenMode(option.value as ScreenMode);
+                    setModePickerVisible(false);
+                  }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={option.label}
+                >
+                  <Text style={[s.pickerOptionText, selected && s.pickerOptionTextSelected]}>
+                    {option.label}
+                  </Text>
+                  {selected
+                    ? <Ionicons name="checkmark-circle" size={20} color={OperationalColors.primary} />
+                    : <Ionicons name="ellipse-outline" size={20} color={OperationalColors.border} />}
+                </TouchableOpacity>
+              );
+            })}
+
+            <Text style={s.pickerHint}>
+              Choose “TV / Large screen” when this device is a TV driven by an Android box: the
+              header and the filter bar stay thin so all three columns fit, and the TV keeps a
+              wide edge margin for overscan.
             </Text>
           </View>
         </TouchableOpacity>
@@ -645,11 +757,17 @@ export default function SettingsScreen() {
 }
 
 // ─── Dynamic Styles Factory ───────────────────────────────────────────────────
-function getDynamicStyles(width: number, height: number, bottomInset: number) {
-  const isTablet   = width >= 600;
-  const isSmall    = height < 700;
-  const BASE_WIDTH = isTablet ? 768 : 375;
-  const scale      = (size: number): number => (width / BASE_WIDTH) * size;
+function getDynamicStyles(width: number, height: number, bottomInset: number, layout?: KdsLayout) {
+  // Landscape phone and TV use their own tier: the width-based factor below
+  // would balloon every padding (a landscape phone is ~800 dp wide) and the
+  // portrait "small" tier would still leave a 170 dp header on a 375 dp screen.
+  const isLandscapeTier = layout ? layout.compactChrome : width > height;
+  const isTv            = layout ? layout.isTv : false;
+  const isTablet   = isLandscapeTier ? false : width >= 600;
+  const isSmall    = isLandscapeTier ? true  : height < 700;
+  const BASE_WIDTH = isLandscapeTier ? (isTv ? 500 : 720) : isTablet ? 768 : 375;
+  const scale      = (size: number): number =>
+    (isLandscapeTier ? Math.min(1.15, Math.max(0.72, height / BASE_WIDTH)) : width / BASE_WIDTH) * size;
 
   // ── 3-Tier Conditional Benchmarks ─────────────────────────────────────────
 
@@ -773,7 +891,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
   const viewerBR         = isTablet ?  28  : isSmall ?  14  :  20;
 
   // ── StyleSheet ─────────────────────────────────────────────────────────────
-  return StyleSheet.create({
+  const sheet: any = StyleSheet.create({
 
     // ── Root ────────────────────────────────────────────────────────────────
     container: {
@@ -1291,5 +1409,76 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontSize: scale(viewerDismissFs),
       marginTop: scale(viewerDismissMT),
     },
+
+    // ── Landscape / TV helpers ──────────────────────────────────────────────
+    // One grid cell: two cells fit side by side, so a card never stretches
+    // across a whole television panel.
+    cell: {
+      flexGrow: 0,
+      flexShrink: 0,
+      width: '48.5%',
+      flexDirection: 'column',
+    },
+    pickerSheetLandscape: {
+      width: '100%',
+      maxWidth: isTv ? 760 : 620,
+      maxHeight: layout ? layout.sheetMaxHeight : '92%',
+      alignSelf: 'center',
+    },
+    pickerOptionsLandscape: {
+      flexGrow: 0,
+      marginTop: scale(6),
+    },
+    pickerOptionsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      columnGap: scale(8),
+      rowGap: scale(4),
+    },
+    pickerOptionLandscape: {
+      width: '48.5%',
+      marginTop: 0,
+      minHeight: scale(38),
+    },
   });
+
+  if (!isLandscapeTier) return sheet;
+
+  // Landscape / TV: shrink the header and the tab bar, and let the content
+  // container wrap its blocks into two columns.
+  const flat = (style: any): Record<string, any> =>
+    (StyleSheet.flatten(style) ?? {}) as Record<string, any>;
+  const patch = (style: any, extra: Record<string, any>) => ({ ...flat(style), ...extra });
+
+  return {
+    ...sheet,
+    // The header is height-locked and clips its children, so the back button,
+    // the title and the tab bar have to shrink together.
+    header: patch(sheet.header, { height: isTv ? 96 : 72 }),
+    headerTopRow: patch(sheet.headerTopRow, { marginTop: isTv ? 6 : 2 }),
+    backButton: patch(sheet.backButton, { width: isTv ? 40 : 28, height: isTv ? 40 : 28 }),
+    backIcon: patch(sheet.backIcon, { width: isTv ? 28 : 20, height: isTv ? 28 : 20 }),
+    headerTitle: patch(sheet.headerTitle, { fontSize: isTv ? 21 : 16 }),
+    tabBarContainer: patch(sheet.tabBarContainer, { gap: 8, paddingBottom: isTv ? 6 : 3 }),
+    tabButton: patch(sheet.tabButton, { height: isTv ? 36 : 26 }),
+    tabText: patch(sheet.tabText, { fontSize: isTv ? 13 : 11 }),
+    content: patch(sheet.content, {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignItems: 'flex-start',
+      columnGap: isTv ? 18 : 10,
+      rowGap: isTv ? 12 : 8,
+      paddingTop: isTv ? 16 : 10,
+      paddingHorizontal: isTv ? 24 : 12,
+      paddingBottom: 18,
+    }),
+    sectionLabel: patch(sheet.sectionLabel, { fontSize: isTv ? 12 : 10 }),
+    // The profile card is a tall portrait block; on a wide screen it reads
+    // better as the left column of the first row.
+    profileCard: patch(sheet.profileCard, { width: '48.5%', flexGrow: 0, flexShrink: 0 }),
+    avatarWrapper: patch(sheet.avatarWrapper, { width: isTv ? 96 : 76, height: isTv ? 96 : 76 }),
+    avatarImage: patch(sheet.avatarImage, { width: isTv ? 96 : 76, height: isTv ? 96 : 76 }),
+    avatarPlaceholder: patch(sheet.avatarPlaceholder, { width: isTv ? 96 : 76, height: isTv ? 96 : 76 }),
+    avatarInitial: patch(sheet.avatarInitial, { fontSize: isTv ? 34 : 26 }),
+  };
 }

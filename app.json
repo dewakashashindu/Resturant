@@ -1,21 +1,34 @@
 {
   "expo": {
-    "name": "EChef Admin",
-    "slug": "echef-admin",
+    "name": "EChef Steward",
+    "slug": "echef-steward",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icons/millamirissa-app-icon.png",
-    "scheme": "echef-admin",
+    "scheme": "echef-steward",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "UISupportedInterfaceOrientations": [
+          "UIInterfaceOrientationPortrait",
+          "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight"
+        ],
+        "UISupportedInterfaceOrientations~ipad": [
+          "UIInterfaceOrientationPortrait",
+          "UIInterfaceOrientationPortraitUpsideDown",
+          "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/icons/millamirissa-adaptive.png",
         "backgroundColor": "#F8F7F5"
       },
-      "package": "com.dewaka_shashindu.echef.admin"
+      "package": "com.dewaka_shashindu.echef.steward"
     },
     "plugins": [
       "expo-router",
@@ -40,7 +53,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow EChef Admin to use Face ID for secure sign in."
+          "faceIDPermission": "Allow EChef Steward to use Face ID for secure sign in."
         }
       ],
       [
@@ -48,15 +61,17 @@
         {
           "icon": "./assets/icons/millamirissa-notification.png",
           "color": "#72563C",
-          "sounds": ["./assets/sounds/notification_chime.wav"]
+          "sounds": [
+            "./assets/sounds/notification_chime.wav"
+          ]
         }
       ],
       "@react-native-community/datetimepicker",
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Allow EChef Admin to access the microphone for voice queries.",
-          "speechRecognitionPermission": "Allow EChef Admin to use speech recognition to analyze sales data."
+          "microphonePermission": "Allow EChef Steward to access the microphone for voice queries.",
+          "speechRecognitionPermission": "Allow EChef Steward to use speech recognition to analyze sales data."
         }
       ]
     ],

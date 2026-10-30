@@ -1,5 +1,5 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack, useRootNavigationState, useRouter } from 'expo-router';
+import { Stack, usePathname, useRootNavigationState, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useKeepAwake } from 'expo-keep-awake';
 import { StatusBar } from 'expo-status-bar';
@@ -13,9 +13,19 @@ import { syncGlobalOrderDescriptions } from '../services/api';
 import { useAuthStore } from '../services/authStore';
 import { AppProvider } from '../AppContext';
 import NotificationPolling from '../components/NotificationPolling';
+import { useIsLargeDisplay } from '../services/kdsLayout';
+import {
+  applyRouteOrientation,
+  isRotatableRoute,
+  primeOrientation,
+} from '../services/screenOrientation';
 import NotificationToastBubble from '../components/NotificationToastBubble';
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// Portrait for the very first frame — the board screens switch to landscape
+// only once they are actually on screen (see OrientationGate below).
+primeOrientation();
 
 // Background ගිය timestamp save/read කරන key
 const BG_TIMESTAMP_KEY = 'app_background_timestamp';
@@ -24,6 +34,38 @@ const AUTO_LOGOUT_DELAY_MS = 1 * 60 * 1000; // 1 minute
 export const unstable_settings = {
   anchor: 'auth/login',
 };
+
+/**
+ * Orientation gate.
+ *
+ *   free   → KDS, BDS, Settings (and login / sign-up) follow the device: the
+ *            phone is upright → portrait, the phone is turned → landscape.
+ *   pinned → every other screen is portrait, always.
+ *
+ * A TV / Android box has no accelerometer, so it is never pinned.
+ */
+function OrientationGate() {
+  const pathname = usePathname();
+  const largeDisplay = useIsLargeDisplay();
+  const rotatable = isRotatableRoute(pathname);
+
+  useEffect(() => {
+    void applyRouteOrientation(rotatable, largeDisplay);
+  }, [rotatable, largeDisplay]);
+
+  // A rotation performed while the app was in the background must not survive
+  // into a portrait screen, so the rule is re-applied on resume as well.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        void applyRouteOrientation(rotatable, largeDisplay);
+      }
+    });
+    return () => subscription.remove();
+  }, [rotatable, largeDisplay]);
+
+  return null;
+}
 
 function LoadingScreen() {
   return (
@@ -41,6 +83,11 @@ function AuthGate() {
   const hydrateAuth = useAuthStore((state) => state.hydrateAuth);
   const lockSession = useAuthStore((state) => state.lockSession);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  // Second safety net for the "only these three screens rotate" rule: the
+  // native stack can pin the orientation of a screen itself, independently of
+  // expo-screen-orientation. A TV panel is never pinned.
+  const largeDisplayDevice = useIsLargeDisplay();
+  const stackOrientation = largeDisplayDevice ? {} : { orientation: 'portrait' };
 
   const isAuthenticated = Boolean(token);
 
@@ -147,28 +194,56 @@ function AuthGate() {
 
   return (
     <View style={styles.navigationRoot}>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="auth/login" options={{ headerShown: false }} />
-        <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
+      <Stack screenOptions={{ headerShown: false, ...(stackOrientation as any) }}>
+        <Stack.Screen
+          name="auth/login"
+          options={{ headerShown: false, ...((largeDisplayDevice ? {} : { orientation: 'default' }) as any) }}
+        />
+        <Stack.Screen
+          name="auth/signup"
+          options={{ headerShown: false, ...((largeDisplayDevice ? {} : { orientation: 'default' }) as any) }}
+        />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="auth/forgotpassword" options={{ headerShown: false }} />
-        <Stack.Screen name="auth/resetpassword" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="auth/forgotpassword"
+          options={{ headerShown: false, ...((largeDisplayDevice ? {} : { orientation: 'default' }) as any) }}
+        />
+        <Stack.Screen
+          name="auth/resetpassword"
+          options={{ headerShown: false, ...((largeDisplayDevice ? {} : { orientation: 'default' }) as any) }}
+        />
         <Stack.Screen name="Screens/operation" options={{ headerShown: false }} />
         <Stack.Screen name="Screens/tableselection" options={{ headerShown: false }} />
         <Stack.Screen name="Screens/definetable" options={{ headerShown: false }} />
         <Stack.Screen name="Screens/paxcount" options={{ headerShown: false }} />
         <Stack.Screen name="Screens/selectitems" options={{ headerShown: false }} />
         <Stack.Screen name="Screens/cart" options={{ headerShown: false }} />
-        <Stack.Screen name="Screens/settings" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="Screens/settings"
+          options={{ headerShown: false, ...((largeDisplayDevice ? {} : { orientation: 'default' }) as any) }}
+        />
         <Stack.Screen name="Screens/notifications" options={{ headerShown: false }} />
         <Stack.Screen name="auth/changepassword" options={{ headerShown: false }} />
         <Stack.Screen name="Screens/BillingScreen" options={{ headerShown: false }} />
         <Stack.Screen name="Screens/manageaccess" options={{ headerShown: false }} />
-        <Stack.Screen name="Screens/KDSHomeScreen" options={{ headerShown: false }} />
-        <Stack.Screen name="Screens/BDSHomeScreen" options={{ headerShown: false }} />
-        <Stack.Screen name="Screens/kds-unavailable" options={{ headerShown: false }} />
-        <Stack.Screen name="Screens/kds-dashboard" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="Screens/KDSHomeScreen"
+          options={{ headerShown: false, ...((largeDisplayDevice ? {} : { orientation: 'default' }) as any) }}
+        />
+        <Stack.Screen
+          name="Screens/BDSHomeScreen"
+          options={{ headerShown: false, ...((largeDisplayDevice ? {} : { orientation: 'default' }) as any) }}
+        />
+        <Stack.Screen
+          name="Screens/kds-unavailable"
+          options={{ headerShown: false, ...((largeDisplayDevice ? {} : { orientation: 'default' }) as any) }}
+        />
+        <Stack.Screen
+          name="Screens/kds-dashboard"
+          options={{ headerShown: false, ...((largeDisplayDevice ? {} : { orientation: 'default' }) as any) }}
+        />
       </Stack>
+      <OrientationGate />
       <NotificationPolling />
       <NotificationToastBubble />
     </View>

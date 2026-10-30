@@ -20,7 +20,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -28,6 +27,7 @@ import Tts from 'react-native-tts';
 
 import { apiClient } from '../../services/api';
 import { doneWindowOption, useKdsSettingsStore } from '../../services/kdsSettings';
+import { useKdsLayout, type KdsLayout } from '../../services/kdsLayout';
 import { useNotificationStore } from '../../services/notificationStore';
 
 type KdsStatus = 'S' | 'P' | 'D';
@@ -88,10 +88,11 @@ const COLORS = {
   danger: '#D85A52',
 };
 
-type KdsUiMetrics = { styles: any; scale: number };
+type KdsUiMetrics = { styles: any; scale: number; layout: KdsLayout | null };
 // KDS and BDS share this context so cards, typography and touch targets scale
-// together across compact phones, standard phones and tablet displays.
-const KdsUiContext = React.createContext<KdsUiMetrics>({ styles: {}, scale: 1 });
+// together across compact phones, standard phones, landscape phones and the
+// kitchen TV that runs on an Android box.
+const KdsUiContext = React.createContext<KdsUiMetrics>({ styles: {}, scale: 1, layout: null });
 
 const COLUMNS: { id: KdsStatus; title: string; color: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { id: 'S', title: 'TO DO', color: COLORS.todo, icon: 'time-outline' },
@@ -670,7 +671,7 @@ function OrderGroup({
   queueMoreQuantityForItem,
   onShowDetails,
 }: OrderGroupProps) {
-  const { styles, scale } = React.useContext(KdsUiContext);
+  const { styles, scale, layout: chromeLayout } = React.useContext(KdsUiContext);
   const takeAway = order.orderMode.toUpperCase().includes('TAKE') || order.tableNo.toUpperCase().startsWith('TA');
   const cardAlertLevel = orderAlertLevel(order, now, waitingConfig);
   const isTodo = status === 'S';
@@ -697,7 +698,9 @@ function OrderGroup({
         >
           <Text style={styles.orderNo}>ORDER {order.orderNo}</Text>
           <Text style={styles.stewardName} numberOfLines={1}>STEWARD: {order.stewardName || '—'}</Text>
-          <Text style={styles.tapDetails}>Tap order number for item selection</Text>
+          {chromeLayout?.showCardHint !== false ? (
+            <Text style={styles.tapDetails}>Tap order number for item selection</Text>
+          ) : null}
         </TouchableOpacity>
         <OrderTableBadge
           order={order}
@@ -858,7 +861,7 @@ function TodoItemSheet({
   onToggleAll,
   onMove,
 }: TodoItemSheetProps) {
-  const { styles, scale } = React.useContext(KdsUiContext);
+  const { styles, scale, layout: sheetLayout } = React.useContext(KdsUiContext);
   const iconSize = (size: number) => Math.round(size * scale);
   const selectedLines = rows.filter((row) => selectedIds.includes(row.id));
   const selectedQty = selectedLines.reduce((total, row) => total + row.quantity, 0);
@@ -868,7 +871,15 @@ function TodoItemSheet({
   return (
     <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
       <View style={styles.detailsOverlay}>
-        <View style={styles.detailsSheet}>
+        <View
+          style={[
+            styles.detailsSheet,
+            sheetLayout && {
+              maxHeight: sheetLayout.sheetMaxHeight,
+              ...(sheetLayout.sheetMaxWidth ? { maxWidth: sheetLayout.sheetMaxWidth } : null),
+            },
+          ]}
+        >
           <View style={styles.detailsHeader}>
             <View style={styles.detailsHeaderCopy}>
               <Text style={styles.detailsEyebrow}>TO DO ITEM</Text>
@@ -964,16 +975,17 @@ type KdsDisplayScreenProps = { stationType: KdsQueueType };
 export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
-  // Three responsive tiers: compact phone, regular phone, and tablet. The
-  // 520 dp tablet threshold also covers the Android tablet viewport shown in
-  // the supplied screenshot, where the prior fixed 7–13 px type was too small.
-  const isTablet = Math.min(width, height) >= 520;
-  const isCompactPhone = !isTablet && height < 700;
-  const uiScale = isTablet
-    ? Math.min(1.5, Math.max(1.32, width / 400))
-    : isCompactPhone ? 0.88 : 1;
-  const kdsUi = useMemo(() => ({ styles: createResponsiveKdsStyles(uiScale), scale: uiScale }), [uiScale]);
+  // One shared layout decision (services/kdsLayout.ts) covers four tiers:
+  // compact phone, regular phone, landscape phone and the TV / Android box.
+  // The old Math.min(width, height) test treated a landscape phone as a small
+  // portrait phone and a 1080p TV as a huge tablet, which is what made the
+  // board collapse behind its own header on both.
+  const layout = useKdsLayout();
+  const uiScale = layout.scale;
+  const kdsUi = useMemo(
+    () => ({ styles: createResponsiveKdsStyles(uiScale), scale: uiScale, layout }),
+    [uiScale, layout],
+  );
   const styles = kdsUi.styles;
   const iconSize = (size: number) => Math.round(size * uiScale);
   const isKdsScreenFocused = useIsFocused();
@@ -1255,7 +1267,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const hasTodoSearch = normalizedSearchQuery.length > 0;
   // The dropdown has an explicit, device-height-aware viewport. Its result
   // list can receive a vertical gesture rather than extending behind the board.
-  const searchDropdownMaxHeight = Math.max(240 * uiScale, Math.min(540 * uiScale, height - 180 * uiScale));
+  const searchDropdownMaxHeight = layout.searchDropdownMaxHeight;
   const todoSearchResults = useMemo(() => {
     if (!hasTodoSearch) return [];
     return items
@@ -1589,9 +1601,22 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
     <KdsUiContext.Provider value={kdsUi}>
       <SafeAreaView style={styles.screen}>
         <StatusBar barStyle="light-content" backgroundColor={COLORS.navy} />
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 10) }]}>
+      <View
+        style={[
+          styles.header,
+          {
+            minHeight: layout.headerMinHeight,
+            paddingTop: layout.headerPaddingTop,
+            paddingBottom: layout.headerPaddingBottom,
+            paddingLeft: Math.max(layout.paddingLeft, Math.round(14 * uiScale)),
+            paddingRight: Math.max(layout.paddingRight, Math.round(14 * uiScale)),
+          },
+        ]}
+      >
         <View style={styles.headerCopy}>
-          <Text style={styles.headerEyebrow}>LIVE {displayName} QUEUE</Text>
+          {layout.showEyebrow ? (
+            <Text style={styles.headerEyebrow}>LIVE {displayName} QUEUE</Text>
+          ) : null}
           <Text style={styles.headerTitle}>{stationName} Display</Text>
           <View style={styles.headerDateRow}>
             <Ionicons name="calendar-outline" size={iconSize(12)} color={OperationalColors.accentSoft} />
@@ -1630,7 +1655,16 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         ) : null}
       </View>
 
-      <View style={styles.queueFilter}>
+      <View
+        style={[
+          styles.queueFilter,
+          {
+            paddingVertical: layout.filterPaddingVertical,
+            paddingLeft: Math.max(layout.paddingLeft, Math.round(11 * uiScale)),
+            paddingRight: Math.max(layout.paddingRight, Math.round(11 * uiScale)),
+          },
+        ]}
+      >
         <View style={styles.searchRow}>
           <View style={styles.searchControls}>
           <View style={[styles.searchBox, styles.searchBoxFlex]}>
@@ -1720,7 +1754,17 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
 
       </View>
 
-      <View style={styles.summaryHeader} pointerEvents={hasTodoSearch ? 'none' : 'auto'}>
+      <View
+        style={[
+          styles.summaryHeader,
+          layout.compactChrome && {
+            marginTop: Math.round(5 * uiScale),
+            marginBottom: Math.round(5 * uiScale),
+            paddingVertical: layout.summaryPaddingVertical,
+          },
+        ]}
+        pointerEvents={hasTodoSearch ? 'none' : 'auto'}
+      >
         <SeveritySummary title="TO DO" titleColor={COLORS.todo} summary={todoSummary} />
         <View style={styles.summaryDivider} />
         <SeveritySummary title="IN PROGRESS" summary={inProgressSummary} />
@@ -1728,7 +1772,17 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
 
       {/* While the search dropdown is open, underlying card ScrollViews must
           not capture a vertical swipe intended for the result list. */}
-      <View style={styles.board} pointerEvents={hasTodoSearch ? 'none' : 'auto'}>
+      <View
+        style={[
+          styles.board,
+          {
+            paddingHorizontal: Math.max(layout.paddingLeft, layout.boardPadding),
+            paddingRight: Math.max(layout.paddingRight, layout.boardPadding),
+            paddingBottom: layout.boardPadding,
+          },
+        ]}
+        pointerEvents={hasTodoSearch ? 'none' : 'auto'}
+      >
         {COLUMNS.map((column) => {
           // Search is rendered in its own overlay and never changes the board
           // below it: all To-Do, In Progress, and Done cards stay in place.
@@ -1738,7 +1792,12 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
           const useItemLayout = column.id === 'S' && todoViewMode === 'item';
           return (
             <View key={column.id} style={styles.column}>
-              <View style={[styles.columnHeader, { borderBottomColor: `${column.color}45` }]}>
+              <View
+                style={[
+                  styles.columnHeader,
+                  { borderBottomColor: `${column.color}45`, minHeight: layout.columnHeaderMinHeight },
+                ]}
+              >
                 <View style={[styles.columnIcon, { backgroundColor: `${column.color}20` }]}><Ionicons name={column.icon} size={iconSize(16)} color={column.color} /></View>
                 <View style={styles.columnTitleBlock}>
                   <Text style={[styles.columnTitle, { color: column.color }]}>{column.title}</Text>
@@ -1813,7 +1872,15 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         onRequestClose={() => closeTodoBulkMove()}
       >
         <View style={styles.bulkTodoOverlay}>
-          <View style={styles.bulkTodoSheet}>
+          <View
+            style={[
+              styles.bulkTodoSheet,
+              {
+                maxHeight: layout.sheetMaxHeight,
+                ...(layout.sheetMaxWidth ? { maxWidth: layout.sheetMaxWidth } : null),
+              },
+            ]}
+          >
             <View style={styles.bulkTodoHeader}>
               <View style={styles.bulkTodoHeaderCopy}>
                 <Text style={styles.bulkTodoEyebrow}>TO-DO BULK MOVE</Text>
@@ -1910,7 +1977,15 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         onRequestClose={closeDetails}
       >
         <View style={styles.detailsOverlay}>
-          <View style={styles.detailsSheet}>
+          <View
+            style={[
+              styles.detailsSheet,
+              {
+                maxHeight: layout.sheetMaxHeight,
+                ...(layout.sheetMaxWidth ? { maxWidth: layout.sheetMaxWidth } : null),
+              },
+            ]}
+          >
             <View style={styles.detailsHeader}>
               <View style={styles.detailsHeaderCopy}>
                 <Text style={styles.detailsEyebrow}>{selectedItemIds.length === 1 ? 'ITEM ACTION' : `${stationName.toUpperCase()} ORDER DETAILS`}</Text>

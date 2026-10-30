@@ -72,9 +72,14 @@ export default function BottomBar() {
   const isTablet     = width >= 600;
   const isLandscape  = width > height;
   const isSmallPhone = width < 360;
-  const iconSize         = isTablet ? 30 : isSmallPhone ? 20 : 24;
-  const textSize         = isTablet ? 15 : isSmallPhone ? 10 : 12;
-  const navContentHeight = isTablet ? 64 : isLandscape ? 48 : 56;
+  // A TV driven by an Android box reports ~960 x 540 dp. It is not a tablet in
+  // the touch sense — the bar must stay a thin strip at the bottom.
+  // A phone held sideways is also very wide (~915 dp) but only ~412 dp tall,
+  // so the height threshold is what identifies a real television panel.
+  const isTvDisplay      = isLandscape && height >= 480 && width >= 800;
+  const iconSize         = isTvDisplay ? 24 : isTablet ? 30 : isSmallPhone ? 20 : 24;
+  const textSize         = isTvDisplay ? 13 : isTablet ? 15 : isSmallPhone ? 10 : 12;
+  const navContentHeight = isTvDisplay ? 42 : isTablet ? 64 : isLandscape ? 48 : 56;
   const horizontalInset  = Math.max(insets.left, insets.right);
 
   // ── Active tab detection ───────────────────────────────────────────────────

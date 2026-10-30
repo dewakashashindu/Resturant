@@ -61,18 +61,21 @@ export default function LoginScreen() {
   const syncProgress = useItemStore((state) => state.syncProgress);
   const syncStage = useItemStore((state) => state.syncStage);
 
-  const isTablet = width >= 600;
-  const isSmall  = height < 700;
+  // This screen follows the device orientation (upright → portrait, turned →
+  // landscape), so it needs a compact tier for the short landscape viewport.
+  const isLandscape = width > height;
+  const isTablet = !isLandscape && width >= 600;
+  const isSmall  = isLandscape || height < 700;
 
   const logoW = Math.min(340, width * 0.78);
-  const logoH = isTablet ? 122 : isSmall ? 82 : 98;
-  const logoMT = isSmall ? 16 : 24;
-  const titleFs = isTablet ? 32 : 27;
+  const logoH = isLandscape ? 52 : isTablet ? 122 : isSmall ? 82 : 98;
+  const logoMT = isLandscape ? 4 : isSmall ? 16 : 24;
+  const titleFs = isLandscape ? 22 : isTablet ? 32 : 27;
   const subtitleFs = 13;
-  const headerMT = 22;
-  const inputH = 54;
+  const headerMT = isLandscape ? 10 : 22;
+  const inputH = isLandscape ? 48 : 54;
   const inputFs = 14;
-  const inputMT = 22;
+  const inputMT = isLandscape ? 14 : 22;
   const inputRadius = 14;
   const btnH = 54;
   const btnFs = 16;
@@ -81,7 +84,7 @@ export default function LoginScreen() {
   const forgotFs = 12;
   const forgotMT = 14;
   const signupFs = 12;
-  const signupMT = 22;
+  const signupMT = isLandscape ? 12 : 22;
   const hPad = width < 360 ? 20 : 26;
   const eyeSize = 20;
 
