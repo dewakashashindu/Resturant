@@ -198,7 +198,12 @@ export default function BillingScreen() {
   // isBillChanged mirrors billingHasChanges; kept as a named alias so the
   // intent is explicit and matches the requirement terminology.
   const isBillChanged = billingHasChanges;
-  const footerButtonLabel = 'Save Changes';
+  const [isSavingBillingChanges, setIsSavingBillingChanges] = useState(false);
+  const billingSaveInFlightRef = useRef(false);
+  // A second tap while the first save is still running would fire a second set
+  // of requests against the same invoice — exactly the concurrent pattern that
+  // deadlocked SQL Server. The label also tells the steward that work is going.
+  const footerButtonLabel = isSavingBillingChanges ? 'Saving…' : 'Save Changes';
   const footerButtonBackgroundColor = isBillChanged ? OperationalColors.primary : OperationalColors.muted;
 
   const now = new Date();
@@ -832,6 +837,11 @@ const goBack = useCallback(() => {
   // removed entirely per requirements.
   const handleSaveChanges = () => {
     if (!isBillChanged) return; // button is inactive — nothing to do
+    // Re-entry guard: the footer button is also disabled while saving, but the
+    // ref covers a fast double tap that lands before the next render.
+    if (billingSaveInFlightRef.current) return;
+    billingSaveInFlightRef.current = true;
+    setIsSavingBillingChanges(true);
 
     void (async () => {
       try {
@@ -927,8 +937,12 @@ const goBack = useCallback(() => {
           userId,
         });
 
-        const addRequests = pendingEntries.map(
-          ([menuItemCode, deltaQty]) => {
+        // Thunks, NOT promises: the request must not leave the device until the
+        // loop below reaches it. map() used to call apiClient immediately, so
+        // every line was sent at the same moment and the SERIALIZABLE +
+        // UPDLOCK/HOLDLOCK transactions deadlocked each other (SQL 1205).
+        const addTasks = pendingEntries.map(
+          ([menuItemCode, deltaQty]) => async () => {
             const currentItem = displayedItems.find(
               (item: any) =>
                 item.menuItemCode === menuItemCode ||
@@ -940,7 +954,7 @@ const goBack = useCallback(() => {
               console.error(
                 `[BillingScreen] Missing details for item: ${menuItemCode}`,
               );
-              return Promise.resolve({ ok: true, data: {} } as any);
+              return { ok: true, data: {} } as any;
             }
 
             // invoiceNo is required so the server can find the existing row
@@ -967,7 +981,7 @@ const goBack = useCallback(() => {
           },
         );
 
-        const voidRequests = voidCandidates.map((item: any) => {
+        const voidTasks = voidCandidates.map((item: any) => async () => {
           const baselineQty = getBaselineQuantity(item.menuItemCode);
           const currentQty = Number(item.quantity ?? 0) || 0;
           const removeQtyDelta = Math.max(0, baselineQty - currentQty);
@@ -978,7 +992,7 @@ const goBack = useCallback(() => {
           };
 
           if (removeQtyDelta <= 0)
-            return Promise.resolve({ ok: true, data: {} });
+            return { ok: true, data: {} };
 
           // invoiceNo is required so the server can match the correct row
           // in Tbl_HoldUpsCloud and write InvoiceNo (not NULL) to
@@ -1003,12 +1017,13 @@ const goBack = useCallback(() => {
           } as any);
         });
 
-        // Run sequentially, NOT with Promise.all — concurrent requests on
-        // the same InvoiceNo can race at the DB level and hit
-        // "Violation of PRIMARY KEY constraint".
+        // One request at a time, in order (adds first, then voids). Each
+        // transaction commits — releasing its locks — before the next one is
+        // sent, so the same invoice is never written by two connections at
+        // once. This also avoids the PK violation the old comment warned about.
         const results: Array<{ ok: boolean; data?: any }> = [];
-        for (const req of [...addRequests, ...voidRequests]) {
-          results.push(await req);
+        for (const runTask of [...addTasks, ...voidTasks]) {
+          results.push(await runTask());
         }
         const failed = results.find((result) => !result.ok);
         if (failed) {
@@ -1044,6 +1059,9 @@ const goBack = useCallback(() => {
             ? error.message
             : 'Failed to save billing changes',
         );
+      } finally {
+        billingSaveInFlightRef.current = false;
+        setIsSavingBillingChanges(false);
       }
     })();
   };
@@ -1533,9 +1551,9 @@ const goBack = useCallback(() => {
             { backgroundColor: footerButtonBackgroundColor },
             !isBillChanged && { opacity: 0.6 },
           ]}
-          activeOpacity={isBillChanged ? 0.85 : 1}
+          activeOpacity={isBillChanged && !isSavingBillingChanges ? 0.85 : 1}
           onPress={handleSaveChanges}
-          disabled={!isBillChanged}
+          disabled={!isBillChanged || isSavingBillingChanges}
         >
           <Text style={s.printText}>{footerButtonLabel}</Text>
         </TouchableOpacity>

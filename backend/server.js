@@ -4411,13 +4411,97 @@ app.post('/api/devices/check-in', async (req, res) => {
   }
 });
 
+// ─── Deadlock retry (SQL Server 1205 / 1204) ────────────────────────────────
+// Two writers can still meet on the same invoice (a second device, the POS
+// desktop app, a trigger). When SQL Server picks our session as the deadlock
+// victim the whole transaction is rolled back, so the handler answers 500 with
+// "... was deadlocked ... and has been chosen as the deadlock victim. Rerun the
+// transaction." — that is exactly the case SQL Server tells us to retry.
+//
+// The handler is re-invoked from the start, which means it builds a NEW
+// sql.Transaction and new requests; a rolled-back transaction object must never
+// be reused. Only 1205/1204 is retried — a PK violation or a timeout is a real
+// error and retrying it could duplicate work.
+const DEADLOCK_RETRY_DELAYS_MS = [100, 300, 700];
+
+const isDeadlockFailure = (statusCode, body) => {
+  if (!statusCode || statusCode < 500) return false;
+  let message = '';
+  try {
+    message = typeof body === 'string' ? body : JSON.stringify(body ?? '');
+  } catch (_) {
+    message = String(body ?? '');
+  }
+  return /deadlock|\b1205\b|\b1204\b/i.test(message);
+};
+
+// Collects res.status()/res.json() so a failed attempt can be thrown away
+// instead of being flushed to the client before we decide to retry.
+const createBufferedResponse = (realRes) => {
+  const state = { statusCode: 200, headers: {}, body: undefined, sent: false };
+  const capture = {
+    status(code) { state.statusCode = code; return capture; },
+    setHeader(name, value) { state.headers[name] = value; return capture; },
+    set(name, value) { state.headers[name] = value; return capture; },
+    header(name, value) { state.headers[name] = value; return capture; },
+    json(payload) { state.body = payload; state.sent = true; return capture; },
+    send(payload) { state.body = payload; state.sent = true; return capture; },
+    end(payload) {
+      if (payload !== undefined) state.body = payload;
+      state.sent = true;
+      return capture;
+    },
+  };
+  const flush = () => {
+    if (realRes.headersSent) return;
+    Object.entries(state.headers).forEach(([name, value]) => {
+      try { realRes.setHeader(name, value); } catch (_) {}
+    });
+    realRes.status(state.statusCode);
+    if (state.body === undefined) realRes.end();
+    else realRes.json(state.body);
+  };
+  return { res: capture, state, flush };
+};
+
+const withDeadlockRetry = (handler, label) => async (req, res) => {
+  const maxAttempts = DEADLOCK_RETRY_DELAYS_MS.length + 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const capture = createBufferedResponse(res);
+    try {
+      await handler(req, capture.res);
+    } catch (unhandled) {
+      // The handlers answer their own errors; this is only a last resort so a
+      // rejection can never leave the request hanging.
+      capture.res.status(500).json({
+        ok: false,
+        success: false,
+        message: unhandled?.message || 'Request failed.',
+      });
+    }
+
+    const retry = isDeadlockFailure(capture.state.statusCode, capture.state.body);
+    if (!retry || attempt === maxAttempts) {
+      if (retry) {
+        console.log(`[deadlock-retry] ${label} still deadlocking after ${maxAttempts} attempts`);
+      }
+      capture.flush();
+      return;
+    }
+
+    const delay = DEADLOCK_RETRY_DELAYS_MS[attempt - 1];
+    console.log(`[deadlock-retry] ${label} attempt ${attempt}/${maxAttempts} was the deadlock victim — retrying in ${delay}ms`);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+};
+
 app.post('/api/orders/confirm-cart', confirmCartHandler);
 app.post('/api/cart/confirm', confirmCartHandler);
 app.post('/api/confirm-cart', confirmCartHandler);
-app.post('/api/billing/add-item', billingAddItemHandler);
-app.post('/api/add-billing-item', billingAddItemHandler);
-app.post('/api/billing/remove-item', billingRemoveItemHandler);
-app.post('/api/remove-billing-item', billingRemoveItemHandler);
+app.post('/api/billing/add-item', withDeadlockRetry(billingAddItemHandler, 'add-billing-item'));
+app.post('/api/add-billing-item', withDeadlockRetry(billingAddItemHandler, 'add-billing-item'));
+app.post('/api/billing/remove-item', withDeadlockRetry(billingRemoveItemHandler, 'remove-billing-item'));
+app.post('/api/remove-billing-item', withDeadlockRetry(billingRemoveItemHandler, 'remove-billing-item'));
 app.get('/api/billing/active-items', getActiveBillItemsHandler);
 
 const PORT = sysConfig.PORT || 3000;
