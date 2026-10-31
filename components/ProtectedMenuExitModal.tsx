@@ -27,6 +27,11 @@ export function ProtectedMenuExitModal({ visible, onClose }: ProtectedMenuExitMo
   const router = useRouter();
   const clearCart = useCartStore((state) => state.clearCart);
   const clearDiningSession = useMenuSessionStore((state) => state.clearDiningSession);
+  // An open invoice on this table means the customer's order was already
+  // confirmed and sent — leaving is then harmless, so the popup only offers
+  // "Exit" instead of asking to confirm or to throw the order away.
+  const existingInvoiceNo = useMenuSessionStore((state) => state.diningSession?.existingInvoiceNo ?? '');
+  const orderConfirmed = String(existingInvoiceNo ?? '').trim().length > 0;
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [verifying, setVerifying] = useState(false);
@@ -53,7 +58,7 @@ export function ProtectedMenuExitModal({ visible, onClose }: ProtectedMenuExitMo
     onClose();
   };
 
-  const completeExit = (mode: 'clear' | 'confirm') => {
+  const completeExit = (mode: 'clear' | 'confirm' | 'leave') => {
     setPassword('');
     setBiometricVerified(false);
     onClose();
@@ -65,12 +70,20 @@ export function ProtectedMenuExitModal({ visible, onClose }: ProtectedMenuExitMo
       return;
     }
 
+    // Already confirmed: keep the cart (it is the bill baseline) and just go home.
+    if (mode === 'leave') {
+      router.replace('/(tabs)');
+      return;
+    }
+
     // There is intentionally no Keep & Exit path. Confirm sends the customer
     // to the real Menu Cart, where the order must be confirmed before leaving.
     router.push('/menu/menu_cart');
   };
 
-  const handleExit = async (mode: 'clear' | 'confirm') => {
+  const handleExit = async (mode: 'clear' | 'confirm' | 'leave') => {
+    // Every way out of the menu card — even the harmless "already confirmed"
+    // Exit — must pass the password / PIN or biometric check first.
     if (biometricVerified) {
       completeExit(mode);
       return;
@@ -134,8 +147,12 @@ export function ProtectedMenuExitModal({ visible, onClose }: ProtectedMenuExitMo
                   <Ionicons name="lock-closed-outline" size={21} color="#FFFFFF" />
                 </View>
                 <View style={styles.headerCopy}>
-                  <Text style={styles.title}>Exit Menu Card?</Text>
-                  <Text style={styles.subtitle}>Clear the customer cart or confirm the order.</Text>
+                  <Text style={styles.title}>{orderConfirmed ? 'Leave Menu Card?' : 'Exit Menu Card?'}</Text>
+                  <Text style={styles.subtitle}>
+                    {orderConfirmed
+                      ? 'This order is already confirmed. Enter your PIN to leave.'
+                      : 'Confirm the order before leaving this table.'}
+                  </Text>
                 </View>
                 <TouchableOpacity style={styles.closeButton} onPress={resetAndClose} disabled={verifying}>
                   <Ionicons name="close" size={20} color="#FFFFFF" />
@@ -144,7 +161,9 @@ export function ProtectedMenuExitModal({ visible, onClose }: ProtectedMenuExitMo
 
               <View style={styles.content}>
                 <Text style={styles.description}>
-                  You cannot keep this customer cart for later. Clear it, or continue to order confirmation.
+                  {orderConfirmed
+                    ? 'The order for this table is already confirmed, so nothing will be lost. You can leave now.'
+                    : 'Confirm this customer order first. If you really need to abandon it, clear the cart and exit.'}
                 </Text>
 
                 {biometricVerified ? (
@@ -184,31 +203,46 @@ export function ProtectedMenuExitModal({ visible, onClose }: ProtectedMenuExitMo
                 )}
                 {error ? <Text style={styles.error}>{error}</Text> : null}
 
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.confirmButton]}
-                  onPress={() => void handleExit('confirm')}
-                  disabled={verifying}
-                  activeOpacity={0.85}
-                >
-                  {verifying ? <ActivityIndicator color="#FFFFFF" /> : <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" />}
-                  <View style={styles.actionCopy}>
-                    <Text style={styles.actionTitle}>Confirm Order</Text>
-                    <Text style={styles.actionDescription}>Continue to Menu Cart and confirm before leaving.</Text>
-                  </View>
-                </TouchableOpacity>
+                {orderConfirmed ? (
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.confirmButton]}
+                    onPress={() => void handleExit('leave')}
+                    disabled={verifying}
+                    activeOpacity={0.85}
+                  >
+                    {verifying ? <ActivityIndicator color="#FFFFFF" /> : <Ionicons name="log-out-outline" size={20} color="#FFFFFF" />}
+                    <View style={styles.actionCopy}>
+                      <Text style={styles.actionTitle}>Exit</Text>
+                    </View>
+                  </TouchableOpacity>
+                ) : (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.confirmButton]}
+                      onPress={() => void handleExit('confirm')}
+                      disabled={verifying}
+                      activeOpacity={0.85}
+                    >
+                      {verifying ? <ActivityIndicator color="#FFFFFF" /> : <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" />}
+                      <View style={styles.actionCopy}>
+                        <Text style={styles.actionTitle}>Confirm Order</Text>
+                        <Text style={styles.actionDescription}>Continue to Menu Cart and confirm before leaving.</Text>
+                      </View>
+                    </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.clearButton]}
-                  onPress={() => void handleExit('clear')}
-                  disabled={verifying}
-                  activeOpacity={0.85}
-                >
-                  {verifying ? <ActivityIndicator color="#B54F48" /> : <Ionicons name="trash-outline" size={19} color="#B54F48" />}
-                  <View style={styles.actionCopy}>
-                    <Text style={[styles.actionTitle, styles.clearTitle]}>Clear & Exit</Text>
-                    <Text style={[styles.actionDescription, styles.clearDescription]}>Remove this table data and all cart items.</Text>
-                  </View>
-                </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.clearButton]}
+                      onPress={() => void handleExit('clear')}
+                      disabled={verifying}
+                      activeOpacity={0.85}
+                    >
+                      {verifying ? <ActivityIndicator color="#B54F48" /> : <Ionicons name="trash-outline" size={19} color="#B54F48" />}
+                      <View style={styles.actionCopy}>
+                        <Text style={[styles.actionTitle, styles.clearTitle]}>Clear & Exit</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
             </KeyboardAvoidingView>
           </TouchableWithoutFeedback>

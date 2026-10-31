@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "EChef Steward",
-    "slug": "echef-steward",
+    "name": "EChef Admin",
+    "slug": "echef-admin",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icons/millamirissa-app-icon.png",
-    "scheme": "echef-steward",
+    "scheme": "echef-admin",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
@@ -28,7 +28,7 @@
         "foregroundImage": "./assets/icons/millamirissa-adaptive.png",
         "backgroundColor": "#F8F7F5"
       },
-      "package": "com.dewaka_shashindu.echef.steward"
+      "package": "com.dewaka_shashindu.echef.admin"
     },
     "plugins": [
       "expo-router",
@@ -53,7 +53,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow EChef Steward to use Face ID for secure sign in."
+          "faceIDPermission": "Allow EChef Admin to use Face ID for secure sign in."
         }
       ],
       [
@@ -70,8 +70,8 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Allow EChef Steward to access the microphone for voice queries.",
-          "speechRecognitionPermission": "Allow EChef Steward to use speech recognition to analyze sales data."
+          "microphonePermission": "Allow EChef Admin to access the microphone for voice queries.",
+          "speechRecognitionPermission": "Allow EChef Admin to use speech recognition to analyze sales data."
         }
       ]
     ],
