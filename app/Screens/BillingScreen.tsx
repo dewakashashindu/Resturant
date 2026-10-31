@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
+import { useAuthStore } from '../../services/authStore';
 import { CartItem, useCartStore } from '../../services/cartStore';
 import useItemStore from '../../services/itemStore';
 import { useOrderStore } from '../../services/orderStore';
@@ -189,6 +190,9 @@ export default function BillingScreen() {
   }, []);
 
   const activeTableNo = String(lastConfirmedOrder?.tableNo ?? tableName ?? '').trim();
+  const activeOrderTypeLabel = (lastConfirmedOrder as any)?.orderType === 'TA'
+    ? 'TAKE AWAY -'
+    : 'TABLE -';
   const grossTotal = displayedItems.reduce((sum, item: any) => {
     return (
       sum + (Number(item.salesPrice ?? 0) || 0) * (Number(item.quantity ?? 0) || 0)
@@ -198,6 +202,29 @@ export default function BillingScreen() {
   // isBillChanged mirrors billingHasChanges; kept as a named alias so the
   // intent is explicit and matches the requirement terminology.
   const isBillChanged = billingHasChanges;
+  // ── Customer details popup (per TABLE, never part of the bill) ───────────
+  const [isCustomerModalVisible, setIsCustomerModalVisible] = useState(false);
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerError, setCustomerError] = useState('');
+  // A phone number OR an email address — one of them, never both.
+  const [customerContactMode, setCustomerContactMode] = useState<'phone' | 'email'>('phone');
+  const [customerLookupState, setCustomerLookupState] = useState<'idle' | 'checking' | 'found' | 'new'>('idle');
+  const [customerLookupCusCode, setCustomerLookupCusCode] = useState('');
+  const [isSavingCustomer, setIsSavingCustomer] = useState(false);
+  const [hasCustomerRecord, setHasCustomerRecord] = useState(false);
+  // One automatic popup per bill. Dismissing it never re-opens on its own; the
+  // header button always can. The key is remembered so moving to another table
+  // asks again, while the same table does not nag on every re-render.
+  const customerAutoShownForKeyRef = useRef('');
+  const customerLoadSeqRef = useRef(0);
+  // Lookup fires 450 ms after the steward stops typing, and again the moment the
+  // field loses focus — either way the name comes back without a tap.
+  const customerLookupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The name we filled in ourselves, so a change of contact can drop it again.
+  const customerAutoNameRef = useRef('');
+
   const [isSavingBillingChanges, setIsSavingBillingChanges] = useState(false);
   const billingSaveInFlightRef = useRef(false);
   // A second tap while the first save is still running would fire a second set
@@ -619,6 +646,220 @@ export default function BillingScreen() {
     useOrderStore.getState().clearLastConfirmedOrder();
     router.replace('/Screens/operation');
   }, [clearPendingChanges, resetVoidState, router, setCartItemsInStore]);
+
+  // ── Customer details handlers ──────────────────────────────────────────────
+  // Phone OR email is captured per TABLE into dbo.Tbl_CusTableContact. A known
+  // contact loads its name from Tbl_CustomerMaster; an unknown one becomes a new
+  // master row whose CusCode comes from Tbl_TxnNumbers (TxnType 'CC').
+  const customerTableKey = String(activeTableNo || '').trim();
+  const customerInvoiceNo = String(dbInvoiceNo ?? lastConfirmedOrder?.invoiceNo ?? '').trim();
+  const authLocCode = useAuthStore((state) => state.user?.locCode ?? '');
+
+  const resetCustomerForm = useCallback(() => {
+    setCustomerPhone('');
+    setCustomerName('');
+    setCustomerEmail('');
+    setCustomerContactMode('phone');
+    setCustomerLookupState('idle');
+    setCustomerLookupCusCode('');
+    setCustomerError('');
+    customerAutoNameRef.current = '';
+  }, []);
+
+  const lookupCustomer = useCallback(async (contact: { phone?: string; email?: string }) => {
+    const phone = String(contact.phone ?? '').trim();
+    const email = String(contact.email ?? '').trim();
+    if (phone && email) return;                     // never both
+    if (!phone && !email) {
+      setCustomerLookupState('idle');
+      setCustomerLookupCusCode('');
+      return;
+    }
+    if (phone && !/^[0-9+\-\s()]{6,}$/.test(phone)) return;
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
+
+    setCustomerLookupState('checking');
+    const result = await apiClient.lookupKdsCustomer(phone ? { phone } : { email });
+    const row = result.ok ? (result.data as any)?.data : null;
+    if (row?.found) {
+      setCustomerLookupState('found');
+      setCustomerLookupCusCode(String(row.cusCode ?? ''));
+      if (row.cusName) {
+        const loadedName = String(row.cusName);
+        customerAutoNameRef.current = loadedName;
+        setCustomerName(loadedName);
+      }
+    } else {
+      setCustomerLookupState('new');
+      setCustomerLookupCusCode('');
+      // The name belonged to the previous contact — do not keep it for a new one.
+      const staleName = customerAutoNameRef.current;
+      customerAutoNameRef.current = '';
+      if (staleName) setCustomerName((prev) => (prev === staleName ? '' : prev));
+    }
+  }, []);
+
+  const loadCustomerContact = useCallback(async () => {
+    const key = String(customerTableKey || '').trim();
+    if (!key) return;
+    const sequence = ++customerLoadSeqRef.current;
+    const result = await apiClient.getKdsCustomerContact(key);
+    if (sequence !== customerLoadSeqRef.current) return;
+    if (!result.ok) {
+      // Say it out loud: a missing table must not look like "no customer yet".
+      resetCustomerForm();
+      setHasCustomerRecord(false);
+      setCustomerError(String((result.data as any)?.message ?? 'Unable to read the saved customer details.'));
+      return;
+    }
+    const row = result.ok ? (result.data as any)?.data : null;
+    if (!row) {
+      // A new table starts empty — never carry the previous table's details.
+      setHasCustomerRecord(false);
+      resetCustomerForm();
+      return;
+    }
+    setHasCustomerRecord(true);
+    const phone = String(row.contactNo ?? '').trim();
+    const email = String(row.cusEmail ?? '').trim();
+    setCustomerContactMode(phone ? 'phone' : 'email');
+    setCustomerPhone(phone);
+    setCustomerEmail(email);
+    setCustomerName(String(row.cusName ?? ''));
+    setCustomerLookupCusCode(String(row.cusCode ?? ''));
+    setCustomerLookupState(row.cusCode ? 'found' : 'idle');
+  }, [customerTableKey, resetCustomerForm]);
+
+  const openCustomerModal = useCallback(() => {
+    setCustomerError('');
+    setIsCustomerModalVisible(true);
+    void loadCustomerContact();
+  }, [loadCustomerContact]);
+
+  const closeCustomerModal = useCallback(() => {
+    setCustomerError('');
+    setIsCustomerModalVisible(false);
+  }, []);
+
+  // Typing a phone switches the form to phone mode and clears the email, and
+  // the other way round: the two can never both be filled.
+  // Whichever field has text wins; the other one is cleared and locked. An empty
+  // form leaves BOTH fields usable, so the steward can start with either one.
+  const changeCustomerPhone = useCallback((text: string) => {
+    setCustomerPhone(text);
+    if (text.trim()) {
+      setCustomerContactMode('phone');
+      setCustomerEmail('');
+    }
+    setCustomerLookupState('idle');
+    setCustomerLookupCusCode('');
+    if (customerError) setCustomerError('');
+  }, [customerError]);
+
+  const changeCustomerEmail = useCallback((text: string) => {
+    setCustomerEmail(text);
+    if (text.trim()) {
+      setCustomerContactMode('email');
+      setCustomerPhone('');
+    }
+    setCustomerLookupState('idle');
+    setCustomerLookupCusCode('');
+    if (customerError) setCustomerError('');
+  }, [customerError]);
+
+  // Leaving the field (any way: next field, keyboard down, Save) looks the
+  // contact up at once, so the name is already filled when focus moves on.
+  const blurCustomerPhone = useCallback(() => {
+    void lookupCustomer({ phone: customerPhone });
+  }, [lookupCustomer, customerPhone]);
+
+  const blurCustomerEmail = useCallback(() => {
+    void lookupCustomer({ email: customerEmail });
+  }, [lookupCustomer, customerEmail]);
+
+  // Auto-lookup 450 ms after typing stops, so the name appears even when the
+  // steward never leaves the field.
+  useEffect(() => {
+    if (!isCustomerModalVisible) return;
+    if (customerLookupTimerRef.current) clearTimeout(customerLookupTimerRef.current);
+    const phone = customerPhone.trim();
+    const email = customerEmail.trim();
+    const ready =
+      (phone && /^[0-9+\-\s()]{6,}$/.test(phone)) ||
+      (email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email));
+    if (!ready) return;
+    customerLookupTimerRef.current = setTimeout(() => {
+      void lookupCustomer(phone ? { phone } : { email });
+    }, 450);
+    return () => {
+      if (customerLookupTimerRef.current) clearTimeout(customerLookupTimerRef.current);
+    };
+  }, [customerPhone, customerEmail, isCustomerModalVisible, lookupCustomer]);
+
+  const saveCustomerContact = useCallback(async () => {
+    const key = String(customerTableKey || '').trim();
+    if (!key) {
+      setCustomerError('No table is selected for this bill yet.');
+      return;
+    }
+    // The two fields lock each other, so at most one of them has text here.
+    const phone = customerPhone.trim();
+    const email = customerEmail.trim();
+    if (!phone && !email) {
+      setCustomerError('Enter a phone number or an email address.');
+      return;
+    }
+    if (phone && !/^[0-9+\-\s()]{6,}$/.test(phone)) {
+      setCustomerError('Enter a valid phone number.');
+      return;
+    }
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setCustomerError('Enter a valid email address.');
+      return;
+    }
+    if (customerLookupState !== 'found' && !customerName.trim()) {
+      setCustomerError('Enter the customer name.');
+      return;
+    }
+    setIsSavingCustomer(true);
+    setCustomerError('');
+    try {
+      const result = await apiClient.captureKdsCustomer({
+        tableNo: key,
+        phone,
+        email,
+        customerName: customerName.trim(),
+        locCode: String(authLocCode ?? '').trim() || undefined,
+        updatedBy: 'Billing',
+      });
+      if (!result.ok || !result.data?.ok) {
+        setCustomerError(String((result.data as any)?.message ?? 'Unable to save the customer details.'));
+        return;
+      }
+      const saved = (result.data as any)?.data ?? {};
+      setHasCustomerRecord(true);
+      setCustomerLookupCusCode(String(saved.cusCode ?? ''));
+      setCustomerLookupState(String(saved.cusCode ?? '') ? 'found' : 'idle');
+      setIsCustomerModalVisible(false);
+      showToast(saved.cusCode
+        ? `Customer saved · ${saved.cusCode}`
+        : 'Customer details saved');
+    } catch (error) {
+      console.log('[Billing] customer capture failed', error);
+      setCustomerError('Unable to save the customer details. Please try again.');
+    } finally {
+      setIsSavingCustomer(false);
+    }
+  }, [customerTableKey, customerContactMode, customerPhone, customerEmail, customerName, customerLookupState, authLocCode, showToast]);
+
+  // Open once per bill, as soon as the table number of this bill is known.
+  useEffect(() => {
+    if (!customerTableKey) return;
+    if (customerAutoShownForKeyRef.current === customerTableKey) return;
+    customerAutoShownForKeyRef.current = customerTableKey;
+    void loadCustomerContact();
+    setIsCustomerModalVisible(true);
+  }, [customerTableKey, loadCustomerContact]);
 
 const goBack = useCallback(() => {
   if (isBillChanged) {
@@ -1271,14 +1512,28 @@ const goBack = useCallback(() => {
 
           <Text style={s.headerTitle}>Billing</Text>
 
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={handleNewOrder}
-            style={s.newOrderButton}
-          >
-            <Ionicons name="add" size={14} color={OperationalColors.primary} />
-            <Text style={s.newOrderButtonText}>New Order</Text>
-          </TouchableOpacity>
+          <View style={s.headerActions}>
+            {/* Customer details: opens the same popup any time, even after Skip. */}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={openCustomerModal}
+              style={s.customerButton}
+              accessibilityRole="button"
+              accessibilityLabel="Open customer details"
+            >
+              <Ionicons name="person-outline" size={16} color={OperationalColors.primary} />
+              {hasCustomerRecord ? <View style={s.customerButtonDot} /> : null}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={handleNewOrder}
+              style={s.newOrderButton}
+            >
+              <Ionicons name="add" size={14} color={OperationalColors.primary} />
+              <Text style={s.newOrderButtonText}>New Order</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -2051,6 +2306,146 @@ const goBack = useCallback(() => {
         </TouchableWithoutFeedback>
       </Modal>
 
+      {/* CUSTOMER DETAILS MODAL — table based, never part of the bill */}
+      <Modal
+        visible={isCustomerModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={closeCustomerModal}
+      >
+        <TouchableWithoutFeedback onPress={closeCustomerModal}>
+          <View style={s.voidModalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={s.customerCard}>
+                <View style={s.managerAuthHeaderRow}>
+                  <Text style={s.managerAuthTitle}>Customer Details</Text>
+                  <TouchableOpacity onPress={closeCustomerModal} activeOpacity={0.8}>
+                    <Ionicons name="close" size={22} color={OperationalColors.text} />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={s.customerTableStrip}>
+                  <Ionicons name="restaurant-outline" size={12} color={OperationalColors.primary} />
+                  <Text style={s.customerTableStripText}>
+                    {activeOrderTypeLabel} {customerTableKey || '—'}
+                  </Text>
+                </View>
+
+                {/* Phone OR email — filling one locks the other. */}
+                <View style={s.managerAuthFieldGroup}>
+                  <Text style={s.managerAuthLabel}>Customer Phone Number:</Text>
+                  <View style={[
+                    s.managerAuthInputBox,
+                    Boolean(customerEmail.trim()) && s.customerInputDisabled,
+                  ]}>
+                    <TextInput
+                      style={s.managerAuthInput}
+                      placeholder={customerEmail.trim() ? 'Using email instead' : 'Enter phone number'}
+                      placeholderTextColor="rgba(0, 0, 0, 0.25)"
+                      value={customerPhone}
+                      onChangeText={changeCustomerPhone}
+                      onEndEditing={blurCustomerPhone}
+                      onBlur={blurCustomerPhone}
+                      keyboardType="phone-pad"
+                      maxLength={15}
+                      editable={!isSavingCustomer && !customerEmail.trim()}
+                    />
+                  </View>
+                </View>
+
+                <View style={s.customerOrRow}>
+                  <View style={s.customerOrLine} />
+                  <Text style={s.customerOrText}>OR</Text>
+                  <View style={s.customerOrLine} />
+                </View>
+
+                <View style={s.managerAuthFieldGroup}>
+                  <Text style={s.managerAuthLabel}>Customer Email:</Text>
+                  <View style={[
+                    s.managerAuthInputBox,
+                    Boolean(customerPhone.trim()) && s.customerInputDisabled,
+                  ]}>
+                    <TextInput
+                      style={s.managerAuthInput}
+                      placeholder={customerPhone.trim() ? 'Using phone instead' : 'Enter email address'}
+                      placeholderTextColor="rgba(0, 0, 0, 0.25)"
+                      value={customerEmail}
+                      onChangeText={changeCustomerEmail}
+                      onEndEditing={blurCustomerEmail}
+                      onBlur={blurCustomerEmail}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      maxLength={50}
+                      editable={!isSavingCustomer && !customerPhone.trim()}
+                    />
+                  </View>
+                  <Text style={s.customerHint}>
+                    {customerLookupState === 'checking'
+                      ? 'Checking the customer master…'
+                      : customerLookupState === 'found'
+                        ? `Existing customer · ${customerLookupCusCode || 'found'} — name loaded from the master.`
+                        : customerLookupState === 'new'
+                          ? 'New customer — the name you enter will be added to the customer master.'
+                          : 'Phone or email — one of them is required. Type and leave the field to look it up.'}
+                  </Text>
+                </View>
+
+                <View style={s.managerAuthFieldGroup}>
+                  <View style={s.customerNameRow}>
+                    <Text style={s.managerAuthLabel}>Customer Name:</Text>
+                    {customerLookupState === 'found' ? (
+                      <View style={s.customerBadge}>
+                        <Ionicons name="checkmark-circle" size={11} color="#2B9662" />
+                        <Text style={s.customerBadgeText}>EXISTING</Text>
+                      </View>
+                    ) : customerLookupState === 'new' ? (
+                      <View style={[s.customerBadge, s.customerBadgeNew]}>
+                        <Ionicons name="add-circle" size={11} color={OperationalColors.primary} />
+                        <Text style={[s.customerBadgeText, s.customerBadgeTextNew]}>NEW CUSTOMER</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={s.managerAuthInputBox}>
+                    <TextInput
+                      style={s.managerAuthInput}
+                      placeholder="Enter customer name"
+                      placeholderTextColor="rgba(0, 0, 0, 0.25)"
+                      value={customerName}
+                      onChangeText={(text) => { setCustomerName(text); if (customerError) setCustomerError(''); }}
+                      editable={!isSavingCustomer}
+                    />
+                  </View>
+                </View>
+
+                {!!customerError && <Text style={s.managerAuthErrorText}>{customerError}</Text>}
+
+                <View style={s.customerFooter}>
+                  <TouchableOpacity
+                    style={s.customerSkipButton}
+                    onPress={closeCustomerModal}
+                    disabled={isSavingCustomer}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={s.customerSkipText}>Skip</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.customerSaveButton, isSavingCustomer && { opacity: 0.7 }]}
+                    onPress={() => void saveCustomerContact()}
+                    disabled={isSavingCustomer}
+                    activeOpacity={0.85}
+                  >
+                    {isSavingCustomer
+                      ? <ActivityIndicator size="small" color={OperationalColors.onPrimary} />
+                      : <Text style={s.customerSaveText}>Save</Text>}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       {/* LOADING OVERLAY */}
       {isHydratingBill && (
         <View style={s.loadingOverlay} pointerEvents="auto">
@@ -2603,6 +2998,128 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     managerAuthFooter: {
       marginTop: scale(managerFootMT),
       alignItems: 'center',
+    },
+
+    // ── Customer details (header button + popup) ───────────────────────────
+    headerActions: { flexDirection: 'row', alignItems: 'center', gap: scale(6) },
+    customerButton: {
+      width: scale(34),
+      height: scale(newOrderBtnH),
+      borderRadius: scale(8),
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(107,80,56,0.10)',
+      borderWidth: 1,
+      borderColor: 'rgba(107,80,56,0.22)',
+    },
+    customerButtonDot: {
+      position: 'absolute',
+      top: -3,
+      right: -3,
+      width: scale(10),
+      height: scale(10),
+      borderRadius: scale(5),
+      backgroundColor: '#2B9662',
+      borderWidth: 2,
+      borderColor: OperationalColors.header,
+    },
+    customerCard: {
+      width: '90%',
+      maxWidth: scale(460),
+      borderRadius: scale(16),
+      backgroundColor: OperationalColors.canvas,
+      padding: scale(16),
+      elevation: 18,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: scale(10) },
+      shadowOpacity: 0.22,
+      shadowRadius: scale(22),
+    },
+    customerTableStrip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: scale(5),
+      paddingVertical: scale(5),
+      borderRadius: scale(7),
+      backgroundColor: OperationalColors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: OperationalColors.border,
+      marginBottom: scale(12),
+    },
+    customerTableStripText: {
+      color: OperationalColors.primary,
+      fontSize: scale(10),
+      fontWeight: '700',
+      letterSpacing: 0.4,
+    },
+    customerInputDisabled: { opacity: 0.45, borderColor: OperationalColors.border },
+    customerOrRow: { flexDirection: 'row', alignItems: 'center', gap: scale(8), marginBottom: scale(10) },
+    customerOrLine: { flex: 1, height: 1, backgroundColor: OperationalColors.border },
+    customerOrText: {
+      color: OperationalColors.muted,
+      fontSize: scale(9),
+      fontWeight: '900',
+      letterSpacing: 1,
+    },
+    customerNameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: scale(8),
+    },
+    customerBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: scale(3),
+      paddingHorizontal: scale(6),
+      paddingVertical: scale(2),
+      borderRadius: scale(6),
+      backgroundColor: '#EDF7F1',
+      borderWidth: 1,
+      borderColor: '#CBE6D5',
+      marginBottom: scale(5),
+    },
+    customerBadgeNew: { backgroundColor: OperationalColors.surfaceAlt, borderColor: OperationalColors.border },
+    customerBadgeText: { color: '#2B9662', fontSize: scale(7.5), fontWeight: '900', letterSpacing: 0.5 },
+    customerBadgeTextNew: { color: OperationalColors.primary },
+    customerHint: {
+      marginTop: scale(4),
+      color: OperationalColors.muted,
+      fontSize: scale(9),
+      fontWeight: '500',
+    },
+    customerFooter: {
+      flexDirection: 'row',
+      gap: scale(9),
+      marginTop: scale(16),
+    },
+    customerSkipButton: {
+      flex: 1,
+      height: scale(40),
+      borderRadius: scale(9),
+      borderWidth: 1,
+      borderColor: OperationalColors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    customerSkipText: {
+      color: OperationalColors.primary,
+      fontSize: scale(12),
+      fontWeight: '700',
+    },
+    customerSaveButton: {
+      flex: 1,
+      height: scale(40),
+      borderRadius: scale(9),
+      backgroundColor: OperationalColors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    customerSaveText: {
+      color: OperationalColors.onPrimary,
+      fontSize: scale(12),
+      fontWeight: '700',
     },
 
     presetListCardBody: { flex: 1, paddingTop: scale(4) },

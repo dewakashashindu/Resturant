@@ -2219,6 +2219,293 @@ const kdsDayReportHandler = async (req, res) => {
 
 app.get('/api/kds/day-report', kdsDayReportHandler);
 
+// ── Customer capture for the Billing popup ─────────────────────────────────
+// Phone OR email (never both):
+//   1. lookup the detail in dbo.Tbl_CustomerMaster (RegTel / CusEmail)
+//   2. known customer  → reuse the CusCode, only the table contact is written
+//      new customer    → CusCode from dbo.Tbl_TxnNumbers (TxnType 'CC', next = TxnNo + 1)
+//                        and a row is inserted into Tbl_CustomerMaster
+//   3. the (TableNo, ContactNo, CusEmail) triple is written to the TEMPORARY
+//      table dbo.Tbl_CusTableContact, which is the hand-off buffer for billing.
+const CUS_TABLE_CONTACT = 'dbo.Tbl_CusTableContact';
+const CUS_MASTER = 'dbo.Tbl_CustomerMaster';
+const CUS_TXN_TYPE = 'CC';
+
+const normaliseContact = (value, max) => String(value ?? '').trim().slice(0, max);
+const isPhoneLike = (value) => /^[0-9+\-\s()]{6,}$/.test(String(value ?? '').trim());
+const isEmailLike = (value) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(value ?? '').trim());
+
+// One shared query: find a customer by phone (RegTel) or email (CusEmail).
+const findCustomerByContact = async (pool, phone, email, request) => {
+  const req = request ?? pool.request();
+  req.input('RegTel', sql.Char(15), phone || '');
+  req.input('CusEmail', sql.VarChar(50), email || '');
+  const result = await req.query(`
+    SELECT TOP (1) CusCode, CusName, LTRIM(RTRIM(RegTel)) AS RegTel, LTRIM(RTRIM(ISNULL(CusEmail,''))) AS CusEmail
+    FROM ${CUS_MASTER} WITH (NOLOCK)
+    WHERE (@RegTel <> '' AND LTRIM(RTRIM(ISNULL(RegTel,''))) = LTRIM(RTRIM(@RegTel)))
+       OR (@CusEmail <> '' AND LOWER(LTRIM(RTRIM(ISNULL(CusEmail,'')))) = LOWER(LTRIM(RTRIM(@CusEmail))))
+    ORDER BY CASE WHEN @RegTel <> '' AND LTRIM(RTRIM(ISNULL(RegTel,''))) = LTRIM(RTRIM(@RegTel)) THEN 0 ELSE 1 END
+  `);
+  return result.recordset?.[0] ?? null;
+};
+
+// Which database / server is this pool actually talking to, and can it see the
+// three tables the customer popup needs? "Invalid object name" almost always
+// means the table was created in a different database, so the answer is logged
+// and returned to the tablet instead of a bare 500.
+const describeCustomerTables = async (pool) => {
+  const result = await pool.request().query(`
+    SELECT DB_NAME() AS DbName,
+           @@SERVERNAME AS ServerName,
+           OBJECT_ID('dbo.Tbl_CusTableContact') AS ContactTableId,
+           OBJECT_ID('dbo.Tbl_CustomerMaster') AS MasterTableId,
+           OBJECT_ID('dbo.Tbl_TxnNumbers') AS TxnTableId
+  `);
+  const row = result.recordset?.[0] ?? {};
+  return {
+    database: String(row.DbName ?? '').trim(),
+    server: String(row.ServerName ?? '').trim(),
+    contactTable: Number(row.ContactTableId ?? 0) > 0,
+    masterTable: Number(row.MasterTableId ?? 0) > 0,
+    txnTable: Number(row.TxnTableId ?? 0) > 0,
+  };
+};
+
+const contactTableMissingMessage = (info) =>
+  `Customer table "${'dbo.Tbl_CusTableContact'}" is not in database "${info.database}" on "${info.server}" — `
+  + 'create it in THAT database (or fix DB_NAME in sysConfig.json).';
+
+const isMissingObjectError = (error) => /invalid object name/i.test(String(error?.message ?? ''));
+
+// Turn a raw SQL error into something the steward can read, and log the truth.
+const customerErrorResponse = async (error, fallbackMessage) => {
+  if (!isMissingObjectError(error)) return { status: 500, message: fallbackMessage };
+  try {
+    const info = await describeCustomerTables(await poolPromise);
+    console.log('[KDS] customer table check →', JSON.stringify(info));
+    return { status: 500, message: contactTableMissingMessage(info) };
+  } catch (diagError) {
+    console.log('[KDS] customer table check failed:', diagError?.message ?? diagError);
+    return { status: 500, message: fallbackMessage };
+  }
+};
+
+app.get('/api/kds/customer-diagnostics', async (_req, res) => {
+  try {
+    const pool = await poolPromise;
+    const info = await describeCustomerTables(pool);
+    console.log('[KDS] customer diagnostics →', JSON.stringify(info));
+    return res.json({ ok: true, data: info });
+  } catch (error) {
+    console.log('[KDS] customer diagnostics failed:', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+app.get('/api/kds/customer-lookup', async (req, res) => {
+  const phone = normaliseContact(req.query.phone, 15);
+  const email = normaliseContact(req.query.email, 50);
+  if (!phone && !email) {
+    return res.status(400).json({ ok: false, message: 'Enter a phone number or an email address.' });
+  }
+  if (phone && !isPhoneLike(phone)) {
+    return res.status(400).json({ ok: false, message: 'Enter a valid phone number.' });
+  }
+  if (email && !isEmailLike(email)) {
+    return res.status(400).json({ ok: false, message: 'Enter a valid email address.' });
+  }
+  try {
+    const pool = await poolPromise;
+    const row = await findCustomerByContact(pool, phone, email);
+    return res.json({
+      ok: true,
+      data: row
+        ? {
+          found: true,
+          cusCode: String(row.CusCode ?? '').trim(),
+          cusName: String(row.CusName ?? '').trim(),
+          regTel: String(row.RegTel ?? '').trim(),
+          cusEmail: String(row.CusEmail ?? '').trim(),
+        }
+        : { found: false, cusCode: '', cusName: '', regTel: phone, cusEmail: email },
+    });
+  } catch (error) {
+    console.log('[KDS] customer lookup failed:', error?.message ?? error);
+    const failure = await customerErrorResponse(error, 'Unable to look up the customer.');
+    return res.status(failure.status).json({ ok: false, message: failure.message });
+  }
+});
+
+// What is already buffered for this table (shown when the popup re-opens).
+app.get('/api/kds/customer-contact', async (req, res) => {
+  const tableNo = normaliseContact(req.query.tableNo, 10);
+  if (!tableNo) return res.status(400).json({ ok: false, message: 'tableNo is required.' });
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('TableNo', sql.Char(10), tableNo)
+      .query(`
+        SELECT TOP (1) LTRIM(RTRIM(TableNo)) AS TableNo,
+               LTRIM(RTRIM(ISNULL(ContactNo,''))) AS ContactNo,
+               LTRIM(RTRIM(ISNULL(CusEmail,''))) AS CusEmail
+        FROM ${CUS_TABLE_CONTACT} WITH (NOLOCK)
+        WHERE LTRIM(RTRIM(TableNo)) = @TableNo
+      `);
+    const row = result.recordset?.[0] ?? null;
+    const contactNo = String(row?.ContactNo ?? '').trim();
+    const cusEmail = String(row?.CusEmail ?? '').trim();
+    if (!row || (!contactNo && !cusEmail)) {
+      return res.json({ ok: true, data: null });
+    }
+    // Fill in the name from the master so the popup can show the full record.
+    const master = await findCustomerByContact(pool, contactNo, cusEmail);
+    return res.json({
+      ok: true,
+      data: {
+        tableNo: String(row.TableNo ?? '').trim(),
+        contactNo,
+        cusEmail,
+        cusCode: String(master?.CusCode ?? '').trim(),
+        cusName: String(master?.CusName ?? '').trim(),
+        mode: contactNo ? 'phone' : 'email',
+      },
+    });
+  } catch (error) {
+    console.log('[KDS] customer contact read failed:', error?.message ?? error);
+    const failure = await customerErrorResponse(error, 'Unable to read the saved customer details.');
+    return res.status(failure.status).json({ ok: false, message: failure.message });
+  }
+});
+
+app.post('/api/kds/customer-capture', async (req, res) => {
+  const body = req.body ?? {};
+  const tableNo = normaliseContact(body.tableNo, 10);
+  const phone = normaliseContact(body.phone, 15);
+  const email = normaliseContact(body.email, 50);
+  const requestedName = normaliseContact(body.customerName, 200);
+  const locCode = normaliseContact(body.locCode, 10) || '01';
+  const updatedBy = normaliseContact(body.updatedBy, 60) || 'Billing';
+
+  if (!tableNo) return res.status(400).json({ ok: false, message: 'No table is selected for this bill.' });
+  // Exactly one contact: phone OR email. Never both, never none.
+  if (phone && email) {
+    return res.status(400).json({ ok: false, message: 'Enter a phone number or an email address, not both.' });
+  }
+  if (!phone && !email) {
+    return res.status(400).json({ ok: false, message: 'Enter a phone number or an email address.' });
+  }
+  if (phone && !isPhoneLike(phone)) return res.status(400).json({ ok: false, message: 'Enter a valid phone number.' });
+  if (email && !isEmailLike(email)) return res.status(400).json({ ok: false, message: 'Enter a valid email address.' });
+
+  let transaction = null;
+  try {
+    const pool = await poolPromise;
+    const existing = await findCustomerByContact(pool, phone, email);
+    let cusCode = String(existing?.CusCode ?? '').trim();
+    let cusName = String(requestedName || existing?.CusName || '').trim();
+    let created = false;
+
+    if (!cusCode) {
+      if (!cusName) {
+        return res.status(400).json({ ok: false, message: 'Enter the customer name for a new customer.' });
+      }
+      // New customer: the code must be allocated inside the same transaction
+      // that consumes the number, otherwise two tills can mint the same CusCode.
+      transaction = pool.transaction ? new sql.Transaction(pool) : null;
+      if (!transaction) {
+        return res.status(500).json({ ok: false, message: 'Unable to open a database transaction.' });
+      }
+      await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+      const txnReq = new sql.Request(transaction);
+      txnReq.input('LocCode', sql.VarChar(10), locCode);
+      txnReq.input('TxnType', sql.VarChar(10), CUS_TXN_TYPE);
+      const txnResult = await txnReq.query(`
+        SELECT Prefix, TxnNo
+        FROM dbo.Tbl_TxnNumbers WITH (UPDLOCK, HOLDLOCK)
+        WHERE LTRIM(RTRIM(LocCode)) = LTRIM(RTRIM(@LocCode))
+          AND LTRIM(RTRIM(TxnType)) = @TxnType
+      `);
+      const txnRow = txnResult.recordset?.[0];
+      if (!txnRow) {
+        await transaction.rollback();
+        transaction = null;
+        return res.status(400).json({
+          ok: false,
+          message: `No ${CUS_TXN_TYPE} row in Tbl_TxnNumbers for location ${locCode}. Set it up in System Setting first.`,
+        });
+      }
+      const prefix = String(txnRow.Prefix ?? '').trim() || 'A';
+      const nextNo = (Number(txnRow.TxnNo) || 0) + 1;
+      cusCode = (prefix + String(nextNo).padStart(6, '0')).substring(0, 10);
+
+      const bumpReq = new sql.Request(transaction);
+      bumpReq.input('LocCode', sql.VarChar(10), locCode);
+      bumpReq.input('TxnType', sql.VarChar(10), CUS_TXN_TYPE);
+      bumpReq.input('NextNo', sql.Float, nextNo);
+      await bumpReq.query(`
+        UPDATE dbo.Tbl_TxnNumbers SET TxnNo = @NextNo
+        WHERE LTRIM(RTRIM(LocCode)) = LTRIM(RTRIM(@LocCode))
+          AND LTRIM(RTRIM(TxnType)) = @TxnType
+      `);
+
+      // Same column set the existing /api/customer/save uses. Columns this
+      // screen has no value for get '' / 0 so NOT NULL constraints hold.
+      const insertReq = new sql.Request(transaction);
+      insertReq.input('LocCode', sql.Char(10), locCode);
+      insertReq.input('CusCode', sql.Char(10), cusCode);
+      insertReq.input('CusName', sql.VarChar(200), cusName);
+      insertReq.input('RegTel', sql.Char(15), phone || '');
+      insertReq.input('CusEmail', sql.VarChar(50), email || '');
+      await insertReq.query(`
+        INSERT INTO ${CUS_MASTER} (
+          LocCode, CusCode, CusName, CusAdd1, CusAdd2, CusAdd3, CusAdd4,
+          RegTel, DelRefNo, CusEmail, CusWeb, Enable, CreditCustomer,
+          CreditLimit, UsedCredit, Rmks, LoyalCus, CreatedBy, CreateDateTime,
+          DeleveryCustomer, DisPre, AllowComplimentry, voiceprompt, notice,
+          CusBehaviour, BlackList, BlackListRemarks
+        )
+        VALUES (
+          @LocCode, @CusCode, @CusName, '', '', '', '',
+          @RegTel, @RegTel, @CusEmail, '', 1, 0,
+          0, 0, '', 0, 'Billing', GETDATE(),
+          0, 0, 0, '', '',
+          4, 0, ''
+        )
+      `);
+      await transaction.commit();
+      transaction = null;
+      created = true;
+    } else if (!cusName && existing?.CusName) {
+      cusName = String(existing.CusName).trim();
+    }
+
+    // Temporary hand-off table: one row per table. Blank side goes in as ' '
+    // because all three columns are NOT NULL.
+    await pool.request()
+      .input('TableNo', sql.Char(10), tableNo)
+      .input('ContactNo', sql.VarChar(50), phone || ' ')
+      .input('CusEmail', sql.VarChar(50), email || ' ')
+      .query(`
+        DELETE FROM ${CUS_TABLE_CONTACT} WHERE LTRIM(RTRIM(TableNo)) = @TableNo;
+        INSERT INTO ${CUS_TABLE_CONTACT} (TableNo, ContactNo, CusEmail)
+        VALUES (@TableNo, @ContactNo, @CusEmail);
+      `);
+
+    return res.json({
+      ok: true,
+      data: { tableNo, cusCode, cusName, phone, email, created, updatedBy },
+    });
+  } catch (error) {
+    if (transaction) {
+      try { await transaction.rollback(); } catch (_) { /* already gone */ }
+    }
+    console.log('[KDS] customer capture failed:', error?.message ?? error);
+    const failure = await customerErrorResponse(error, 'Unable to save the customer details.');
+    return res.status(failure.status).json({ ok: false, message: failure.message });
+  }
+});
+
 app.get('/api/kds/orders', async (req, res) => {
   try {
     // KDS queue switch uses the first Type character: K = Kitchen, B = Bar.

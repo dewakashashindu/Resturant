@@ -931,6 +931,60 @@ export const apiClient = {
     }
   },
 
+  // ── Customer capture (Billing popup; phone OR email, never both) ─────────
+  lookupKdsCustomer: async (contact: { phone?: string; email?: string }) => {
+    try {
+      const query = new URLSearchParams();
+      if (contact?.phone) query.set('phone', contact.phone);
+      if (contact?.email) query.set('email', contact.email);
+      const response = await fetch(
+        `${getDynamicApiBaseUrl()}/api/kds/customer-lookup?${query.toString()}`,
+      );
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] lookupKdsCustomer failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
+  getKdsCustomerContact: async (tableNo: string) => {
+    try {
+      const key = String(tableNo ?? '').trim();
+      if (!key) return { ok: false, data: null };
+      const response = await fetch(
+        `${getDynamicApiBaseUrl()}/api/kds/customer-contact?tableNo=${encodeURIComponent(key)}`,
+      );
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] getKdsCustomerContact failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
+  captureKdsCustomer: async (payload: {
+    tableNo: string;
+    phone?: string;
+    email?: string;
+    customerName?: string;
+    locCode?: string;
+    updatedBy?: string;
+  }) => {
+    try {
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/kds/customer-capture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] captureKdsCustomer failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
   getKdsDashboard: async (type?: string, range?: { from?: string; to?: string; all?: boolean }) => {
     try {
       const query = new URLSearchParams();

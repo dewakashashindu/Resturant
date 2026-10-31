@@ -122,11 +122,17 @@ export default function BottomBar() {
           return (
             <TouchableOpacity
               key={tab.name}
-              style={[styles.navItem, { minHeight: navContentHeight }]}
+              style={[
+                styles.navItem,
+                tab.name === 'operation' && styles.hiddenNavItem,
+                { minHeight: navContentHeight },
+              ]}
               onPress={() => router.push(tab.route as any)}
               accessibilityRole="button"
               accessibilityLabel={tab.label}
               accessibilityState={{ selected: isActive }}
+              accessibilityElementsHidden={tab.name === 'operation'}
+              importantForAccessibility={tab.name === 'operation' ? 'no-hide-descendants' : 'auto'}
               hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
             >
               <View style={[styles.iconWrap, isActive && styles.activeIcon]}>
@@ -205,6 +211,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     gap: 2,
     position: 'relative',
+  },
+  hiddenNavItem: {
+    display: 'none',
   },
   navText: {
     color: OperationalColors.primary,
