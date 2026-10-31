@@ -29,6 +29,11 @@ import { apiClient } from '../../services/api';
 import { doneWindowOption, useKdsSettingsStore } from '../../services/kdsSettings';
 import { useKdsLayout, type KdsLayout } from '../../services/kdsLayout';
 import { useNotificationStore } from '../../services/notificationStore';
+import {
+  playNewOrderAlert,
+  setScreenSoundMuted,
+  stopNewOrderAlert,
+} from '../../services/notificationSound';
 
 type KdsStatus = 'S' | 'P' | 'D';
 type KdsQueueType = 'K' | 'B';
@@ -1001,6 +1006,11 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const [now, setNow] = useState(() => Date.now());
   const delayAlertedRef = useRef<Set<string>>(new Set());
   const voiceAllowedRef = useRef(false);
+  // To Do order keys seen so far. The bell only rings for keys that are new,
+  // so a refresh that returns the same board stays silent.
+  const todoOrderKeysRef = useRef<Set<string> | null>(null);
+  // Screen-scoped mute: cleared automatically when this board leaves the screen.
+  const [isSoundMutedHere, setIsSoundMutedHere] = useState(false);
   const loadRequestRef = useRef(0);
   const soundEnabled = useNotificationStore((state) => state.preferences.soundEnabled);
   // DONE column window, shared with Settings > System Setting.
@@ -1027,7 +1037,9 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const displayName = isKitchenDisplay ? 'KDS' : 'BDS';
   const stationName = isKitchenDisplay ? 'Kitchen' : 'Bar';
   const isKdsAppActive = appState === 'active';
-  const isVoiceAllowed = isKdsScreenFocused && isKdsAppActive;
+  // Speech is allowed only while this board is visible, the app is active AND
+  // the board is not muted. Every announcement checks this through a ref.
+  const isVoiceAllowed = isKdsScreenFocused && isKdsAppActive && !isSoundMutedHere;
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', setAppState);
@@ -1044,6 +1056,67 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
       stopKdsDelayAlert();
     };
   }, [isVoiceAllowed]);
+
+  // ① The button press owns the switch. The shared flag is applied in its own
+  //    effect, so a tap can NEVER be undone by a focus re-render — the earlier
+  //    version reset the flag inside the focus effect, which made the button
+  //    look dead whenever the focus value was false (e.g. inside a tab host).
+  useEffect(() => {
+    setScreenSoundMuted(isSoundMutedHere);
+    if (!isSoundMutedHere) return;
+    // Mute silences everything that can make a noise: the bell, the delayed
+    // order announcement and any notification speech already in flight.
+    stopNewOrderAlert();
+    stopKdsDelayAlert();
+    // Stop the notification-queue speech too (the "order is ready" announcement
+    // is spoken by the same native engines), so muting cuts a sentence that is
+    // halfway through instead of letting it finish.
+    try { void Tts.stop().catch(() => {}); } catch (_) { /* not initialised */ }
+    try { Speech.stop(); } catch (_) { /* not initialised */ }
+  }, [isSoundMutedHere]);
+
+  // ② Silence is temporary: leaving the board (or unmounting it) restores the
+  //    sound, so an order can never be missed because somebody muted it earlier.
+  useEffect(() => {
+    if (!isKdsScreenFocused) {
+      setIsSoundMutedHere(false);
+      setScreenSoundMuted(false);
+      stopNewOrderAlert();
+    }
+    return () => {
+      setScreenSoundMuted(false);
+    };
+  }, [isKdsScreenFocused]);
+
+  const toggleSoundMute = useCallback(() => {
+    setIsSoundMutedHere((previous) => !previous);
+  }, []);
+
+  // Alarm Bell ×3 for a genuinely NEW To Do order. The first load only fills the
+  // baseline — opening the board must not ring — and a burst of orders inside
+  // the same poll rings once (the service throttles repeats).
+  useEffect(() => {
+    const todoKeys = new Set(
+      items
+        .filter((item) => item.status === 'S' && queueTypeFor(item.type) === kdsQueueType)
+        .map((item) => orderKeyFor(item)),
+    );
+    // Wait for the first load to finish: the empty board before it would look
+    // like "everything is new" and ring the bell on open.
+    if (!todoOrderKeysRef.current && isLoading) return;
+    const seen = todoOrderKeysRef.current;
+    todoOrderKeysRef.current = todoKeys;
+    if (!seen) return;
+    let hasNewOrder = false;
+    todoKeys.forEach((key) => {
+      if (!seen.has(key)) hasNewOrder = true;
+    });
+    if (!hasNewOrder) return;
+    if (!soundEnabled) return;
+    if (isSoundMutedHere) return;
+    if (appState !== 'active') return;
+    void playNewOrderAlert();
+  }, [appState, isLoading, isSoundMutedHere, items, kdsQueueType, soundEnabled]);
 
   const loadOrders = useCallback(async (mode: KdsLoadMode = 'manual') => {
     const requestId = ++loadRequestRef.current;
@@ -1148,7 +1221,8 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         delayAlertedRef.current.delete(key);
       }
     }
-    if (!soundEnabled || !isVoiceAllowed) return;
+    // Voice follows the same switch as the bell: muted here means no speech.
+    if (!soundEnabled || !isVoiceAllowed || isSoundMutedHere) return;
 
     [...delayedOrders.values()]
       .sort((left, right) => elapsedMinutes(right.placedTime, now) - elapsedMinutes(left.placedTime, now))
@@ -1158,7 +1232,7 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         delayAlertedRef.current.add(key);
         void speakKdsDelayAlert(order, () => voiceAllowedRef.current);
       });
-  }, [isVoiceAllowed, items, kdsQueueType, now, soundEnabled, waitingConfig]);
+  }, [isSoundMutedHere, isVoiceAllowed, items, kdsQueueType, now, soundEnabled, waitingConfig]);
 
   const moveItemToStatus = async (item: KdsItem, target: KdsStatus) => {
     if (target === item.status || updatingItemId || updatingOrderId) return;
@@ -1640,6 +1714,31 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         >
           <Ionicons name="stats-chart-outline" size={iconSize(20)} color={COLORS.white} />
         </TouchableOpacity>
+        {/* Screen-scoped mute. Tapping it silences new-order bells for as long
+            as this board is on screen; leaving the screen turns the sound back
+            on by itself, so an order can never be missed. */}
+        <TouchableOpacity
+          style={[
+            styles.refreshButton,
+            styles.soundButton,
+            layout.compactChrome && styles.soundButtonCompact,
+            isSoundMutedHere && styles.soundButtonMuted,
+          ]}
+          onPress={toggleSoundMute}
+          onLongPress={() => void playNewOrderAlert({ force: true })}
+          delayLongPress={600}
+          accessibilityRole="button"
+          accessibilityState={{ selected: isSoundMutedHere }}
+          accessibilityLabel={isSoundMutedHere
+            ? 'Sound is muted on this screen. Turn the new order alert back on'
+            : 'Mute the new order alert on this screen only'}
+        >
+          <Ionicons
+            name={isSoundMutedHere ? 'volume-mute' : 'volume-high'}
+            size={iconSize(20)}
+            color={isSoundMutedHere ? OperationalColors.primary : COLORS.white}
+          />
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.refreshButton}
           onPress={() => void loadOrders('manual')}
@@ -1661,6 +1760,23 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
           </TouchableOpacity>
         ) : null}
       </View>
+
+      {/* Unmistakable feedback: the board shows, in words, that the alarm is
+          silenced here — a steward should never have to guess. */}
+      {isSoundMutedHere ? (
+        <View style={styles.mutedBanner}>
+          <Ionicons name="volume-mute" size={iconSize(14)} color={COLORS.white} />
+          <Text style={styles.mutedBannerText}>SOUND OFF ON THIS SCREEN — leaving this screen turns it back on</Text>
+          <TouchableOpacity
+            onPress={toggleSoundMute}
+            style={styles.mutedBannerAction}
+            accessibilityRole="button"
+            accessibilityLabel="Turn the new order alarm back on"
+          >
+            <Text style={styles.mutedBannerActionText}>TURN ON</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       <View
         style={[
@@ -2115,6 +2231,29 @@ const baseStyles = StyleSheet.create({
   headerDateText: { color: OperationalColors.accentSoft, fontSize: 10, fontWeight: '900', letterSpacing: 0.7 },
   dashboardButton: { width: 40, height: 40, marginRight: 7, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(248,247,245,0.13)', borderWidth: 1, borderColor: 'rgba(248,247,245,0.16)' },
   refreshButton: { width: 40, height: 40, marginRight: 7, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(248,247,245,0.13)', borderWidth: 1, borderColor: 'rgba(248,247,245,0.16)' },
+  // Mute toggle sits beside refresh and is the same target size on every device.
+  soundButton: { width: 40, height: 40, marginRight: 7, justifyContent: 'center', alignItems: 'center', borderRadius: 13, backgroundColor: 'rgba(248,247,245,0.13)', borderWidth: 1, borderColor: 'rgba(248,247,245,0.16)' },
+  // Compact phones keep the fourth header action without squeezing the title.
+  soundButtonCompact: { width: 34, height: 34, borderRadius: 11, marginRight: 6 },
+  soundButtonMuted: { backgroundColor: OperationalColors.accentSoft, borderColor: OperationalColors.accent },
+  mutedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    backgroundColor: COLORS.danger,
+  },
+  mutedBannerText: { flex: 1, color: COLORS.white, fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
+  mutedBannerAction: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 7,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  mutedBannerActionText: { color: COLORS.white, fontSize: 9, fontWeight: '900', letterSpacing: 0.6 },
   unavailableButton: { minHeight: 40, paddingHorizontal: 9, gap: 4, borderRadius: 13, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(248,247,245,0.13)', borderWidth: 1, borderColor: 'rgba(248,247,245,0.16)' },
   unavailableButtonText: { color: COLORS.white, fontSize: 9, fontWeight: '900' },
   queueFilter: { paddingHorizontal: 11, paddingVertical: 8, gap: 8, zIndex: 20, elevation: 20, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.border },
@@ -2134,7 +2273,9 @@ const baseStyles = StyleSheet.create({
   todoLineRow: { minHeight: 52, paddingHorizontal: 7, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: OperationalColors.canvas, borderBottomWidth: 1, borderBottomColor: OperationalColors.onPrimary },
   todoLineMeta: { color: OperationalColors.muted, fontSize: 8, fontWeight: '700', marginTop: 2 },
   searchBox: { minHeight: 40, paddingLeft: 10, paddingRight: 5, flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 11, backgroundColor: OperationalColors.surface, borderWidth: 1, borderColor: OperationalColors.border },
-  searchInput: { flex: 1, minWidth: 0, paddingVertical: 0, color: COLORS.text, fontSize: 12, fontWeight: '700' },
+  // Typed search text is a touch darker than the rest of the board so it reads
+  // clearly, but stays regular weight — bold on a tablet looked heavy.
+  searchInput: { flex: 1, minWidth: 0, paddingVertical: 0, color: '#1C1A17', fontSize: 12, fontWeight: '400' },
   clearSearchButton: { width: 30, height: 30, justifyContent: 'center', alignItems: 'center', borderRadius: 15 },
   // A tall, scrollable list deliberately has no result-count cap. Every
   // matching To-Do line remains available by scrolling down this dropdown.

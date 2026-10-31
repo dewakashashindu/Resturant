@@ -556,7 +556,8 @@ const styles = StyleSheet.create({
   introTitle: { color: COLORS.text, fontSize: 13, fontWeight: '900' },
   introText: { color: COLORS.muted, fontSize: 11, lineHeight: 16, marginTop: 3 },
   searchWrap: { minHeight: 51, marginHorizontal: 14, marginTop: 13, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, backgroundColor: COLORS.white },
-  searchInput: { flex: 1, minWidth: 0, paddingHorizontal: 9, color: COLORS.text, fontSize: 14 },
+  // Darker typed text (not bold) so the query stands out from the placeholders.
+  searchInput: { flex: 1, minWidth: 0, paddingHorizontal: 9, color: '#1C1A17', fontSize: 14, fontWeight: '400' },
   clearSearch: { padding: 3 },
   listCaption: { minHeight: 39, paddingHorizontal: 17, flexDirection: 'row', alignItems: 'center' },
   listCaptionText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },

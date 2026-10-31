@@ -102,7 +102,7 @@ export default function HomeScreen() {
     {
       title: 'Order Taking',
       subtitle: 'Table POS',
-      visible: false, // Hide from Home screen, but still accessible via BottomBar
+      visible: true, // Hide from Home screen, but still accessible via BottomBar
       route: '/Screens/operation',
       ionIcon: 'receipt-outline',
     },
@@ -116,7 +116,7 @@ export default function HomeScreen() {
     {
       title: 'Menu Card',
       subtitle: 'Items & Pricing',
-      visible: false, // Hide from Home screen, but still accessible via BottomBar
+      visible: true, // Hide from Home screen, but still accessible via BottomBar
       route: '/Screens/menutbl_selection',
       ionIcon: 'restaurant-outline',
     },

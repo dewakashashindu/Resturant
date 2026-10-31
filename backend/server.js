@@ -1681,10 +1681,12 @@ app.get('/api/menu/items', async (req, res) => {
 app.get('/api/kds/menu-items', async (req, res) => {
   try {
     const search = String(req.query.search ?? '').trim();
-    const requestedLimit = Number(req.query.limit ?? 250);
+    // The Unavailable screen works on the WHOLE catalogue in one go: a filter or
+    // a page boundary here would leave items out of their category silently.
+    const requestedLimit = Number(req.query.limit ?? 2000);
     const limit = Number.isFinite(requestedLimit)
-      ? Math.min(500, Math.max(1, Math.floor(requestedLimit)))
-      : 250;
+      ? Math.min(5000, Math.max(1, Math.floor(requestedLimit)))
+      : 2000;
 
     const pool = await poolPromise;
     const result = await pool.request()
@@ -1713,16 +1715,22 @@ app.get('/api/kds/menu-items', async (req, res) => {
           INNER JOIN dbo.Tbl_MenuItems m WITH (NOLOCK)
             ON LTRIM(RTRIM(m.MenuItmId)) = LTRIM(RTRIM(v.MenuItmId))
           OUTER APPLY (
+            -- The sub category is where the item BELONGS, not whether the menu
+            -- card currently shows it. Making an item unavailable clears
+            -- DisplayInFront (that is what hides it from the card), so requiring
+            -- DisplayInFront = '1' here used to drop the item into "Other items"
+            -- the moment it was switched off. DisplayInFront is therefore only a
+            -- preference in the ORDER BY, never a filter — a hidden item keeps
+            -- its real sub category.
             SELECT TOP (1)
               LTRIM(RTRIM(a.L1Des)) AS SubCategory,
               ISNULL(a.L1LitingOrder, 0) AS SubCategoryOrder
             FROM dbo.Vw_MenuAssignment a WITH (NOLOCK)
             WHERE LTRIM(RTRIM(a.MenuItemCode)) = LTRIM(RTRIM(v.MenuItmId))
-              AND a.DisplayInFront = '1'
-              AND a.MenuAssiEnable = '1'
-              AND a.MenuItemEnable = '1'
               AND NULLIF(LTRIM(RTRIM(ISNULL(a.L1Des, ''))), '') IS NOT NULL
-            ORDER BY ISNULL(a.L1LitingOrder, 0), LTRIM(RTRIM(a.Level1))
+            ORDER BY CASE WHEN ISNULL(LTRIM(RTRIM(a.DisplayInFront)), '') = '1' THEN 0 ELSE 1 END,
+                     ISNULL(a.L1LitingOrder, 0),
+                     LTRIM(RTRIM(a.Level1))
           ) sub
           WHERE @Search = ''
              OR LTRIM(RTRIM(v.MenuItmId)) LIKE '%' + @Search + '%'

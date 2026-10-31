@@ -13,6 +13,7 @@ import {
   getLastNotificationIdKey,
   useNotificationStore,
 } from '../services/notificationStore';
+import { isScreenSoundMuted } from '../services/notificationSound';
 import { storage } from '../services/storage';
 
 const POLL_INTERVAL_MS = 3000;
@@ -31,7 +32,9 @@ Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: false,
     shouldShowList: false,
-    shouldPlaySound: true,
+    // Read at delivery time: a board that muted itself (KDS / BDS header
+    // speaker button) silences the notification sound too, not only the bell.
+    shouldPlaySound: !isScreenSoundMuted(),
     shouldSetBadge: false,
   }),
 });
@@ -245,8 +248,10 @@ export default function NotificationPolling() {
 
           // READY/DONE: TTS only. It intentionally has no notification chime.
           // The Android implementation speaks through STREAM_NOTIFICATION.
+          // A board that muted itself (KDS / BDS header speaker button) silences
+          // every app sound too, not just its own bell.
           const announcement = readyAnnouncementText(row, recipientName);
-          if (announcement && preferences.soundEnabled) {
+          if (announcement && preferences.soundEnabled && !isScreenSoundMuted()) {
             await speakReadyAnnouncement(announcement);
           }
 
@@ -261,6 +266,7 @@ export default function NotificationPolling() {
           // notification channel uses the phone's Notification volume, instead
           // of expo-av's media stream. READY/D has no beep by design.
           const shouldPlayPreparingBeep = preferences.soundEnabled
+            && !isScreenSoundMuted()
             && ['kds-status-update', 'kds-order-status-update'].includes(notificationKind)
             && notificationStatus === 'P';
           if (shouldPlayPreparingBeep) {
@@ -271,7 +277,9 @@ export default function NotificationPolling() {
                   body: message,
                   sound: NOTIFICATION_SOUND,
                   data: { notificationId: id, tableNo: asText(row.TableNo), invoiceNo: asText(row.InvoiceNo) },
-                  ...(Platform.OS === 'android' ? { channelId: ANDROID_SOUND_CHANNEL } : {}),
+                  ...(Platform.OS === 'android'
+                    ? { channelId: isScreenSoundMuted() ? ANDROID_SILENT_CHANNEL : ANDROID_SOUND_CHANNEL }
+                    : {}),
                 },
                 trigger: null,
               });

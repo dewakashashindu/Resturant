@@ -22,6 +22,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
 import { useAuthStore } from '../../services/authStore';
+import { storage } from '../../services/storage';
 import { CartItem, useCartStore } from '../../services/cartStore';
 import useItemStore from '../../services/itemStore';
 import { useOrderStore } from '../../services/orderStore';
@@ -218,6 +219,28 @@ export default function BillingScreen() {
   // header button always can. The key is remembered so moving to another table
   // asks again, while the same table does not nag on every re-render.
   const customerAutoShownForKeyRef = useRef('');
+  // The prompt is a ONE-TIME question per bill: the first time the bill screen
+  // opens after the cart was confirmed. It is remembered in storage, so leaving
+  // and re-entering the bill — or even restarting the app — never asks again,
+  // whether the steward filled it in or skipped it.
+  // Both keys are written: the invoice arrives a moment after the table number,
+  // and the same bill must never be asked twice while that value settles.
+  const customerPromptKeys = [
+    customerInvoiceNo ? `kds.customerPrompt:inv:${customerInvoiceNo}` : '',
+    customerTableKey ? `kds.customerPrompt:table:${customerTableKey}` : '',
+  ].filter(Boolean);
+  const hasAskedCustomerForThisBill = () => {
+    try {
+      return customerPromptKeys.some((key) => String(storage.getString(key) ?? '') === '1');
+    } catch {
+      return false;
+    }
+  };
+  const markCustomerAskedForThisBill = () => {
+    try {
+      customerPromptKeys.forEach((key) => storage.set(key, '1'));
+    } catch { /* storage unavailable — the in-memory ref still holds for this visit */ }
+  };
   const customerLoadSeqRef = useRef(0);
   // Lookup fires 450 ms after the steward stops typing, and again the moment the
   // field loses focus — either way the name comes back without a tap.
@@ -699,25 +722,27 @@ export default function BillingScreen() {
     }
   }, []);
 
+  // Returns the stored row (already saved for this table) or null, so the caller
+  // can decide whether the popup still has to be shown.
   const loadCustomerContact = useCallback(async () => {
     const key = String(customerTableKey || '').trim();
-    if (!key) return;
+    if (!key) return null;
     const sequence = ++customerLoadSeqRef.current;
     const result = await apiClient.getKdsCustomerContact(key);
-    if (sequence !== customerLoadSeqRef.current) return;
+    if (sequence !== customerLoadSeqRef.current) return null;
     if (!result.ok) {
       // Say it out loud: a missing table must not look like "no customer yet".
       resetCustomerForm();
       setHasCustomerRecord(false);
       setCustomerError(String((result.data as any)?.message ?? 'Unable to read the saved customer details.'));
-      return;
+      return null;
     }
     const row = result.ok ? (result.data as any)?.data : null;
     if (!row) {
       // A new table starts empty — never carry the previous table's details.
       setHasCustomerRecord(false);
       resetCustomerForm();
-      return;
+      return null;
     }
     setHasCustomerRecord(true);
     const phone = String(row.contactNo ?? '').trim();
@@ -728,6 +753,7 @@ export default function BillingScreen() {
     setCustomerName(String(row.cusName ?? ''));
     setCustomerLookupCusCode(String(row.cusCode ?? ''));
     setCustomerLookupState(row.cusCode ? 'found' : 'idle');
+    return row as { contactNo?: string; cusEmail?: string; cusName?: string; cusCode?: string };
   }, [customerTableKey, resetCustomerForm]);
 
   const openCustomerModal = useCallback(() => {
@@ -852,14 +878,29 @@ export default function BillingScreen() {
     }
   }, [customerTableKey, customerContactMode, customerPhone, customerEmail, customerName, customerLookupState, authLocCode, showToast]);
 
-  // Open once per bill, as soon as the table number of this bill is known.
+  // Ask for the customer details ONLY the first time for a table. Once a phone
+  // or email is saved, the popup never opens by itself again — the saved values
+  // are shown under the logo instead, and the header button re-opens the popup
+  // for anyone who wants to change them.
   useEffect(() => {
-    if (!customerTableKey) return;
+    if (!customerTableKey && !customerInvoiceNo) return;
     if (customerAutoShownForKeyRef.current === customerTableKey) return;
     customerAutoShownForKeyRef.current = customerTableKey;
-    void loadCustomerContact();
-    setIsCustomerModalVisible(true);
-  }, [customerTableKey, loadCustomerContact]);
+    // Asked once per bill — skip, save or close all count as "answered".
+    if (hasAskedCustomerForThisBill()) return;
+    let cancelled = false;
+    void (async () => {
+      const stored = await loadCustomerContact();
+      if (cancelled) return;
+      if (stored) {                              // already saved for this table
+        markCustomerAskedForThisBill();
+        return;
+      }
+      markCustomerAskedForThisBill();            // one shot, whatever happens next
+      setIsCustomerModalVisible(true);
+    })();
+    return () => { cancelled = true; };
+  }, [customerTableKey, customerInvoiceNo, loadCustomerContact]);
 
 const goBack = useCallback(() => {
   if (isBillChanged) {
@@ -1569,12 +1610,33 @@ const goBack = useCallback(() => {
         )}
 
         {/* Order type badge */}
-        
-          
-          <Text style={s.dateText}>
-            {timeStr}{'  '}{dateStr}
-          </Text>
-        
+        <Text style={s.dateText}>
+          {timeStr}{'  '}{dateStr}
+        </Text>
+
+        {/* Saved customer for this table — always BELOW the date, in the same
+            small style. Name + the phone OR email captured once in the popup.
+            includeFontPadding is off so the icon sits exactly on the text
+            baseline instead of floating above it on Android. */}
+        {hasCustomerRecord && (customerName.trim() || customerPhone.trim() || customerEmail.trim()) ? (
+          <View style={s.customerSummaryRow}>
+            <Ionicons
+              name="person-circle-outline"
+              size={isTablet ? 14 : isSmall ? 11 : 12}
+              color={OperationalColors.primary}
+              style={s.customerSummaryIcon}
+            />
+            <Text
+              style={[s.dateText, s.customerSummaryText, { fontSize: isTablet ? 14 : isSmall ? 10 : 11 }]}
+              numberOfLines={1}
+            >
+              {[
+                customerName.trim() || customerLookupCusCode.trim(),
+                customerPhone.trim() || customerEmail.trim(),
+              ].filter(Boolean).join('  ·  ')}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       {/* ITEMS LIST */}
@@ -3083,6 +3145,27 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
     customerBadgeNew: { backgroundColor: OperationalColors.surfaceAlt, borderColor: OperationalColors.border },
     customerBadgeText: { color: '#2B9662', fontSize: scale(7.5), fontWeight: '900', letterSpacing: 0.5 },
     customerBadgeTextNew: { color: OperationalColors.primary },
+    customerSummaryRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      alignSelf: 'center',
+      gap: scale(3),
+      marginTop: scale(3),
+      paddingHorizontal: scale(8),
+      maxWidth: '94%',
+    },
+    // Nudged down by 1 so the circle icon centres on the text's optical middle
+    // rather than its (font-padded) box centre.
+    customerSummaryIcon: { marginTop: scale(1) },
+    customerSummaryText: {
+      opacity: 0.85,
+      fontWeight: '700',
+      includeFontPadding: false,
+      textAlignVertical: 'center',
+      flexShrink: 1,
+      marginBottom: 0,       // dateText carries a bottom margin — not here
+    },
     customerHint: {
       marginTop: scale(4),
       color: OperationalColors.muted,

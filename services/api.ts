@@ -1061,7 +1061,9 @@ export const apiClient = {
     try {
       const query = new URLSearchParams();
       query.set('search', String(search ?? '').trim());
-      query.set('limit', '500');
+      // Every item must arrive: the Unavailable screen groups them by category,
+      // so a truncated list would hide whole sub-categories.
+      query.set('limit', '2000');
       const response = await fetch(`${getDynamicApiBaseUrl()}/api/kds/menu-items?${query.toString()}`);
       const data = await response.json().catch(() => null);
       return { ok: response.ok, data };
