@@ -2,8 +2,9 @@ import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Speech from 'expo-speech';
 import Tts from 'react-native-tts';
+import { useRouter } from 'expo-router';
 import { useEffect, useRef } from 'react';
-import { AppState, AppStateStatus, Platform, Vibration } from 'react-native';
+import { Alert, AppState, AppStateStatus, Platform, Vibration } from 'react-native';
 import { apiClient } from '../services/api';
 import { useAuthStore } from '../services/authStore';
 import { getUniqueDeviceId } from '../services/deviceIdService';
@@ -169,6 +170,12 @@ export default function NotificationPolling() {
   const inFlightRef = useRef(false);
   const deviceIdRef = useRef<string | null>(null);
   const lastIdRef = useRef(0);
+  // Workstation takeover guard: the sign-in that was replaced on another device
+  // must leave this screen exactly once.
+  const sessionLostRef = useRef(false);
+  const sessionCheckRef = useRef(false);
+  const router = useRouter();
+  const forceLogout = useAuthStore((state) => state.forceLogout);
 
   useEffect(() => {
     if (!token) return;
@@ -204,11 +211,43 @@ export default function NotificationPolling() {
   useEffect(() => {
     if (!token) return;
 
+    // One workstation, one account. If this sign-in was taken over elsewhere, the
+    // session is closed here instead of silently running twice. A network error
+    // never signs anybody out — only an explicit "not yours" answer does.
+    const verifyWorkstationOwnership = async (deviceId: string) => {
+      if (sessionCheckRef.current || sessionLostRef.current) return;
+      sessionCheckRef.current = true;
+      try {
+        const status = await apiClient.getDeviceSessionStatus(deviceId);
+        if (!status.ok || status.data?.ok !== true) return;
+        if (status.data?.data?.owned !== false) return;
+        sessionLostRef.current = true;
+        Alert.alert(
+          'Signed in elsewhere',
+          'This account was signed in on another device, so this workstation has been signed out. Please sign in again.',
+          [{
+            text: 'OK',
+            onPress: () => {
+              void forceLogout();
+              router.replace('/auth/login');
+            },
+          }],
+          { cancelable: false },
+        );
+      } catch (error) {
+        console.log('[Notifications] workstation ownership check failed', error);
+      } finally {
+        sessionCheckRef.current = false;
+      }
+    };
+
     const poll = async () => {
       const deviceId = deviceIdRef.current;
       if (!deviceId || inFlightRef.current || appStateRef.current !== 'active') return;
       inFlightRef.current = true;
       try {
+        await verifyWorkstationOwnership(deviceId);
+        if (sessionLostRef.current) return;
         const response = await apiClient.getDeviceNotifications(deviceId, lastIdRef.current);
         const rows: any[] = response.ok && Array.isArray(response.data?.notifications)
           ? response.data.notifications
@@ -309,7 +348,7 @@ export default function NotificationPolling() {
       appStateSubscription.remove();
       clearInterval(timer);
     };
-  }, [preferences.soundEnabled, preferences.vibrationEnabled, receiveNotification, recipientName, token]);
+  }, [forceLogout, preferences.soundEnabled, preferences.vibrationEnabled, receiveNotification, recipientName, router, token]);
 
   return null;
 }

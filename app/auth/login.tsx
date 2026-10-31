@@ -223,14 +223,29 @@ export default function LoginScreen() {
     return { response, data };
   };
 
+  // Both prompts are deliberately generic: no account names, user IDs, device
+  // IDs or station names are shown anywhere on this screen.
   const confirmDeviceSwitch = (): Promise<boolean> =>
     new Promise<boolean>((resolve) => {
       Alert.alert(
-        'Workstation already in use',
-        'This workstation is already assigned to another user. Do you want to switch the workstation to your account?',
+        'Already signed in elsewhere',
+        'This account is already signed in on another device. Sign out there and continue here?',
         [
-          { text: 'NO', style: 'cancel', onPress: () => resolve(false) },
-          { text: 'YES, SWITCH DEVICE', onPress: () => resolve(true) },
+          { text: 'CANCEL', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'SIGN OUT THERE & CONTINUE', onPress: () => resolve(true) },
+        ],
+        { cancelable: true, onDismiss: () => resolve(false) },
+      );
+    });
+
+  const confirmWorkstationTakeover = (): Promise<boolean> =>
+    new Promise<boolean>((resolve) => {
+      Alert.alert(
+        'Workstation in use',
+        'This workstation is already signed in with another account. Remove that sign-in and assign this workstation to you?',
+        [
+          { text: 'CANCEL', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'SWITCH TO ME', onPress: () => resolve(true) },
         ],
         { cancelable: true, onDismiss: () => resolve(false) },
       );
@@ -371,6 +386,24 @@ export default function LoginScreen() {
             deviceData    = await deviceCheckResponse.json();
             deviceCheckOk = deviceCheckResponse.ok;
 
+            // Two separate rules, asked in this order:
+            //   1. this workstation still belongs to another account
+            //   2. this account is still signed in on another workstation
+            // Saying no to either leaves everything untouched.
+            if (deviceData?.status === 'device-in-use') {
+              const shouldTakeOver = await confirmWorkstationTakeover();
+              if (!shouldTakeOver) return;
+              const taken = await checkInDevice(
+                deviceId,
+                loggedInUserId,
+                result.data?.user?.locCode ?? result.data?.user?.LocCode ?? result.data?.locCode ?? null,
+                result.data.token,
+                true,
+              );
+              deviceData = taken.data;
+              deviceCheckOk = taken.response.ok;
+            }
+
             if (deviceData?.status === 'session-conflict') {
               const shouldSwitch = await confirmDeviceSwitch();
               if (!shouldSwitch) return;
@@ -504,7 +537,20 @@ export default function LoginScreen() {
       const deviceData = await response.json().catch(() => null);
       let approvedResponse = response;
       let approvedData = deviceData;
-      if (deviceData?.status === 'session-conflict') {
+      if (deviceData?.status === 'device-in-use') {
+        const shouldTakeOver = await confirmWorkstationTakeover();
+        if (!shouldTakeOver) return;
+        const taken = await checkInDevice(
+          deviceId,
+          String(unlocked.session.user.userId ?? '').trim(),
+          unlocked.session.user.locCode,
+          unlocked.session.token,
+          true,
+        );
+        approvedResponse = taken.response;
+        approvedData = taken.data;
+      }
+      if (approvedData?.status === 'session-conflict') {
         const shouldSwitch = await confirmDeviceSwitch();
         if (!shouldSwitch) return;
         const switched = await checkInDevice(

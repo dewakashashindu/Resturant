@@ -13,7 +13,9 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { apiClient } from '../services/api';
 import { useAuthStore } from '../services/authStore';
+import { getUniqueDeviceId } from '../services/deviceIdService';
 import { useNotificationStore } from '../services/notificationStore';
 
 // ─── Screens that belong to the Order Taking flow ───────────────────────────
@@ -92,6 +94,15 @@ export default function BottomBar() {
 
   // ── Logout ────────────────────────────────────────────────────────────────
   const handleLogout = useCallback(async () => {
+    // Release this workstation first, so the next steward is not asked to take
+    // over a session that has already ended. A failed release must not block
+    // the logout itself.
+    try {
+      const deviceId = await getUniqueDeviceId();
+      if (deviceId) await apiClient.releaseDevice(deviceId);
+    } catch (error) {
+      console.log('[BottomBar] workstation release failed', error);
+    }
     await clearSession();
     router.replace('/auth/login');
   }, [clearSession, router]);

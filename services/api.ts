@@ -985,6 +985,43 @@ export const apiClient = {
     }
   },
 
+  // ── Workstation ownership ─────────────────────────────────────────────────
+  // Logout releases the workstation so the next steward is not asked to take
+  // over a session that has already ended.
+  releaseDevice: async (deviceId: string) => {
+    try {
+      const headers = await buildAuthHeaders();
+      const response = await fetch(`${getDynamicApiBaseUrl()}/api/devices/release`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ deviceId }),
+      });
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      console.log('[api] releaseDevice failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
+  // `owned: false` → this sign-in was taken over on another device (or the
+  // workstation was unapproved); the app must return to the login screen.
+  getDeviceSessionStatus: async (deviceId: string) => {
+    try {
+      const headers = await buildAuthHeaders();
+      const response = await fetch(
+        `${getDynamicApiBaseUrl()}/api/devices/session-status?deviceId=${encodeURIComponent(deviceId)}`,
+        { headers },
+      );
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, data };
+    } catch (error) {
+      // A network failure must never sign anybody out.
+      console.log('[api] getDeviceSessionStatus failed', (error as any)?.message ?? String(error));
+      return { ok: false, data: null };
+    }
+  },
+
   getKdsDashboard: async (type?: string, range?: { from?: string; to?: string; all?: boolean }) => {
     try {
       const query = new URLSearchParams();

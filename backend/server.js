@@ -4939,6 +4939,23 @@ app.post('/api/devices/check-in', async (req, res) => {
 
       if (device.IsApproved === 1 || device.IsApproved === true || device.IsApproved === '1') {
         const deviceLocCode = String(device.LocCode || resolvedLocCode || '1').trim();
+
+        // One workstation, one account. If somebody else is still signed in
+        // here, the caller has to confirm the takeover first. Deliberately no
+        // names, user IDs or device IDs are returned — the prompt stays generic.
+        const occupantUserId = String(device.UserID ?? '').trim();
+        const workstationTaken = Boolean(authenticatedUser)
+          && Boolean(occupantUserId)
+          && occupantUserId !== authenticatedUser;
+        if (workstationTaken && !shouldForceSwitch) {
+          console.log(`[Backend] Device ${deviceId} is already signed in by another account; confirmation required.`);
+          return res.status(409).json({
+            allowed: false,
+            status: 'device-in-use',
+            message: 'This workstation is already signed in with another account.',
+          });
+        }
+
         if (authenticatedUser) {
           const assignmentTransaction = new sql.Transaction(pool);
           await assignmentTransaction.begin();
@@ -4956,12 +4973,12 @@ app.post('/api/devices/check-in', async (req, res) => {
             const previousDeviceId = String(currentAssignment.recordset?.[0]?.DeviceId ?? '').trim();
             if (previousDeviceId && !shouldForceSwitch) {
               await assignmentTransaction.rollback();
+              // Same rule as above: the prompt never reveals the other device,
+              // its station or the account — only that a sign-in exists.
               return res.status(409).json({
                 allowed: false,
                 status: 'session-conflict',
-                message: 'This user is already logged in on another device.',
-                previousDeviceId,
-                stationType: String(device.KDUOrBDU ?? '').trim().toUpperCase().slice(0, 1) || null,
+                message: 'This account is already signed in on another device.',
               });
             }
 
@@ -5039,6 +5056,75 @@ app.post('/api/devices/check-in', async (req, res) => {
   } catch (error) {
     console.error("[Backend Error] Device registration failed:", error);
     return res.status(500).json({ error: "Internal server database error.", message: error.message });
+  }
+});
+
+// ─── Workstation ownership ──────────────────────────────────────────────────
+// Logout releases the workstation: the device keeps its approval, but the
+// account binding is cleared so the next steward is not asked to take over a
+// session that has already ended. Only the caller's own binding is removed.
+app.post('/api/devices/release', async (req, res) => {
+  const deviceId = String(req.body?.deviceId ?? '').trim();
+  if (!deviceId) return res.status(400).json({ ok: false, message: 'Device ID is required.' });
+
+  try {
+    const { userId } = getBearerUserInfo(req, '');
+    if (!userId) return res.status(401).json({ ok: false, message: 'Sign in again to release this workstation.' });
+
+    const pool = await poolPromise;
+    await pool.request()
+      .input('DeviceId', sql.VarChar(50), deviceId)
+      .input('UserID', sql.VarChar(10), String(userId).trim().slice(0, 10))
+      .query(`
+        UPDATE dbo.Tbl_Warkstation
+        SET UserID = NULL
+        WHERE LTRIM(RTRIM(Warkstation)) = @DeviceId
+          AND LTRIM(RTRIM(ISNULL(UserID, ''))) = @UserID
+      `);
+    console.log(`[Backend] Device ${deviceId} released by ${userId}.`);
+    return res.json({ ok: true });
+  } catch (error) {
+    console.log('[Backend] device release failed', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: 'Unable to release this workstation.' });
+  }
+});
+
+// Lightweight ownership probe for the signed-in app. `owned: false` means the
+// sign-in was taken over elsewhere (or the workstation was unapproved), and the
+// app must return to the login screen. Nothing identifying is returned.
+app.get('/api/devices/session-status', async (req, res) => {
+  const deviceId = String(req.query.deviceId ?? '').trim();
+  if (!deviceId) return res.status(400).json({ ok: false, message: 'Device ID is required.' });
+
+  try {
+    const { userId } = getBearerUserInfo(req, '');
+    if (!userId) return res.status(401).json({ ok: false, message: 'Sign in again.' });
+
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('DeviceId', sql.VarChar(50), deviceId)
+      .query(`
+        SELECT TOP (1)
+          ISNULL(IsApproved, 0) AS IsApproved,
+          LTRIM(RTRIM(ISNULL(UserID, ''))) AS UserID
+        FROM dbo.Tbl_Warkstation WITH (NOLOCK)
+        WHERE LTRIM(RTRIM(Warkstation)) = @DeviceId
+      `);
+    const row = result.recordset?.[0];
+    // A device that is not registered yet keeps its session: the login flow is
+    // the only place allowed to decide that.
+    if (!row) return res.json({ ok: true, data: { owned: true } });
+
+    const approved = row.IsApproved === 1 || row.IsApproved === true || row.IsApproved === '1';
+    const boundUser = String(row.UserID ?? '').trim();
+    // Empty binding never logs anyone out (it can simply mean the workstation
+    // was released); only a different account or a revoked approval does.
+    const owned = approved && (!boundUser || boundUser === String(userId).trim());
+    return res.json({ ok: true, data: { owned } });
+  } catch (error) {
+    console.log('[Backend] session status failed', error?.message ?? error);
+    // Never log a steward out because of a server-side hiccup.
+    return res.json({ ok: true, data: { owned: true } });
   }
 });
 
