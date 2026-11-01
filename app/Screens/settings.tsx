@@ -50,6 +50,7 @@ import {
   type KdsLayout,
 } from '../../services/kdsLayout';
 import { useNotificationStore } from '../../services/notificationStore';
+import { useAppSettingsStore } from '../../services/appSettings';
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function SettingsScreen() {
@@ -162,6 +163,8 @@ export default function SettingsScreen() {
   const user         = useAuthStore((s) => s.user);
   const token        = useAuthStore((s) => s.token);
   const updatePicture= useAuthStore((s) => s.updatePicture);
+  const autoLogoutAfterCustomerPrompt = useAppSettingsStore((s) => s.autoLogoutAfterCustomerPrompt);
+  const setAutoLogoutAfterCustomerPrompt = useAppSettingsStore((s) => s.setAutoLogoutAfterCustomerPrompt);
   const notificationPreferences = useNotificationStore((s) => s.preferences);
   const updateNotificationPreferences = useNotificationStore((s) => s.updatePreferences);
 
@@ -556,7 +559,7 @@ export default function SettingsScreen() {
             <Text style={s.sectionLabel}>System Setting</Text>
             <View style={s.notificationSettingsCard}>
               <TouchableOpacity
-                style={[s.notificationSettingRow, s.hiddenSystemSetting]}
+                style={s.notificationSettingRow}
                 onPress={() => setDonePickerVisible(true)}
                 activeOpacity={0.8}
                 accessibilityRole="button"
@@ -577,9 +580,9 @@ export default function SettingsScreen() {
                   <Ionicons name="chevron-down" size={16} color={OperationalColors.primary} />
                 </View>
               </TouchableOpacity>
-              <View style={[s.notificationSettingsDivider, s.hiddenSystemSetting]} />
+              <View style={s.notificationSettingsDivider} />
               <TouchableOpacity
-                style={[s.notificationSettingRow, s.hiddenSystemSetting]}
+                style={s.notificationSettingRow}
                 onPress={() => setModePickerVisible(true)}
                 activeOpacity={0.8}
                 accessibilityRole="button"
@@ -599,7 +602,7 @@ export default function SettingsScreen() {
                   <Ionicons name="chevron-down" size={16} color={OperationalColors.primary} />
                 </View>
               </TouchableOpacity>
-              <View style={[s.notificationSettingsDivider, s.hiddenSystemSetting]} />
+              <View style={s.notificationSettingsDivider} />
 
               {/* Order screen tile size — a bar with the normal size in the middle:
                   left = smaller tiles (more per row), right = bigger tiles. */}
@@ -753,6 +756,26 @@ export default function SettingsScreen() {
                   disabled={!biometricAvailable || biometricBusy}
                   trackColor={{ false: OperationalColors.border, true: OperationalColors.primary }}
                   thumbColor={biometricEnabled ? OperationalColors.primary : OperationalColors.onPrimary}
+                />
+              </View>
+
+              <View style={s.notificationSettingsDivider} />
+
+              <View style={s.notificationSettingRow}>
+                <View style={s.notificationSettingIcon}>
+                  <Ionicons name="log-out-outline" size={22} color={OperationalColors.primary} />
+                </View>
+                <View style={s.notificationSettingText}>
+                  <Text style={s.notificationSettingLabel}>Auto Logout</Text>
+                  <Text style={s.notificationSettingSub}>
+                    Sign out once the customer details popup is answered
+                  </Text>
+                </View>
+                <Switch
+                  value={autoLogoutAfterCustomerPrompt}
+                  onValueChange={(value) => setAutoLogoutAfterCustomerPrompt(value)}
+                  trackColor={{ false: OperationalColors.border, true: OperationalColors.primary }}
+                  thumbColor={autoLogoutAfterCustomerPrompt ? OperationalColors.primary : OperationalColors.onPrimary}
                 />
               </View>
             </View>
@@ -1441,7 +1464,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number, la
       flexDirection: 'row',
       alignItems: 'center',
     },
-    hiddenSystemSetting: { display: 'none' },
     notificationSettingIcon: {
       width: scale(isSmall ? 36 : 42),
       height: scale(isSmall ? 36 : 42),

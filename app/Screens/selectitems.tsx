@@ -616,6 +616,11 @@ export default function ItemSelection() {
         salesPrice: Number(item.salesPrice ?? 0) || 0,
         quantity: Math.max(0, Number(item.quantity ?? 0) || 0),
         itemRemarks: item.itemRemarks ?? '',
+        // Straight through: the POS part of the line stays locked everywhere.
+        billSource: item.billSource,
+        readOnly: item.readOnly,
+        lockedQty: item.lockedQty,
+        posQty: item.posQty,
       })),
     );
   }, [cartItems.length, isFromBilling, lastConfirmedOrder?.items, setCartItems]);

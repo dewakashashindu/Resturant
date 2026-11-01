@@ -1204,9 +1204,49 @@ export const apiClient = {
   },
 
   getActiveBillItems: async (tableNo: string, invoiceNo?: string) => {
+    // The bill belongs to the table. Tbl_HoldUps is asked first because that is
+    // where the real bill lives, whoever opened it: the lines the POS holds come
+    // back read-only and the app's own unmerged lines come back editable.
+    // The older invoice/table lookup is only used when the new one is missing,
+    // so an app pointed at an older backend keeps working.
     try {
-      // Prefer invoiceNo — it uniquely identifies one bill so items from
-      // other users on the same table are never mixed in.
+      const legacyUrl = (() => {
+        const params = new URLSearchParams();
+        if (invoiceNo) params.set('invoiceNo', invoiceNo);
+        else params.set('tableNo', tableNo);
+        return `${getDynamicApiBaseUrl()}/api/billing/active-items?${params.toString()}`;
+      })();
+
+      const billUrl = tableNo
+        ? `${getDynamicApiBaseUrl()}/api/bills/by-table/${encodeURIComponent(tableNo)}`
+        : '';
+      const billResponse = billUrl ? await fetch(billUrl, { headers: await buildAuthHeaders() }) : null;
+
+      if (billResponse && billResponse.ok) {
+        const billData = await parseResponseBody(billResponse);
+        if (billData && billData.ok && billData.data) {
+          return { ok: true, data: billData };
+        }
+      }
+
+      const response = await fetch(legacyUrl);
+      const contentType = response.headers.get('content-type') || '';
+      let data: any = null;
+      try {
+        if (contentType.includes('application/json')) data = await response.json();
+        else data = await response.text();
+      } catch (err) {
+        data = null;
+      }
+      return { ok: response.ok, data };
+    } catch (err) {
+      const msg = (err as any)?.message ?? String(err);
+      return { ok: false, data: { message: msg } };
+    }
+  },
+
+  getActiveBillItemsLegacy: async (tableNo: string, invoiceNo?: string) => {
+    try {
       const params = new URLSearchParams();
       if (invoiceNo) {
         params.set('invoiceNo', invoiceNo);
@@ -1231,6 +1271,44 @@ export const apiClient = {
   },
   
   // ── DB-driven billing (unpaid bills list / detail / payment) ─────────────
+
+  // ── Open bills, by table number ───────────────────────────────────────────
+  // Both of these read the POS bill table (Tbl_HoldUps); the app never writes it.
+  // A bill with a CloudInvNo was opened by this app, one without came from the
+  // central system, and the list says which so the steward knows what to expect.
+  fetchOpenBills: async () => {
+    try {
+      const url = `${getDynamicApiBaseUrl()}/api/bills/open`;
+      const response = await fetch(url, { headers: await buildAuthHeaders() });
+      const data = await parseResponseBody(response);
+      return { ok: response.ok, data };
+    } catch (err) {
+      const msg = (err as any)?.message ?? String(err);
+      return { ok: false, data: { message: msg } };
+    }
+  },
+
+  /**
+   * One bill, by table number.
+   * `waitMs` asks the server to hold the request until the central system has
+   * merged the order into the POS bill (instead of the screen polling), and
+   * `since` keeps an older bill on the same table out of the answer.
+   */
+  fetchBillByTable: async (tableNo: string, options?: { waitMs?: number; since?: number }) => {
+    try {
+      const query = new URLSearchParams();
+      if (options?.waitMs && options.waitMs > 0) query.set('waitMs', String(Math.floor(options.waitMs)));
+      if (options?.since && options.since > 0) query.set('since', String(Math.floor(options.since)));
+      const suffix = query.toString() ? `?${query.toString()}` : '';
+      const url = `${getDynamicApiBaseUrl()}/api/bills/table/${encodeURIComponent(tableNo)}${suffix}`;
+      const response = await fetch(url, { headers: await buildAuthHeaders() });
+      const data = await parseResponseBody(response);
+      return { ok: response.ok, data };
+    } catch (err) {
+      const msg = (err as any)?.message ?? String(err);
+      return { ok: false, data: { message: msg } };
+    }
+  },
 
   fetchUnpaidBills: async () => {
     try {

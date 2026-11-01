@@ -22,10 +22,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
 import { useAuthStore } from '../../services/authStore';
-import { storage } from '../../services/storage';
 import { CartItem, useCartStore } from '../../services/cartStore';
 import useItemStore from '../../services/itemStore';
 import { useOrderStore } from '../../services/orderStore';
+import { performLogout } from '../../services/sessionActions';
+import { useAppSettingsStore } from '../../services/appSettings';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type VoidPresetItem = {
@@ -54,6 +55,7 @@ export default function BillingScreen() {
     floor,
     invoiceNo: routeInvoiceNo,
     fromCart,
+    customerPrompt,
     forceRefresh,
   } = useLocalSearchParams<{
     tableName?: string;
@@ -64,6 +66,7 @@ export default function BillingScreen() {
     invoiceNo?: string;
     fromBilling?: string;
     fromCart?: string;
+    customerPrompt?: string;
     forceRefresh?: string;
   }>();
 
@@ -78,18 +81,52 @@ export default function BillingScreen() {
 
   const lastConfirmedOrder = useOrderStore((state) => state.lastConfirmedOrder);
 
+  // How much of each dish the POS already holds, per item code, taken from
+  // Tbl_HoldUps. It is declared here because the rows below are built with it -
+  // reading it from further down the component would run before it exists.
+  const [posLockByCode, setPosLockByCode] = useState<Record<string, number>>({});
+
   const displayedItems = useMemo(() => {
-    if (lastConfirmedOrder?.items?.length) {
-      return lastConfirmedOrder.items.map((it) => ({
-        menuItemCode: it.menuItemCode,
-        menuItmDes: it.menuItmDes ?? '',
-        salesPrice: it.salesPrice ?? 0,
-        quantity: it.quantity,
-        itemRemarks: it.itemRemarks ?? '',
-      }));
-    }
-    return cartItems;
-  }, [lastConfirmedOrder, cartItems]);
+    // A missing or half-hydrated store must never take the screen down: both
+    // lists are checked before they are read, and empty rows are dropped.
+    const orderItems: any[] = Array.isArray(lastConfirmedOrder?.items)
+      ? lastConfirmedOrder.items
+      : [];
+    const cartList: any[] = Array.isArray(cartItems) ? cartItems : [];
+
+    const source: any[] = orderItems.length
+      ? orderItems.filter(Boolean).map((it) => ({
+          menuItemCode: it.menuItemCode,
+          menuItmDes: it.menuItmDes ?? '',
+          salesPrice: it.salesPrice ?? 0,
+          quantity: it.quantity,
+          itemRemarks: it.itemRemarks ?? '',
+          billSource: it.billSource,
+          readOnly: it.readOnly,
+          lockedQty: it.lockedQty,
+          posQty: it.posQty,
+        }))
+      : cartList.filter(Boolean);
+
+    // Every line is editable now, the POS lines too. How much of a line the POS
+    // already holds is kept only so the screen can show it, never to block it.
+    return source
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => {
+        const code = String(item.menuItemCode ?? '').trim();
+        const posQty = Math.max(
+          Number(item.posQty ?? 0) || 0,
+          Number(item.lockedQty ?? 0) || 0,
+          posLockByCode[code] ?? 0,
+        );
+        return {
+          ...item,
+          posQty,
+          lockedQty: 0,
+          readOnly: false,
+        };
+      });
+  }, [lastConfirmedOrder, cartItems, posLockByCode]);
 
   // ── Item store — used for category grouping ────────────────────────────────
   const storeItems = useItemStore((state) => state.items);
@@ -163,6 +200,23 @@ export default function BillingScreen() {
   const [isLoadingBillFromDb, setIsLoadingBillFromDb] = useState(false);
   const [netTotal, setNetTotal] = useState<number | null>(null);
 
+  // ── Bill sync with the POS ─────────────────────────────────────────────
+  // The central system merges an app order into the POS bill a second or two
+  // after it is confirmed. Until that happens the order exists only on our
+  // side, so the screen says so instead of showing an empty bill.
+  const [billSyncPhase, setBillSyncPhase] = useState<
+    'idle' | 'syncing' | 'onbill' | 'pending' | 'error'
+  >('idle');
+  const [billSyncInfo, setBillSyncInfo] = useState<{
+    items: number;
+    qty: number;
+    netTotal: number | null;
+    pendingQty: number;
+    billType: 'app' | 'pos' | null;
+  } | null>(null);
+  const [billSyncError, setBillSyncError] = useState('');
+  const billSyncSinceRef = useRef<number>(0);
+
   const [billingRemarkVisible, setBillingRemarkVisible] = useState(false);
   const [billingRemarkItemId, setBillingRemarkItemId] = useState<string | null>(null);
   const [billingRemarkItemName, setBillingRemarkItemName] = useState('');
@@ -205,6 +259,8 @@ export default function BillingScreen() {
   const isBillChanged = billingHasChanges;
   // ── Customer details popup (per TABLE, never part of the bill) ───────────
   const [isCustomerModalVisible, setIsCustomerModalVisible] = useState(false);
+  // One sign-out per answered popup, however many times a button is tapped.
+  const customerAutoLogoutRef = useRef(false);
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
@@ -219,28 +275,9 @@ export default function BillingScreen() {
   // header button always can. The key is remembered so moving to another table
   // asks again, while the same table does not nag on every re-render.
   const customerAutoShownForKeyRef = useRef('');
-  // The prompt is a ONE-TIME question per bill: the first time the bill screen
-  // opens after the cart was confirmed. It is remembered in storage, so leaving
-  // and re-entering the bill — or even restarting the app — never asks again,
-  // whether the steward filled it in or skipped it.
-  // Both keys are written: the invoice arrives a moment after the table number,
-  // and the same bill must never be asked twice while that value settles.
-  const customerPromptKeys = [
-    customerInvoiceNo ? `kds.customerPrompt:inv:${customerInvoiceNo}` : '',
-    customerTableKey ? `kds.customerPrompt:table:${customerTableKey}` : '',
-  ].filter(Boolean);
-  const hasAskedCustomerForThisBill = () => {
-    try {
-      return customerPromptKeys.some((key) => String(storage.getString(key) ?? '') === '1');
-    } catch {
-      return false;
-    }
-  };
-  const markCustomerAskedForThisBill = () => {
-    try {
-      customerPromptKeys.forEach((key) => storage.set(key, '1'));
-    } catch { /* storage unavailable — the in-memory ref still holds for this visit */ }
-  };
+  // Nothing is written to storage any more: the popup is not a "once per bill"
+  // question. It is asked when the bill screen is entered from the cart, and it
+  // is skipped only when the details are already saved for this table.
   const customerLoadSeqRef = useRef(0);
   // Lookup fires 450 ms after the steward stops typing, and again the moment the
   // field loses focus — either way the name comes back without a tap.
@@ -267,6 +304,75 @@ export default function BillingScreen() {
     day: '2-digit',
     year: 'numeric',
   });
+
+  // ── loadTableBill ──────────────────────────────────────────────────────────
+  // Reads the bill the POS holds for this table. waitMs asks the server to hold
+  // the request open until the merge lands, so a freshly confirmed order shows
+  // up by itself rather than needing the screen to poll.
+  const loadTableBill = useCallback(async (waitMs = 0) => {
+    const targetTableNo = String(tableName ?? tableNo ?? '').trim();
+    if (!targetTableNo) {
+      setBillSyncPhase('idle');
+      return;
+    }
+
+    setBillSyncPhase((current) => (current === 'onbill' ? current : 'syncing'));
+    setBillSyncError('');
+
+    try {
+      const response = await apiClient.fetchBillByTable(targetTableNo, {
+        waitMs,
+        since: billSyncSinceRef.current,
+      });
+
+      if (!response.ok || !response.data?.data) {
+        setBillSyncPhase('error');
+        setBillSyncError(
+          String((response.data as any)?.message ?? 'Could not reach the POS bill.'),
+        );
+        return;
+      }
+
+      const data = response.data.data;
+      const posLines = Array.isArray(data.posLines) ? data.posLines : [];
+      const pendingLines = Array.isArray(data.pendingLines) ? data.pendingLines : [];
+
+      const lockMap: Record<string, number> = {};
+      posLines.forEach((line: any) => {
+        const code = String(line?.itemCode ?? '').trim();
+        if (!code) return;
+        const qty = Number(line?.quantity ?? 0) || 0;
+        lockMap[code] = Math.round(((lockMap[code] ?? 0) + qty) * 1000) / 1000;
+      });
+      setPosLockByCode(lockMap);
+      const latest = [...posLines, ...pendingLines]
+        .map((line: any) => (line?.time ? new Date(String(line.time)).getTime() : 0))
+        .reduce((max: number, value: number) => (Number.isFinite(value) && value > max ? value : max), 0);
+      if (latest > 0) billSyncSinceRef.current = latest;
+
+      setBillSyncInfo({
+        items: posLines.length + pendingLines.length,
+        qty: posLines.reduce((sum: number, line: any) => sum + (Number(line.quantity) || 0), 0),
+        netTotal: data.netTotal ?? null,
+        pendingQty: Number(data.pendingQty) || 0,
+        billType: data.billType ?? null,
+      });
+
+      if (posLines.length > 0) {
+        setBillSyncPhase('onbill');
+        if (data.netTotal !== null && data.netTotal !== undefined) {
+          setNetTotal(Number(data.netTotal));
+        }
+        return;
+      }
+
+      setBillSyncPhase(pendingLines.length > 0 ? 'pending' : 'syncing');
+    } catch (error) {
+      setBillSyncPhase('error');
+      setBillSyncError('Could not reach the POS bill.');
+      console.log('[BillingScreen] table bill failed', (error as any)?.message ?? error);
+    }
+  }, [tableName, tableNo]);
 
   // ── fetchOrderDetails ──────────────────────────────────────────────────────
   const fetchOrderDetails = useCallback(async (invoiceNo?: string) => {
@@ -320,6 +426,10 @@ export default function BillingScreen() {
           salesPrice: Number(item.salesPrice ?? item.SalesPrice ?? 0),
           quantity: Number(item.quantity ?? item.QTY ?? 0),
           itemRemarks: item.itemRemarks || item.ItemRemarks || '',
+          // Lines the POS already holds are shown but never edited.
+          billSource: item.billSource === 'pos' ? 'pos' : item.billSource === 'app' ? 'app' : undefined,
+          readOnly: item.readOnly === true,
+          lockedQty: Number(item.lockedQty ?? 0) || 0,
         })),
       });
 
@@ -362,7 +472,15 @@ export default function BillingScreen() {
     useCallback(() => {
       const currentInvoice = routeInvoiceNo ? String(routeInvoiceNo) : undefined;
       fetchOrderDetails(currentInvoice);
-    }, [fetchOrderDetails, routeInvoiceNo])
+      // First look at the POS bill straight away; it answers before a merge.
+      loadTableBill(0);
+
+      return () => {
+        // The popup is a native overlay: closing it on the way out is what stops
+        // it from painting over the screen that comes next.
+        setIsCustomerModalVisible(false);
+      };
+    }, [fetchOrderDetails, loadTableBill, routeInvoiceNo])
   );
 
   // ── Callbacks & Handlers ───────────────────────────────────────────────────
@@ -767,6 +885,24 @@ export default function BillingScreen() {
     setIsCustomerModalVisible(false);
   }, []);
 
+  // The popup counts as answered when Skip or the X is used, and when the
+  // details are saved. If Settings -> Auto Logout is on, that is the end of the
+  // session: the popup is closed first so it can never be left floating over
+  // the sign-in screen, then the device is signed out exactly like the Logout
+  // button does it - workstation released, session cleared, back to the lock.
+  //
+  // It only applies to the popup that opens by itself after an order. One
+  // opened by hand from the bill header is just an edit, and never signs out.
+  const finishCustomerPrompt = useCallback(() => {
+    closeCustomerModal();
+    const autoLogout = useAppSettingsStore.getState().autoLogoutAfterCustomerPrompt === true;
+    const wasAutoOpened = String(customerPrompt ?? '') === '1';
+    if (!autoLogout || !wasAutoOpened) return;
+    if (customerAutoLogoutRef.current) return;
+    customerAutoLogoutRef.current = true;
+    void performLogout(router, { clearOrder: true });
+  }, [closeCustomerModal, customerPrompt, router]);
+
   // Typing a phone switches the form to phone mode and clears the email, and
   // the other way round: the two can never both be filled.
   // Whichever field has text wins; the other one is cleared and locked. An empty
@@ -866,7 +1002,7 @@ export default function BillingScreen() {
       setHasCustomerRecord(true);
       setCustomerLookupCusCode(String(saved.cusCode ?? ''));
       setCustomerLookupState(String(saved.cusCode ?? '') ? 'found' : 'idle');
-      setIsCustomerModalVisible(false);
+      finishCustomerPrompt();
       showToast(saved.cusCode
         ? `Customer saved · ${saved.cusCode}`
         : 'Customer details saved');
@@ -876,31 +1012,31 @@ export default function BillingScreen() {
     } finally {
       setIsSavingCustomer(false);
     }
-  }, [customerTableKey, customerContactMode, customerPhone, customerEmail, customerName, customerLookupState, authLocCode, showToast]);
+  }, [customerTableKey, customerContactMode, customerPhone, customerEmail, customerName, customerLookupState, authLocCode, showToast, finishCustomerPrompt]);
 
-  // Ask for the customer details ONLY the first time for a table. Once a phone
-  // or email is saved, the popup never opens by itself again — the saved values
-  // are shown under the logo instead, and the header button re-opens the popup
-  // for anyone who wants to change them.
+  // Ask for the customer details when the bill screen is entered from the cart
+  // - the first order and every add-more after it. Nothing happens when the
+  // bill is opened from the bill list, and nothing happens when the details are
+  // already saved for this table: those are shown under the logo instead, and
+  // the header button re-opens the popup for anyone who wants to change them.
+  //
+  // Skipping counts for this visit only, so the popup never re-opens while the
+  // steward is working on the same bill.
+  const customerPromptVisitKey = `${customerTableKey}|${customerInvoiceNo}|${String(forceRefresh ?? '')}`;
   useEffect(() => {
+    if (String(customerPrompt ?? '') !== '1') return;
     if (!customerTableKey && !customerInvoiceNo) return;
-    if (customerAutoShownForKeyRef.current === customerTableKey) return;
-    customerAutoShownForKeyRef.current = customerTableKey;
-    // Asked once per bill — skip, save or close all count as "answered".
-    if (hasAskedCustomerForThisBill()) return;
+    if (customerAutoShownForKeyRef.current === customerPromptVisitKey) return;
+    customerAutoShownForKeyRef.current = customerPromptVisitKey;
     let cancelled = false;
     void (async () => {
       const stored = await loadCustomerContact();
       if (cancelled) return;
-      if (stored) {                              // already saved for this table
-        markCustomerAskedForThisBill();
-        return;
-      }
-      markCustomerAskedForThisBill();            // one shot, whatever happens next
+      if (stored) return;                        // already saved for this table
       setIsCustomerModalVisible(true);
     })();
     return () => { cancelled = true; };
-  }, [customerTableKey, customerInvoiceNo, loadCustomerContact]);
+  }, [customerPrompt, customerPromptVisitKey, customerTableKey, customerInvoiceNo, loadCustomerContact]);
 
 const goBack = useCallback(() => {
   if (isBillChanged) {
@@ -1041,6 +1177,10 @@ const goBack = useCallback(() => {
         (it) => it.menuItemCode === menuItemCode,
       );
       if (!currentItem) return;
+
+      // No lock: a line the POS opened can be increased and decreased like any
+      // other. Decreasing below the original quantity opens the void flow, which
+      // writes an AoR='R' record for the central system to apply.
       const originalQuantity =
         originalQuantitiesRef.current[menuItemCode] ??
         (Number(currentItem.quantity ?? 0) || 0);
@@ -1644,6 +1784,60 @@ const goBack = useCallback(() => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[s.content, { paddingBottom: insets.bottom }]}
       >
+        {billSyncPhase !== 'idle' ? (
+          <View
+            style={[
+              s.billSyncCard,
+              billSyncPhase === 'onbill' && s.billSyncCardOn,
+              billSyncPhase === 'error' && s.billSyncCardError,
+            ]}
+          >
+            {billSyncPhase === 'onbill' ? (
+              <>
+                <Text style={s.billSyncTitle}>On the bill</Text>
+                <Text style={s.billSyncText}>
+                  {`${billSyncInfo?.qty ?? 0} item${(billSyncInfo?.qty ?? 0) === 1 ? '' : 's'} posted by the POS`
+                    + (billSyncInfo?.billType === 'pos' ? ' - opened at the POS' : '')}
+                </Text>
+              </>
+            ) : billSyncPhase === 'error' ? (
+              <>
+                <Text style={[s.billSyncTitle, s.billSyncTitleError]}>Bill not reachable</Text>
+                <Text style={s.billSyncText}>{billSyncError}</Text>
+                <TouchableOpacity
+                  style={s.billSyncRetry}
+                  activeOpacity={0.85}
+                  onPress={() => loadTableBill(8000)}
+                >
+                  <Text style={s.billSyncRetryText}>Retry</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <View style={s.billSyncRow}>
+                  <ActivityIndicator size="small" color={OperationalColors.primary} />
+                  <Text style={s.billSyncTitle}>Syncing with the POS</Text>
+                </View>
+                <Text style={s.billSyncText}>
+                  {billSyncPhase === 'pending'
+                    ? 'Order sent. Waiting for the POS to post it to the bill.'
+                    : 'Waiting for the POS to post the bill for this table.'}
+                  {billSyncInfo && billSyncInfo.pendingQty > 0
+                    ? ` ${billSyncInfo.pendingQty} item${billSyncInfo.pendingQty === 1 ? '' : 's'} not posted yet.`
+                    : ''}
+                </Text>
+                <TouchableOpacity
+                  style={s.billSyncRetry}
+                  activeOpacity={0.85}
+                  onPress={() => loadTableBill(8000)}
+                >
+                  <Text style={s.billSyncRetryText}>Check again</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        ) : null}
+
         {isLoadingBillFromDb ? (
           <View style={s.loadingCard}>
             <ActivityIndicator size="large" color={OperationalColors.primary} />
@@ -1708,6 +1902,11 @@ const goBack = useCallback(() => {
                             />
                           </TouchableOpacity>
                         </View>
+                        {Number(item.posQty ?? 0) > 0 ? (
+                          <Text style={s.qtyLockedTag}>
+                            {`${item.posQty} on POS`}
+                          </Text>
+                        ) : null}
                       </View>
                     </View>
 
@@ -2373,15 +2572,16 @@ const goBack = useCallback(() => {
         visible={isCustomerModalVisible}
         animationType="fade"
         transparent
-        onRequestClose={closeCustomerModal}
+        onRequestClose={finishCustomerPrompt}
       >
-        <TouchableWithoutFeedback onPress={closeCustomerModal}>
-          <View style={s.voidModalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={s.customerCard}>
+        {/* Tapping outside the card does nothing on purpose: losing the bill
+            and losing the session must not happen from a stray finger. */}
+        <View style={s.voidModalOverlay}>
+          <TouchableWithoutFeedback>
+            <View style={s.customerCard}>
                 <View style={s.managerAuthHeaderRow}>
                   <Text style={s.managerAuthTitle}>Customer Details</Text>
-                  <TouchableOpacity onPress={closeCustomerModal} activeOpacity={0.8}>
+                  <TouchableOpacity onPress={finishCustomerPrompt} activeOpacity={0.8}>
                     <Ionicons name="close" size={22} color={OperationalColors.text} />
                   </TouchableOpacity>
                 </View>
@@ -2485,7 +2685,7 @@ const goBack = useCallback(() => {
                 <View style={s.customerFooter}>
                   <TouchableOpacity
                     style={s.customerSkipButton}
-                    onPress={closeCustomerModal}
+                    onPress={finishCustomerPrompt}
                     disabled={isSavingCustomer}
                     activeOpacity={0.85}
                   >
@@ -2504,8 +2704,7 @@ const goBack = useCallback(() => {
                 </View>
               </View>
             </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
+        </View>
       </Modal>
 
       {/* LOADING OVERLAY */}
@@ -2858,6 +3057,16 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       marginBottom: scale(itemPriceMB),
       fontSize: scale(itemFs),
     },
+    qtyPillLocked: {
+      backgroundColor: 'rgba(114,86,60,0.10)',
+      gap: scale(6),
+    },
+    qtyLockedTag: {
+      color: 'rgba(114,86,60,0.60)',
+      fontSize: scale(9.5),
+      fontWeight: '800',
+      letterSpacing: 0.4,
+    },
     qtyPill: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -2964,6 +3173,57 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       backgroundColor: 'rgba(0, 0, 0, 0.25)',
       justifyContent: 'center',
       alignItems: 'center',
+    },
+    billSyncCard: {
+      borderRadius: scale(12),
+      paddingVertical: scale(10),
+      paddingHorizontal: scale(12),
+      backgroundColor: 'rgba(78,142,196,0.08)',
+      borderWidth: 1,
+      borderColor: 'rgba(78,142,196,0.28)',
+      marginBottom: scale(10),
+    },
+    billSyncCardOn: {
+      backgroundColor: 'rgba(72,142,88,0.08)',
+      borderColor: 'rgba(72,142,88,0.28)',
+    },
+    billSyncCardError: {
+      backgroundColor: 'rgba(176,72,56,0.08)',
+      borderColor: 'rgba(176,72,56,0.30)',
+    },
+    billSyncRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: scale(6),
+    },
+    billSyncTitle: {
+      color: OperationalColors.primary,
+      fontSize: scale(12),
+      fontWeight: '800',
+    },
+    billSyncTitleError: {
+      color: '#B04838',
+    },
+    billSyncText: {
+      color: 'rgba(114,86,60,0.72)',
+      fontSize: scale(10.5),
+      fontWeight: '500',
+      marginTop: scale(3),
+      lineHeight: scale(15),
+    },
+    billSyncRetry: {
+      alignSelf: 'flex-start',
+      marginTop: scale(8),
+      paddingVertical: scale(5),
+      paddingHorizontal: scale(14),
+      borderRadius: scale(8),
+      backgroundColor: OperationalColors.primary,
+    },
+    billSyncRetryText: {
+      color: OperationalColors.canvas,
+      fontSize: scale(10.5),
+      fontWeight: '800',
+      letterSpacing: 0.3,
     },
     loadingCard: {
       minWidth: scale(loadingCardMinW),

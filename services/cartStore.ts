@@ -8,6 +8,10 @@ export type CartItem = {
   menuItmDes: string;
   salesPrice: number;
   quantity: number;
+  billSource?: 'pos' | 'app';
+  readOnly?: boolean;
+  lockedQty?: number;
+  posQty?: number;
 };
 
 export type CustomerInfo = {
@@ -61,6 +65,12 @@ export const normalizeCartItem = (item: CartItemInput): CartItem | null => {
     salesPrice: toNumber(item.salesPrice ?? item.SalesPrice ?? item.price ?? item.unitPrice ?? 0, 0),
     quantity,
     itemRemarks: toText(item.itemRemarks ?? item.ItemRemarks ?? item.remarks ?? ''),
+    // Which side owns this line. Dropping these here is what made the same
+    // bill show locked lines on one screen and editable lines on another.
+    billSource: item.billSource === 'pos' ? 'pos' : item.billSource === 'app' ? 'app' : undefined,
+    readOnly: item.readOnly === true,
+    lockedQty: Math.max(0, toNumber(item.lockedQty ?? 0, 0)),
+    posQty: Math.max(0, toNumber(item.posQty ?? 0, 0)),
   };
 };
 

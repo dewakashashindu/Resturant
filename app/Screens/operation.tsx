@@ -3,6 +3,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
   ScrollView,
   Image,
@@ -18,6 +20,40 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../../services/api';
+
+// ─── Open bill row ────────────────────────────────────────────────────────────
+// One row per table. `billType` says who opened the bill: 'app' bills carry the
+// invoice this app generated, 'pos' bills were opened by the POS / central
+// system and have no invoice at all.
+type HeldBill = {
+  tableNo: string;
+  invoiceNo: string;
+  billType: 'app' | 'pos';
+  items: number;
+  qty: number;
+  netTotal: number | null;
+  itemsTotal: number;
+  orderMode: string;
+  pax: string;
+  lastTime: unknown;
+};
+
+const formatAmount = (value: number): string => {
+  const amount = Number.isFinite(value) ? value : 0;
+  const rounded = Math.round(amount * 100) / 100;
+  const [whole, decimals] = String(rounded).split('.');
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return decimals ? `${grouped}.${decimals}` : grouped;
+};
+
+const formatBillTime = (value: unknown): string => {
+  if (!value) return '';
+  const stamp = new Date(String(value));
+  if (Number.isNaN(stamp.getTime())) return '';
+  const hours = String(stamp.getHours()).padStart(2, '0');
+  const minutes = String(stamp.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
 
 // ─── Static data ──────────────────────────────────────────────────────────────
 const MODES: {
@@ -69,27 +105,72 @@ export default function ModeSelectionScreen() {
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [billOverlayVisible, setBillOverlayVisible] = useState(false);
-  const [heldBills, setHeldBills] = useState<{ tableNo: string; invoiceNo: string }[]>([]);
+  const [heldBills, setHeldBills] = useState<HeldBill[]>([]);
+  const [heldBillsLoading, setHeldBillsLoading] = useState(false);
+  // 'mine' when the POS profile limits a non-manager to their own bills,
+  // 'all' for a manager or when the profile allows every bill.
+  const [heldBillsScope, setHeldBillsScope] = useState<'mine' | 'all' | null>(null);
+  const [heldBillsError, setHeldBillsError] = useState('');
 
   // ── Handlers & side-effects ────────────────────────────────────────────────
+  // Every open bill, straight from the POS bill table (Tbl_HoldUps). A bill that
+  // carries an invoice was opened by this app; one without came from the central
+  // system, and both are listed here so nothing is hidden from the steward.
   const refreshHeldTables = async () => {
+    setHeldBillsLoading(true);
+    setHeldBillsError('');
     try {
-      const response = await apiClient.fetchUnpaidBills();
-      if (!response.ok) { setHeldBills([]); return; }
-      const bills = Array.isArray(response.data?.data) ? response.data.data : [];
-      const parsed = bills
+      const response = await apiClient.fetchOpenBills();
+
+      if (!response.ok) {
+        setHeldBills([]);
+        setHeldBillsScope(null);
+        const data: any = response.data ?? {};
+        if (data.code === 'AUTH_REQUIRED') {
+          setHeldBillsError('');
+          Alert.alert('Session Expired', 'Please sign in again.', [
+            {
+              text: 'OK',
+              onPress: () => {
+                import('../../services/authStore')
+                  .then((mod) => mod.useAuthStore.getState().forceLogout())
+                  .catch(() => {});
+              },
+            },
+          ]);
+          return;
+        }
+        setHeldBillsError(String(data.message ?? 'Could not load the open bills.'));
+        return;
+      }
+
+      setHeldBillsScope(response.data?.scope?.mode === 'mine' ? 'mine' : 'all');
+      const rows = Array.isArray(response.data?.bills) ? response.data.bills : [];
+      const parsed: HeldBill[] = rows
         .map((bill: any) => ({
-          tableNo:   String(bill.tableNo   ?? '').trim(),
+          tableNo: String(bill.tableNo ?? '').trim(),
           invoiceNo: String(bill.invoiceNo ?? '').trim(),
+          billType: bill.billType === 'app' ? 'app' : 'pos',
+          items: Number(bill.items ?? 0) || 0,
+          qty: Number(bill.qty ?? 0) || 0,
+          netTotal: bill.netTotal === null || bill.netTotal === undefined ? null : Number(bill.netTotal),
+          itemsTotal: Number(bill.itemsTotal ?? 0) || 0,
+          orderMode: String(bill.orderMode ?? '').trim(),
+          pax: String(bill.pax ?? '').trim(),
+          lastTime: bill.lastTime ?? null,
         }))
-        .filter((b: { tableNo: string; invoiceNo: string }) => b.tableNo && b.invoiceNo);
+        .filter((bill: HeldBill) => bill.tableNo);
       setHeldBills(
-        parsed.sort((a: { tableNo: string; invoiceNo: string }, b: { tableNo: string; invoiceNo: string }) =>
+        parsed.sort((a: HeldBill, b: HeldBill) =>
           a.tableNo.localeCompare(b.tableNo, undefined, { numeric: true, sensitivity: 'base' }),
         ),
       );
     } catch {
       setHeldBills([]);
+      setHeldBillsScope(null);
+      setHeldBillsError('Could not load the open bills.');
+    } finally {
+      setHeldBillsLoading(false);
     }
   };
 
@@ -101,11 +182,17 @@ export default function ModeSelectionScreen() {
     setBillOverlayVisible(true);
   };
 
-  const handleHeldTableSelect = (bill: { tableNo: string; invoiceNo: string }) => {
+  const handleHeldTableSelect = (bill: HeldBill) => {
     setBillOverlayVisible(false);
     router.replace({
       pathname: '/Screens/BillingScreen',
-      params: { tableName: bill.tableNo, invoiceNo: bill.invoiceNo },
+      params: {
+        tableName: bill.tableNo,
+        tableNo: bill.tableNo,
+        // A bill the central system opened has no invoice; the screen works from
+        // the table number and the server decides the value when saving.
+        invoiceNo: bill.invoiceNo,
+      },
     });
   };
 
@@ -176,12 +263,16 @@ export default function ModeSelectionScreen() {
                   </TouchableOpacity>
                 </View>
 
-                <Text style={s.overlaySubtitle}>Select a listed bill to view or modify it</Text>
+                <Text style={s.overlaySubtitle}>
+                  {heldBillsScope === 'mine'
+                    ? 'Your open bills only'
+                    : 'Every open bill, from the POS and from this app'}
+                </Text>
 
                 {heldBills.length > 0 ? (
                   <FlatList
                     data={heldBills}
-                    keyExtractor={(item) => item.invoiceNo}
+                    keyExtractor={(item) => item.tableNo}
                     contentContainerStyle={s.heldTableList}
                     renderItem={({ item }) => (
                       <TouchableOpacity
@@ -189,19 +280,62 @@ export default function ModeSelectionScreen() {
                         activeOpacity={0.82}
                         onPress={() => handleHeldTableSelect(item)}
                       >
-                        <View>
-                          <Text style={s.heldTableLabel}>Table {item.tableNo}</Text>
-                          <Text style={s.heldTableHint}>Tap to continue this order</Text>
+                        <View style={s.heldTableLeft}>
+                          <View style={s.heldTableTitleRow}>
+                            <Text style={s.heldTableLabel}>Table {item.tableNo}</Text>
+                            <View style={[s.billBadge, item.billType === 'app' ? s.billBadgeApp : s.billBadgePos]}>
+                              <Text style={[s.billBadgeText, item.billType === 'app' ? s.billBadgeTextApp : s.billBadgeTextPos]}>
+                                {item.billType === 'app' ? 'APP' : 'POS'}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={s.heldTableHint} numberOfLines={1}>
+                            {`${item.items} item${item.items === 1 ? '' : 's'}`
+                              + (item.pax ? ` · ${item.pax} pax` : '')
+                              + (item.orderMode ? ` · ${item.orderMode}` : '')}
+                          </Text>
                         </View>
+
+                        <View style={s.heldTableRight}>
+                          <Text style={s.billAmount}>
+                            {`Rs. ${formatAmount(item.netTotal !== null ? item.netTotal : item.itemsTotal)}`}
+                          </Text>
+                          <Text style={s.billAmountNote}>
+                            {item.netTotal !== null ? 'bill total' : 'not finalised'}
+                          </Text>
+                          <Text style={s.heldTableTime}>{formatBillTime(item.lastTime)}</Text>
+                        </View>
+
                         <Text style={s.heldTableChevron}>›</Text>
                       </TouchableOpacity>
                     )}
                   />
+                ) : heldBillsLoading ? (
+                  <View style={s.emptyStateWrap}>
+                    <ActivityIndicator color={OperationalColors.primary} />
+                    <Text style={s.emptyStateText}>Loading open bills...</Text>
+                  </View>
+                ) : heldBillsError ? (
+                  <View style={s.emptyStateWrap}>
+                    <Text style={s.emptyStateTitle}>Bills not available</Text>
+                    <Text style={s.emptyStateText}>{heldBillsError}</Text>
+                    <TouchableOpacity
+                      style={s.billRetryBtn}
+                      activeOpacity={0.85}
+                      onPress={() => { void refreshHeldTables(); }}
+                    >
+                      <Text style={s.billRetryText}>Retry</Text>
+                    </TouchableOpacity>
+                  </View>
                 ) : (
                   <View style={s.emptyStateWrap}>
-                    <Text style={s.emptyStateTitle}>No listed bills</Text>
+                    <Text style={s.emptyStateTitle}>
+                      {heldBillsScope === 'mine' ? 'No open bills for you' : 'No open bills'}
+                    </Text>
                     <Text style={s.emptyStateText}>
-                      Start a new order to create a listed bill here.
+                      {heldBillsScope === 'mine'
+                        ? 'Bills opened by other users are hidden on this device.'
+                        : 'Start an order to open a bill. It appears here once the POS has it.'}
                     </Text>
                   </View>
                 )}
@@ -464,6 +598,56 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontSize: scale(rowLabelFs),
       fontWeight: '800',
     },
+    heldTableLeft: {
+      flex: 1,
+      paddingRight: scale(8),
+    },
+    heldTableTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: scale(6),
+    },
+    billBadge: {
+      borderRadius: scale(6),
+      paddingHorizontal: scale(6),
+      paddingVertical: scale(1),
+      borderWidth: 1,
+    },
+    billBadgeApp: {
+      backgroundColor: 'rgba(78,142,196,0.12)',
+      borderColor: 'rgba(78,142,196,0.35)',
+    },
+    billBadgePos: {
+      backgroundColor: 'rgba(114,86,60,0.10)',
+      borderColor: 'rgba(114,86,60,0.30)',
+    },
+    billBadgeText: {
+      fontSize: scale(9.5),
+      fontWeight: '800',
+      letterSpacing: 0.4,
+    },
+    billBadgeTextApp: { color: '#2F6F9E' },
+    billBadgeTextPos: { color: OperationalColors.primary },
+    heldTableRight: {
+      alignItems: 'flex-end',
+    },
+    billAmount: {
+      color: OperationalColors.primary,
+      fontSize: scale(rowLabelFs),
+      fontWeight: '800',
+    },
+    billAmountNote: {
+      color: 'rgba(114,86,60,0.52)',
+      fontSize: scale(9.5),
+      fontWeight: '600',
+      marginTop: scale(1),
+    },
+    heldTableTime: {
+      color: 'rgba(114,86,60,0.58)',
+      fontSize: scale(9.5),
+      fontWeight: '600',
+      marginTop: scale(1),
+    },
     heldTableHint: {
       color: 'rgba(114,86,60,0.58)',
       marginTop: scale(rowHintMT),
@@ -475,6 +659,19 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       fontSize: scale(chevronFs),
       fontWeight: '300',
       marginLeft: scale(chevronML),
+    },
+    billRetryBtn: {
+      marginTop: scale(10),
+      paddingVertical: scale(6),
+      paddingHorizontal: scale(16),
+      borderRadius: scale(8),
+      backgroundColor: OperationalColors.primary,
+    },
+    billRetryText: {
+      color: OperationalColors.canvas,
+      fontSize: scale(10.5),
+      fontWeight: '800',
+      letterSpacing: 0.3,
     },
     emptyStateWrap: {
       alignItems: 'center',

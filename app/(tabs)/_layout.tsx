@@ -13,10 +13,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OperationalColors as C } from '../../constants/operationalTheme';
-import { apiClient } from '../../services/api';
-import { useAuthStore } from '../../services/authStore';
-import { getUniqueDeviceId } from '../../services/deviceIdService';
 import { useNotificationStore } from '../../services/notificationStore';
+import { performLogout } from '../../services/sessionActions';
 
 // ─── Breakpoints ────────────────────────────────────────────────────────────
 // Small phone  : width < 360
@@ -45,7 +43,6 @@ function useBreakpoint() {
 function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const clearSession = useAuthStore((s) => s.clearSession);
   const unreadCount = useNotificationStore((s) => s.unreadCount());
   const { iconSize, textSize, navContentHeight, isTablet } = useBreakpoint();
 
@@ -53,17 +50,10 @@ function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
   const horizontalInset = Math.max(insets.left, insets.right);
 
   const handleLogout = useCallback(async () => {
-    // Release this workstation first, so the next steward never has to take
-    // over a session that has already ended.
-    try {
-      const deviceId = await getUniqueDeviceId();
-      if (deviceId) await apiClient.releaseDevice(deviceId);
-    } catch (error) {
-      console.log('[BottomBar] workstation release failed', error);
-    }
-    await clearSession();
-    router.replace('/auth/login');
-  }, [clearSession, router]);
+    // Release the workstation, clear the session and go to the sign-in screen.
+    // The same steps run for the automatic sign-out in Settings.
+    await performLogout(router);
+  }, [router]);
 
   const confirmLogout = useCallback(() => {
     Alert.alert('Logout', 'Are you sure?', [
@@ -220,11 +210,6 @@ const styles = StyleSheet.create({
     minWidth: 48,
     paddingVertical: 6,
     gap: 2,
-  },
-
-  // Keep the slot in the four-item layout while hiding this legacy action.
-  hiddenNavItem: {
-    opacity: 0,
   },
 
   navText: {

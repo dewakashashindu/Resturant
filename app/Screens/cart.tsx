@@ -464,14 +464,9 @@ export default function CartScreen() {
       return;
     }
 
-    // ── Guard: add-more requires a valid invoice to append to ─────────────────
-    if (isFromBilling && !currentInvoiceNo) {
-      Alert.alert(
-        'Error',
-        'Cannot add items: invoice number is missing. Please go back and reopen the bill.',
-      );
-      return;
-    }
+    // No invoice guard here any more. The bill belongs to the table: a bill
+    // opened at the POS has no invoice at all, and the server works out which
+    // invoice the table's bill carries when the items are written.
 
     // ── FIX: finalTableNo resolution ──────────────────────────────────────────
     // When fromBilling === '1':
@@ -546,6 +541,8 @@ export default function CartScreen() {
       tableGrpId: finalTableGrpID,
       lPax: resolvedLocalPax,
       fPax: resolvedForeignPax,
+      // A hint only - the server resolves which invoice the table's bill
+      // carries, so a POS-opened bill with no invoice still appends to it.
       existingInvoiceNo: isFromBilling ? currentInvoiceNo : null,
       // Tell the server this is a brand-new order — do NOT reuse any old open
       // invoice for this table (prevents stale-bill append after app restart).
@@ -608,17 +605,20 @@ export default function CartScreen() {
       }
 
       if (!isFromBilling) {
-        const currentNewItems = (payload.items as any[]).map((it) => ({
-          ...it,
-          salesPrice:
-            confirmItems.find(
-              (c) => c.menuItemCode === (it.ItemCode || it.itemCode),
-            )?.salesPrice ?? 0,
-          menuItmDes:
-            confirmItems.find(
-              (c) => c.menuItemCode === (it.ItemCode || it.itemCode),
-            )?.menuItmDes ?? '',
-        }));
+        const currentNewItems = (payload.items as any[]).map((it) => {
+          const code = it.ItemCode || it.itemCode;
+          const source = confirmItems.find((c) => c.menuItemCode === code);
+          return {
+            ...it,
+            salesPrice: source?.salesPrice ?? 0,
+            menuItmDes: source?.menuItmDes ?? '',
+            // The POS lock belongs to the line, not to the screen showing it.
+            billSource: source?.billSource,
+            readOnly: source?.readOnly === true,
+            lockedQty: Number(source?.lockedQty ?? 0) || 0,
+            posQty: Number(source?.posQty ?? 0) || 0,
+          };
+        });
 
         (useOrderStore.getState() as any).setLastConfirmedOrder({
           ...payload,
@@ -648,6 +648,9 @@ export default function CartScreen() {
           status: status ?? '',
           fromBilling: isFromBilling ? '1' : undefined,
           fromCart: isFromBilling ? '1' : undefined,
+          // Ask for the customer details on this arrival, unless they were
+          // already saved for this table.
+          customerPrompt: '1',
           forceRefresh: Date.now().toString(),
         },
       });

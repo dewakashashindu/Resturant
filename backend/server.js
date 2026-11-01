@@ -3858,7 +3858,9 @@ const billingAddItemHandler = async (req, res) => {
     let lPax = pickNumber(body.lPax ?? body.LPax ?? 0, 0);
     let fPax = pickNumber(body.fPax ?? body.FPax ?? 0, 0);
     const mgrId = pickString(body.mgrId ?? body.MgrID ?? '0', 50) || '0';
-    const invoiceNo = pickString(body.invoiceNo ?? body.InvoiceNo ?? null, 50);
+    // Only a hint: the invoice that belongs to the bill is worked out from the
+    // table once the transaction is open, so the app can leave it out.
+    let invoiceNo = pickString(body.invoiceNo ?? body.InvoiceNo ?? null, 50);
 
     const incomingItems = Array.isArray(body.items)
       ? body.items
@@ -3873,18 +3875,15 @@ const billingAddItemHandler = async (req, res) => {
 
     if (!tableNo) return res.status(400).json({ ok: false, message: 'TabelNo is required.' });
     if (normalizedItems.length === 0) return res.status(400).json({ ok: false, message: 'At least one valid item is required.' });
-    // Guard: InvoiceNo is NOT NULL in Tbl_HoldUpsCloudTemp and Tbl_HoldUpsCloud.
-    // If the frontend omitted it (e.g. undefined serialised away by JSON.stringify),
-    // reject early with a clear message instead of letting SQL Server error.
-    if (!invoiceNo) return res.status(400).json({ ok: false, message: 'InvoiceNo is required to add billing items.' });
-
     const pool = await poolPromise;
     const transaction = new sql.Transaction(pool);
 
     try {
       await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
-      
+      // One open bill per table: the invoice is the table's, not the caller's.
+      invoiceNo = await resolveBillInvoice(transaction, tableNo, invoiceNo);
+
       if (orderTypeVal === 'TA') {
         tableGrpId = " ";
       } else if (!tableGrpId && tableNo) {
@@ -4072,16 +4071,11 @@ const billingRemoveItemHandler = async (req, res) => {
     const SalesPrice = body.SalesPrice ?? body.salesPrice ?? 0;
     
     const orderTypeVal = pickString(body.orderType ?? body.OrderType ?? '', 10) || 'DI';
-    const InvoiceNo = body.InvoiceNo ?? body.invoiceNo ?? null;
-    console.log("[VOID DEBUG] body.InvoiceNo=" + body.InvoiceNo + " body.invoiceNo=" + body.invoiceNo + " resolved=" + InvoiceNo);
+    let InvoiceNo = body.InvoiceNo ?? body.invoiceNo ?? null;
 
     if (!TabelNo) return res.status(400).json({ success: false, message: 'TabelNo is required.' });
     if (!QTY || parseFloat(QTY) <= 0) return res.status(400).json({ success: false, message: 'QTY must be greater than zero.' });
     if (!ItemCode) return res.status(400).json({ success: false, message: 'ItemCode is required.' });
-    // Guard: InvoiceNo is NOT NULL in Tbl_HoldUpsCloudTemp. Reject early so the
-    // SQL NULL constraint error never surfaces — frontend must always pass invoiceNo.
-    if (!InvoiceNo) return res.status(400).json({ success: false, message: 'InvoiceNo is required to void billing items.' });
-
     const tableNoValue = pickString(TabelNo, 50);
     const { userId: _userId, loginName: userFullName } = getBearerUserInfo(req, 'SYSTEM');
     const userIdValue = pickString(UserID ?? _userId, 50) || 'SYSTEM';
@@ -4103,6 +4097,10 @@ const billingRemoveItemHandler = async (req, res) => {
     try {
       await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
 
+      // Same table, same bill: the invoice is read off the bill, not taken from
+      // the request, so a void can never land on a different bill.
+      InvoiceNo = await resolveBillInvoice(transaction, tableNoValue, InvoiceNo);
+
       if (orderTypeVal === 'TA') {
         tableGrpIdValue = " ";
       } else if (!tableGrpIdValue && tableNoValue) {
@@ -4119,22 +4117,39 @@ const billingRemoveItemHandler = async (req, res) => {
       const checkReq = new sql.Request(transaction);
       checkReq.input('TabelNo', sql.NVarChar(50), tableNoValue);
       checkReq.input('ItemCode', sql.NVarChar(50), itemCodeValue);
+      checkReq.input('InvoiceNo', sql.NVarChar(50), pickString(InvoiceNo, 50));
 
+      // Scoped to THIS bill. Without InvoiceNo this used to reach rows of every
+      // bill the table ever had, and it also could not see what the POS holds.
       const checkRes = await checkReq.query(`
-        SELECT QTY
+        SELECT SUM(QTY) AS QTY
         FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
-        WHERE TabelNo = @TabelNo
-          AND ItemCode = @ItemCode
+        WHERE LTRIM(RTRIM(TabelNo)) = @TabelNo
+          AND LTRIM(RTRIM(ItemCode)) = @ItemCode
+          AND LTRIM(RTRIM(ISNULL(InvoiceNo, ''))) = LTRIM(RTRIM(@InvoiceNo))
+          AND (IsPaid = 0 OR IsPaid IS NULL)
       `);
 
-      const currentQty = checkRes.recordset?.[0]?.QTY;
-      if (currentQty === undefined || currentQty === null) {
+      const cloudQty = Number(checkRes.recordset?.[0]?.QTY ?? 0) || 0;
+      const posQty = await readPosQuantityForItem(transaction, tableNoValue, itemCodeValue);
+
+      // Every line on the bill can be voided from here, the ones the POS opened
+      // included. The void is written as an AoR='R' record for the central
+      // system to apply; the app still writes nothing to Tbl_HoldUps.
+      //
+      // The bill quantity is the larger of the two sides: a line the POS already
+      // merged is on the bill once, not twice.
+      const billQty = Math.max(cloudQty, posQty);
+      if (billQty <= 0) {
         await transaction.rollback();
         return res.status(400).json({ success: false, message: 'Item line not found on the active bill.' });
       }
-      if (qtyValue > currentQty) {
+      if (qtyValue > billQty) {
         await transaction.rollback();
-        return res.status(400).json({ success: false, message: 'Transaction Denied: Cannot void more items than what is currently active.' });
+        return res.status(400).json({
+          success: false,
+          message: `Transaction Denied: only ${billQty} of this item is on the bill.`,
+        });
       }
 
       const logReq = new sql.Request(transaction);
@@ -4182,23 +4197,29 @@ const billingRemoveItemHandler = async (req, res) => {
       updReq.input('TabelNo', sql.NVarChar(50), tableNoValue);
       updReq.input('ItemCode', sql.NVarChar(50), itemCodeValue);
       updReq.input('QTY', sql.Float, qtyValue);
+      updReq.input('InvoiceNo', sql.NVarChar(50), pickString(InvoiceNo, 50));
 
       await updReq.query(`
         UPDATE dbo.Tbl_HoldUpsCloud
         SET QTY = QTY - @QTY,
             TxnDateTime = ${SQL_SRI_LANKA_NOW}
-        WHERE TabelNo = @TabelNo
-          AND ItemCode = @ItemCode
+        WHERE LTRIM(RTRIM(TabelNo)) = @TabelNo
+          AND LTRIM(RTRIM(ItemCode)) = @ItemCode
+          AND LTRIM(RTRIM(ISNULL(InvoiceNo, ''))) = LTRIM(RTRIM(@InvoiceNo))
+          AND (IsPaid = 0 OR IsPaid IS NULL)
       `);
 
       const delReq = new sql.Request(transaction);
       delReq.input('TabelNo', sql.NVarChar(50), tableNoValue);
       delReq.input('ItemCode', sql.NVarChar(50), itemCodeValue);
+      delReq.input('InvoiceNo', sql.NVarChar(50), pickString(InvoiceNo, 50));
 
       await delReq.query(`
         DELETE FROM dbo.Tbl_HoldUpsCloud
-        WHERE TabelNo = @TabelNo
-          AND ItemCode = @ItemCode
+        WHERE LTRIM(RTRIM(TabelNo)) = @TabelNo
+          AND LTRIM(RTRIM(ItemCode)) = @ItemCode
+          AND LTRIM(RTRIM(ISNULL(InvoiceNo, ''))) = LTRIM(RTRIM(@InvoiceNo))
+          AND (IsPaid = 0 OR IsPaid IS NULL)
           AND QTY <= 0
       `);
 
@@ -4262,9 +4283,13 @@ const getActiveBillItemsHandler = async (req, res) => {
         MAX(CAST(h.IsPaid AS INT)) AS IsPaid,
         MAX(h.OrderType) AS OrderType,
         (
+          -- Scoped to THIS table as well as the invoice: an invoice number can
+          -- sit on rows of more than one bill, and taking the largest total of
+          -- them put another bill's money on this screen.
           SELECT TOP 1 hu.BillNetTotal
           FROM dbo.Tbl_HoldUps hu
           WHERE LTRIM(RTRIM(hu.CloudInvNo)) = LTRIM(RTRIM(MAX(h.InvoiceNo)))
+            AND LTRIM(RTRIM(hu.TableNo)) = LTRIM(RTRIM(h.TabelNo))
           ORDER BY hu.BillNetTotal DESC
         ) AS BillNetTotal
       FROM dbo.Tbl_HoldUpsCloud h
@@ -4505,6 +4530,43 @@ const payBillHandler = async (req, res) => {
         return res.status(404).json({ ok: false, message: 'No bill found for that invoice number.' });
       }
 
+      // Guard: never close the bill while the POS still has to take the last
+      // items onto it. Closing first would mark paid rows that the POS has not
+      // seen yet, and the table would be freed with items still in the kitchen.
+      const pendingReq = new sql.Request(transaction);
+      pendingReq.input('InvoiceNo', sql.NVarChar(50), invoiceNo);
+      pendingReq.input('TableNo', sql.NVarChar(50), String(billTableNo ?? ''));
+      const pendingResult = await pendingReq.query(`
+        SELECT
+          SUM(ISNULL(c.QTY, 0)) AS CloudQty,
+          SUM(ISNULL(p.PosQty, 0)) AS PosQty
+        FROM (
+          SELECT LTRIM(RTRIM(ItemCode)) AS ItemCode, SUM(QTY) AS QTY
+          FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK)
+          WHERE InvoiceNo = @InvoiceNo AND (IsPaid = 0 OR IsPaid IS NULL)
+          GROUP BY LTRIM(RTRIM(ItemCode))
+        ) c
+        LEFT JOIN (
+          SELECT LTRIM(RTRIM(ItemCode)) AS ItemCode, SUM(Qty) AS PosQty
+          FROM dbo.Tbl_HoldUps WITH (NOLOCK)
+          WHERE LTRIM(RTRIM(TableNo)) = @TableNo AND ISNULL(CANCEL, 0) = 0
+          GROUP BY LTRIM(RTRIM(ItemCode))
+        ) p ON p.ItemCode = c.ItemCode
+      `);
+
+      const pendingRow = pendingResult.recordset?.[0] ?? null;
+      const cloudQty = Number(pendingRow?.CloudQty ?? 0) || 0;
+      const posQty = Number(pendingRow?.PosQty ?? 0) || 0;
+      const notPostedQty = Math.round((cloudQty - posQty) * 1000) / 1000;
+      if (notPostedQty > 0) {
+        await transaction.rollback();
+        return res.status(409).json({
+          ok: false,
+          pendingQty: notPostedQty,
+          message: `The POS has not posted the last ${notPostedQty} item(s) yet. Try again in a few seconds.`,
+        });
+      }
+
       const result = await new sql.Request(transaction)
         .input('InvoiceNo', sql.NVarChar(50), invoiceNo)
         .query('UPDATE dbo.Tbl_HoldUpsCloud SET IsPaid = 1 WHERE InvoiceNo = @InvoiceNo');
@@ -4559,6 +4621,544 @@ const updateTableStatusHandler = async (req, res) => {
     return res.status(500).json({ ok: false, message: error.message || 'Failed to update table status.' });
   }
 };
+
+// ─── Open bills, by TABLE NO (read-only) ─────────────────────────────────────
+// The Bill list and the bill detail are both served from dbo.Tbl_HoldUps, the
+// table the POS / central system keeps its open bills in. Tbl_HoldUpsCloud is
+// written by this app only, and is used here for one thing: showing the lines
+// the app added that the central system has not merged into the bill yet.
+//
+// Nothing in this block writes anything. Rows disappear from Tbl_HoldUps when a
+// bill is closed, so "rows exist" is the only open/closed test needed.
+const OPEN_BILLS_SQL = `
+  SELECT
+    LTRIM(RTRIM(TableNo))                              AS TableNo,
+    COUNT(DISTINCT LTRIM(RTRIM(ItemCode)))             AS Items,
+    SUM(Qty)                                           AS Qty,
+    SUM(Qty * SalesPrice)                              AS Amount,
+    MAX(ISNULL(BillNetTotal, 0))                       AS NetTotal,
+    MAX(TxnDate)                                       AS LastTime,
+    MAX(NULLIF(LTRIM(RTRIM(OrderMode)), ''))           AS OrderMode,
+    MAX(NULLIF(LTRIM(RTRIM(StewId)), ''))              AS Steward,
+    MAX(NULLIF(LTRIM(RTRIM(ISNULL(NOPax, ''))), ''))    AS Pax,
+    MAX(NULLIF(LTRIM(RTRIM(CloudInvNo)), ''))          AS CloudInvNo,
+    MAX(CASE WHEN LTRIM(RTRIM(CloudInvNo)) <> '' THEN 1 ELSE 0 END) AS HasInvoice
+  FROM dbo.Tbl_HoldUps WITH (NOLOCK)
+  WHERE ISNULL(CANCEL, 0) = 0
+  GROUP BY LTRIM(RTRIM(TableNo))
+`;
+
+const billNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+// CloudInvNo is the invoice this app generated for the bill and the central
+// system attached to its rows. No invoice means the POS opened the bill.
+// The one value written when a bill was opened at the POS and therefore has no
+// invoice. A single space, never '' - the driver turns '' into NULL.
+const BILL_NO_INVOICE = ' ';
+
+const mintInvoiceNo = async (request) => {
+  const sriLankaNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const datePart = sriLankaNow.toISOString().slice(0, 10).replace(/-/g, '');
+  const seqResult = await request.query(`
+    UPDATE dbo.Tbl_Serials
+    SET SeriNo = CASE WHEN SeriDate = CAST(DATEADD(MINUTE, 330, GETUTCDATE()) AS DATE) THEN CAST(CAST(SeriNo AS INT) + 1 AS CHAR(10)) ELSE '1' END,
+        SeriDate = CAST(DATEADD(MINUTE, 330, GETUTCDATE()) AS DATE)
+    OUTPUT CAST(INSERTED.SeriNo AS INT) AS SeriNo
+    WHERE SeriCode = 'INV'
+  `);
+  if (!seqResult.recordset || seqResult.recordset.length === 0) {
+    throw new Error("No 'INV' row found in Tbl_Serials. Please ensure SeriCode='INV' exists.");
+  }
+  const seq = Number(seqResult.recordset[0].SeriNo);
+  return `INV-${datePart}-${String(seq).padStart(3, '0')}`;
+};
+
+// Which invoice does this table's bill carry?
+//
+//   1. the invoice this app already wrote for the table   -> keep it
+//   2. the invoice the POS attached to the bill (CloudInvNo) -> keep it
+//   3. the POS holds a bill but nobody invoiced it         -> ' ' (no invoice)
+//   4. the table has no bill at all                        -> mint a new one
+//
+// The app never decides this, and it never has to send anything for it to work.
+// Everything runs inside the caller's transaction with UPDLOCK/HOLDLOCK so two
+// devices cannot mint two bills for one table.
+const resolveBillInvoice = async (transaction, tableNo, explicitInvoiceNo) => {
+  const table = String(tableNo ?? '').trim();
+  const explicit = String(explicitInvoiceNo ?? '').trim();
+  if (!table) return explicit;
+
+  const cloudReq = new sql.Request(transaction);
+  cloudReq.input('TabelNo', sql.NVarChar(50), table);
+  const cloudResult = await cloudReq.query(`
+    SELECT TOP 1 LTRIM(RTRIM(InvoiceNo)) AS InvoiceNo
+    FROM dbo.Tbl_HoldUpsCloud WITH (UPDLOCK, HOLDLOCK)
+    WHERE LTRIM(RTRIM(TabelNo)) = @TabelNo
+      AND (IsPaid = 0 OR IsPaid IS NULL)
+      AND LTRIM(RTRIM(ISNULL(InvoiceNo, ''))) <> ''
+    ORDER BY TxnDateTime DESC
+  `);
+  const tableInvoice = String(cloudResult.recordset?.[0]?.InvoiceNo ?? '').trim();
+  if (tableInvoice) return tableInvoice;
+
+  const posReq = new sql.Request(transaction);
+  posReq.input('TableNo', sql.NVarChar(50), table);
+  const posResult = await posReq.query(`
+    SELECT
+      COUNT(*) AS BillRows,
+      MAX(NULLIF(LTRIM(RTRIM(CloudInvNo)), '')) AS CloudInvNo
+    FROM dbo.Tbl_HoldUps WITH (NOLOCK)
+    WHERE LTRIM(RTRIM(TableNo)) = @TableNo
+      AND ISNULL(CANCEL, 0) = 0
+  `);
+  const posRow = posResult.recordset?.[0] ?? null;
+  const posInvoice = String(posRow?.CloudInvNo ?? '').trim();
+  if (posInvoice) return posInvoice;
+
+  if (Number(posRow?.BillRows ?? 0) > 0) {
+    // The POS opened this bill. It has no invoice and must never get one.
+    return BILL_NO_INVOICE;
+  }
+
+  if (explicit && explicit !== BILL_NO_INVOICE) return explicit;
+
+  return mintInvoiceNo(new sql.Request(transaction));
+};
+
+// How much of a line the POS has already taken onto the bill. Anything above
+// this is still this app's own and is the only part the app may change.
+const readPosQuantityForItem = async (transaction, tableNo, itemCode) => {
+  const req = new sql.Request(transaction);
+  req.input('TableNo', sql.NVarChar(50), tableNo);
+  req.input('ItemCode', sql.NVarChar(50), itemCode);
+  const result = await req.query(`
+    SELECT SUM(Qty) AS PosQty
+    FROM dbo.Tbl_HoldUps WITH (NOLOCK)
+    WHERE LTRIM(RTRIM(TableNo)) = @TableNo
+      AND LTRIM(RTRIM(ItemCode)) = @ItemCode
+      AND ISNULL(CANCEL, 0) = 0
+  `);
+  return billNumber(result.recordset?.[0]?.PosQty);
+};
+
+const mapOpenBillRow = (row) => {
+  const invoiceNo = String(row.CloudInvNo ?? '').trim();
+  const netTotal = billNumber(row.NetTotal);
+  return {
+    tableNo: String(row.TableNo ?? '').trim(),
+    billType: invoiceNo ? 'app' : 'pos',
+    invoiceNo: invoiceNo || null,
+    items: billNumber(row.Items),
+    qty: billNumber(row.Qty),
+    itemsTotal: Math.round(billNumber(row.Amount) * 100) / 100,
+    netTotal: netTotal > 0 ? netTotal : null,
+    orderMode: String(row.OrderMode ?? '').trim(),
+    steward: String(row.Steward ?? '').trim(),
+    pax: String(row.Pax ?? '').trim(),
+    lastTime: row.LastTime ?? null,
+  };
+};
+
+// The app's own lines for a table, aggregated per item, so the bill can show
+// what the central system has not merged yet without listing the same dish twice.
+const loadCloudLinesForTable = async (pool, tableNo) => {
+  const result = await pool.request()
+    .input('TableNo', sql.NVarChar(50), tableNo)
+    .query(`
+      WITH AssignedMenuNames AS (
+        SELECT LTRIM(RTRIM(MenuItemCode)) AS MenuItemCode,
+               MAX(NULLIF(LTRIM(RTRIM(MenuItmDes)), '')) AS MenuItmDes
+        FROM dbo.Vw_MenuAssignment WITH (NOLOCK)
+        GROUP BY LTRIM(RTRIM(MenuItemCode))
+      )
+      SELECT
+        LTRIM(RTRIM(h.ItemCode)) AS ItemCode,
+        MAX(COALESCE(NULLIF(LTRIM(RTRIM(m.MenuItmDes)), ''), LTRIM(RTRIM(h.ItemCode)))) AS ItemDes,
+        SUM(h.QTY) AS Qty,
+        MAX(h.SalesPrice) AS SalesPrice,
+        MAX(ISNULL(h.ItemRemarks, '')) AS Remark,
+        MAX(h.TxnDateTime) AS LastTime
+      FROM dbo.Tbl_HoldUpsCloud h WITH (NOLOCK)
+      LEFT JOIN AssignedMenuNames m ON m.MenuItemCode = LTRIM(RTRIM(h.ItemCode))
+      WHERE LTRIM(RTRIM(h.TabelNo)) = @TableNo
+        AND (h.IsPaid = 0 OR h.IsPaid IS NULL)
+      GROUP BY LTRIM(RTRIM(h.ItemCode))
+      ORDER BY LTRIM(RTRIM(h.ItemCode))
+    `);
+  return result.recordset ?? [];
+};
+
+// Everything the bill screen needs, in one shot.
+const loadTableBill = async (pool, tableNo) => {
+  const headResult = await pool.request()
+    .input('TableNo', sql.NVarChar(50), tableNo)
+    .query(`${OPEN_BILLS_SQL}
+      HAVING LTRIM(RTRIM(TableNo)) = @TableNo
+    `);
+
+  const linesResult = await pool.request()
+    .input('TableNo', sql.NVarChar(50), tableNo)
+    .query(`
+      SELECT
+        LTRIM(RTRIM(ItemCode)) AS ItemCode,
+        LTRIM(RTRIM(ItemDes))  AS ItemDes,
+        SUM(Qty)               AS Qty,
+        MAX(SalesPrice)        AS SalesPrice,
+        MAX(LTRIM(RTRIM(ISNULL(KOTBOT, ''))))        AS KOTBOT,
+        MAX(ISNULL(PrintedQty, 0))                   AS PrintedQty,
+        MAX(LTRIM(RTRIM(ISNULL(KOTBOTAddings, '')))) AS Remark,
+        MAX(LTRIM(RTRIM(ISNULL(VOIDREMARKS, ''))))   AS VoidRemark,
+        MAX(TxnDate)           AS LastTime
+      FROM dbo.Tbl_HoldUps WITH (NOLOCK)
+      WHERE LTRIM(RTRIM(TableNo)) = @TableNo AND ISNULL(CANCEL, 0) = 0
+      GROUP BY LTRIM(RTRIM(ItemCode)), LTRIM(RTRIM(ItemDes))
+      ORDER BY LTRIM(RTRIM(ItemDes))
+    `);
+
+  const headRow = headResult.recordset?.[0];
+  const bill = headRow ? mapOpenBillRow(headRow) : null;
+
+  const posLines = (linesResult.recordset ?? []).map((row) => ({
+    itemCode: String(row.ItemCode ?? '').trim(),
+    itemDes: String(row.ItemDes ?? '').trim(),
+    quantity: billNumber(row.Qty),
+    salesPrice: billNumber(row.SalesPrice),
+    amount: Math.round(billNumber(row.Qty) * billNumber(row.SalesPrice) * 100) / 100,
+    kotbot: String(row.KOTBOT ?? '').trim(),
+    printedQty: billNumber(row.PrintedQty),
+    remark: String(row.Remark ?? '').trim(),
+    voidRemark: String(row.VoidRemark ?? '').trim(),
+    time: row.LastTime ?? null,
+    source: 'pos',
+    editable: false,
+  }));
+
+  const posQtyByItem = new Map();
+  posLines.forEach((line) => {
+    posQtyByItem.set(line.itemCode, (posQtyByItem.get(line.itemCode) ?? 0) + line.quantity);
+  });
+
+  const cloudRows = await loadCloudLinesForTable(pool, tableNo);
+  const pendingLines = [];
+  cloudRows.forEach((row) => {
+    const itemCode = String(row.ItemCode ?? '').trim();
+    const cloudQty = billNumber(row.Qty);
+    const billQty = posQtyByItem.get(itemCode) ?? 0;
+    const pendingQty = Math.max(0, cloudQty - billQty);
+    if (pendingQty <= 0) return;
+    const salesPrice = billNumber(row.SalesPrice);
+    pendingLines.push({
+      itemCode,
+      itemDes: String(row.ItemDes ?? '').trim() || itemCode,
+      quantity: pendingQty,
+      salesPrice,
+      amount: Math.round(pendingQty * salesPrice * 100) / 100,
+      remark: String(row.Remark ?? '').trim(),
+      time: row.LastTime ?? null,
+      source: 'app',
+      editable: true,
+    });
+  });
+
+  const posAmount = posLines.reduce((sum, line) => sum + line.amount, 0);
+  const pendingAmount = pendingLines.reduce((sum, line) => sum + line.amount, 0);
+
+  return {
+    tableNo,
+    bill,
+    posLines,
+    pendingLines,
+    posAmount: Math.round(posAmount * 100) / 100,
+    pendingAmount: Math.round(pendingAmount * 100) / 100,
+    pendingQty: pendingLines.reduce((sum, line) => sum + line.quantity, 0),
+  };
+};
+
+// A manager (user group 003) sees every open bill, always.
+//
+// Anyone else depends on Tbl_InvProfile.ShowMyOrdersOnly:
+//   1 -> only the bills whose Tbl_HoldUps.StewId is their own user id
+//   0 -> every open bill, the same list the manager gets
+//
+// The rule is applied here, on the server, so the app cannot widen its own view.
+const MANAGER_GROUP_ID = '003';
+
+const readBillViewer = (req) => {
+  const header = (req.get && req.get('authorization')) || req.headers?.authorization || '';
+  if (!header || !header.startsWith('Bearer ')) return null;
+  try {
+    const decoded = jwt.verify(header.slice(7).trim(), JWT_SECRET_KEY);
+    if (!decoded || typeof decoded !== 'object') return null;
+    return {
+      userId: pickString(decoded.userId, 50) || '',
+      groupId: pickString(decoded.groupId, 20) || '',
+    };
+  } catch (_) {
+    return null;
+  }
+};
+
+const readShowMyOrdersOnly = async (pool) => {
+  try {
+    const result = await pool.request().query(`
+      SELECT TOP 1 CAST(ISNULL(ShowMyOrdersOnly, 0) AS INT) AS ShowMyOrdersOnly
+      FROM dbo.Tbl_InvProfile WITH (NOLOCK)
+    `);
+    const value = result.recordset?.[0]?.ShowMyOrdersOnly;
+    return Number(value ?? 0) === 1;
+  } catch (error) {
+    // Not being able to read the setting must never open the list up: a viewer
+    // who is not a manager is then treated as "my orders only".
+    console.log('[Bills] ShowMyOrdersOnly lookup failed, defaulting to mine only:', error?.message ?? error);
+    return true;
+  }
+};
+
+// The bill's owner is Tbl_HoldUps.StewId. A bill the POS opened without a
+// steward has no owner, so it can only ever match a manager.
+const OWNED_BY_SQL = `LTRIM(RTRIM(MAX(NULLIF(LTRIM(RTRIM(ISNULL(StewId, ''))), ''))))`;
+
+// Every open bill, one row per table. ?waitMs=0 (default) answers immediately.
+app.get('/api/bills/open', async (req, res) => {
+  // No valid session, no list. Answering with an empty list would look like
+  // "there are no bills", which is a very different message.
+  const viewer = readBillViewer(req);
+  if (!viewer || !viewer.userId) {
+    return res.status(401).json({
+      ok: false,
+      code: 'AUTH_REQUIRED',
+      message: 'Your session has expired. Please sign in again.',
+    });
+  }
+
+  try {
+    const pool = await poolPromise;
+    const isManager = viewer.groupId === MANAGER_GROUP_ID;
+    const showMyOrdersOnly = isManager ? false : await readShowMyOrdersOnly(pool);
+    const mineOnly = !isManager && showMyOrdersOnly;
+
+    const request = pool.request();
+    let sqlText = OPEN_BILLS_SQL;
+    if (mineOnly) {
+      request.input('ViewerUserId', sql.NVarChar(50), viewer.userId);
+      sqlText += `
+        HAVING ${OWNED_BY_SQL} = LTRIM(RTRIM(@ViewerUserId))
+      `;
+    }
+
+    const result = await request.query(`${sqlText} ORDER BY MAX(TxnDate) DESC`);
+    const bills = (result.recordset ?? [])
+      .map(mapOpenBillRow)
+      .filter((bill) => bill.tableNo);
+
+    return res.json({
+      ok: true,
+      count: bills.length,
+      scope: {
+        mode: mineOnly ? 'mine' : 'all',
+        isManager,
+        showMyOrdersOnly,
+      },
+      bills,
+    });
+  } catch (error) {
+    console.log('[Bills] open bill list failed', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+// One table's bill. Items come from Tbl_HoldUps (the real bill); lines the app
+// added but the central system has not merged yet are returned separately as
+// pendingLines, so the same dish is never listed twice.
+//
+// ?waitMs=<0..15000> makes the request wait for the POS merge instead of
+// answering immediately: the caller asks once and holds the connection, rather
+// than polling fifteen times while the customer-details popup is open.
+// ?since=<epoch ms> only accepts rows written after that moment, so an older
+// bill on the same table can never be mistaken for this order.
+app.get('/api/bills/table/:tableNo', async (req, res) => {
+  const tableNo = String(req.params.tableNo ?? '').trim();
+  if (!tableNo) return res.status(400).json({ ok: false, message: 'tableNo is required.' });
+
+  const requestedWait = Number(req.query.waitMs ?? 0);
+  const waitMs = Number.isFinite(requestedWait) ? Math.min(15000, Math.max(0, Math.floor(requestedWait))) : 0;
+  const requestedSince = Number(req.query.since ?? 0);
+  const sinceMs = Number.isFinite(requestedSince) && requestedSince > 0 ? requestedSince : 0;
+  // POS timestamps are Sri Lankan wall-clock values, so the threshold is built
+  // the same way instead of comparing a UTC instant with a local datetime.
+  const sinceLocal = sinceMs
+    ? new Date(sinceMs + 330 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
+    : '';
+
+  const deadline = Date.now() + waitMs;
+  try {
+    const pool = await poolPromise;
+    let snapshot = await loadTableBill(pool, tableNo);
+
+    while (true) {
+      const freshRows = sinceLocal
+        ? snapshot.posLines.filter((line) => {
+          if (!line.time) return false;
+          const stamp = new Date(line.time);
+          if (Number.isNaN(stamp.getTime())) return true;
+          // Compare the same way SQL would: wall clock, to the second.
+          const local = new Date(stamp.getTime() + 330 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+          return local >= sinceLocal;
+        })
+        : snapshot.posLines;
+
+      const ready = freshRows.length > 0;
+      const outOfTime = Date.now() >= deadline;
+      if (ready || outOfTime) {
+        return res.json({
+          ok: true,
+          ready,
+          waitedMs: waitMs - Math.max(0, deadline - Date.now()),
+          data: {
+            tableNo,
+            bill: snapshot.bill,
+            billType: snapshot.bill?.billType ?? (snapshot.posLines.length ? 'pos' : null),
+            invoiceNo: snapshot.bill?.invoiceNo ?? null,
+            netTotal: snapshot.bill?.netTotal ?? null,
+            orderMode: snapshot.bill?.orderMode ?? '',
+            steward: snapshot.bill?.steward ?? '',
+            pax: snapshot.bill?.pax ?? '',
+            lastTime: snapshot.bill?.lastTime ?? null,
+            posLines: snapshot.posLines,
+            pendingLines: snapshot.pendingLines,
+            posAmount: snapshot.posAmount,
+            pendingAmount: snapshot.pendingAmount,
+            pendingQty: snapshot.pendingQty,
+            onBill: snapshot.posLines.length > 0,
+          },
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      snapshot = await loadTableBill(pool, tableNo);
+    }
+  } catch (error) {
+    console.log('[Bills] table bill failed', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
+
+
+// The same bill, shaped the way the app's bill screen already reads bills.
+// Items come from Tbl_HoldUps (the real bill). Lines this app added that the
+// central system has not merged yet are added on top as app lines, so the screen
+// shows the complete order instead of dropping what was just confirmed.
+// POS lines carry readOnly: true - the app can never change what the POS holds.
+app.get('/api/bills/by-table/:tableNo', async (req, res) => {
+  const tableNo = String(req.params.tableNo ?? '').trim();
+  if (!tableNo) return res.status(400).json({ ok: false, message: 'tableNo is required.' });
+
+  try {
+    const pool = await poolPromise;
+    const snapshot = await loadTableBill(pool, tableNo);
+    const bill = snapshot.bill;
+
+    // Pax, order type and the owning user live on the app side of the bill, so
+    // they are read from Tbl_HoldUpsCloud exactly as they were before.
+    let meta = null;
+    try {
+      const metaResult = await pool.request()
+        .input('TableNo', sql.NVarChar(50), tableNo)
+        .query(`
+          SELECT
+            MAX(NULLIF(h.LPax, 0))        AS LPax,
+            MAX(NULLIF(h.FPax, 0))        AS FPax,
+            MAX(NULLIF(LTRIM(RTRIM(h.TabelGrpID)), '')) AS TabelGrpID,
+            MAX(NULLIF(LTRIM(RTRIM(h.UserID)), ''))     AS UserID,
+            MAX(NULLIF(LTRIM(RTRIM(h.OrderType)), ''))  AS OrderType
+          FROM dbo.Tbl_HoldUpsCloud h WITH (NOLOCK)
+          WHERE LTRIM(RTRIM(h.TabelNo)) = @TableNo
+            AND (h.IsPaid = 0 OR h.IsPaid IS NULL)
+        `);
+      meta = metaResult.recordset?.[0] ?? null;
+    } catch (_) { meta = null; }
+
+    const modeText = String(bill?.orderMode ?? '').toLowerCase();
+    const orderType = String(meta?.OrderType ?? '').trim()
+      || (modeText.includes('take') || modeText.includes('ta') ? 'TA' : 'DI');
+
+    const paxText = String(bill?.pax ?? '').trim();
+    const paxNumber = Number.parseInt(paxText.split(/[^0-9]/).filter(Boolean)[0] ?? '', 10);
+    const lPax = Number(meta?.LPax ?? 0) || (Number.isFinite(paxNumber) ? paxNumber : 0);
+
+    // One row per dish. A dish can be both on the POS bill and still pending
+    // from the app (same item added twice), and listing it twice would look like
+    // a mistake. The POS part is what cannot be touched; only the app part can.
+    const itemMap = new Map();
+    const addLine = (line, source) => {
+      const code = String(line.itemCode ?? '').trim();
+      if (!code) return;
+      const quantity = billNumber(line.quantity);
+      if (quantity <= 0) return;
+      const existing = itemMap.get(code);
+      if (existing) {
+        existing.quantity = Math.round((existing.quantity + quantity) * 1000) / 1000;
+        if (source === 'pos') {
+          existing.posQty = Math.round((existing.posQty + quantity) * 1000) / 1000;
+          existing.kotbot = existing.kotbot || line.kotbot || '';
+        } else {
+          existing.pendingQty = Math.round((existing.pendingQty + quantity) * 1000) / 1000;
+        }
+        if (line.remark && !existing.itemRemarks) existing.itemRemarks = line.remark;
+        return;
+      }
+      itemMap.set(code, {
+        menuItemCode: code,
+        menuItmDes: line.itemDes || code,
+        salesPrice: billNumber(line.salesPrice),
+        quantity,
+        posQty: source === 'pos' ? quantity : 0,
+        pendingQty: source === 'app' ? quantity : 0,
+        itemRemarks: line.remark || '',
+        billSource: source,
+        kotbot: source === 'pos' ? (line.kotbot || '') : '',
+      });
+    };
+
+    snapshot.posLines.forEach((line) => addLine(line, 'pos'));
+    snapshot.pendingLines.forEach((line) => addLine(line, 'app'));
+
+    const items = Array.from(itemMap.values()).map((item) => ({
+      ...item,
+      // Every line is editable, including the ones the POS opened. `posQty` is
+      // kept so the screen can say how much of the line the POS already holds.
+      readOnly: false,
+      lockedQty: 0,
+    }));
+
+    return res.json({
+      ok: true,
+      data: {
+        tableNo,
+        invoiceNo: bill?.invoiceNo ?? null,
+        billType: bill?.billType ?? (snapshot.posLines.length ? 'pos' : null),
+        lPax,
+        fPax: Number(meta?.FPax ?? 0) || 0,
+        tableGrpId: String(meta?.TabelGrpID ?? ''),
+        userId: String(meta?.UserID ?? ''),
+        orderType,
+        isPaid: false,
+        // Read straight from Tbl_HoldUps - the app never adds this up itself.
+        billNetTotal: bill?.netTotal ?? null,
+        posAmount: snapshot.posAmount,
+        pendingAmount: snapshot.pendingAmount,
+        pendingQty: snapshot.pendingQty,
+        onBill: snapshot.posLines.length > 0,
+        items,
+      },
+    });
+  } catch (error) {
+    console.log('[Bills] by-table failed', error?.message ?? error);
+    return res.status(500).json({ ok: false, message: error?.message ?? String(error) });
+  }
+});
 
 app.get('/api/unpaid-bills', getUnpaidBillsHandler);
 app.get('/api/bill-items', getBillItemsHandler);

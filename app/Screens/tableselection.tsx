@@ -4,7 +4,6 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   ScrollView,
   StatusBar,
@@ -383,12 +382,9 @@ export default function TableSelectionScreen() {
                           setOpeningTableId(table.id);
                           const activeBill = await apiClient.getActiveBillItems(table.id);
                           const data = activeBill.ok ? activeBill.data?.data : null;
+                          // A bill opened at the POS has no invoice at all; it is
+                          // still this table's bill, so it opens like any other.
                           const invoiceNo = String(data?.invoiceNo ?? '').trim();
-
-                          if (!invoiceNo) {
-                            Alert.alert('No active bill found', 'This table is marked occupied, but no open bill was returned.');
-                            return;
-                          }
 
                           const normalizeUserValue = (value: unknown) =>
                             String(value ?? '').trim().toLowerCase();
@@ -404,7 +400,7 @@ export default function TableSelectionScreen() {
                             .map(normalizeUserValue)
                             .filter(Boolean);
                           const isCurrentUsersBill =
-                            !!billUserId && currentUserValues.includes(billUserId);
+                            !!invoiceNo && !!billUserId && currentUserValues.includes(billUserId);
 
                           if (isCurrentUsersBill) {
                             const existingItems: CartItem[] = Array.isArray(data?.items)
@@ -418,6 +414,10 @@ export default function TableSelectionScreen() {
                                   salesPrice: Number(item.salesPrice ?? item.SalesPrice ?? 0) || 0,
                                   quantity: Number(item.quantity ?? item.QTY ?? 0) || 0,
                                   itemRemarks: String(item.itemRemarks ?? item.ItemRemarks ?? ''),
+                                  billSource: item.billSource === 'pos' ? 'pos' as const : item.billSource === 'app' ? 'app' as const : undefined,
+                                  readOnly: item.readOnly === true,
+                                  lockedQty: Number(item.lockedQty ?? 0) || 0,
+                                  posQty: Number(item.posQty ?? 0) || 0,
                                 })).filter((item: CartItem) => item.menuItemCode && item.quantity > 0)
                               : [];
 
@@ -439,6 +439,9 @@ export default function TableSelectionScreen() {
                                 salesPrice: item.salesPrice,
                                 quantity: item.quantity,
                                 itemRemarks: item.itemRemarks,
+                                billSource: item.billSource,
+                                readOnly: item.readOnly,
+                                lockedQty: item.lockedQty,
                               })),
                             });
 
