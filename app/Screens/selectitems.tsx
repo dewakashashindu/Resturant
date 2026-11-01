@@ -24,6 +24,13 @@ import { useCartStore } from '../../services/cartStore';
 import useItemStore, { MENU_ITEM_CACHE_KEY } from '../../services/itemStore';
 import { useOrderStore } from '../../services/orderStore';
 import { storage } from '../../services/storage';
+import {
+  DEFAULT_ITEM_CARD_SIZE,
+  itemCardColsFor,
+  itemCardDeviceFor,
+  itemCardSizeFor,
+  useItemCardSizeStore,
+} from '../../services/kdsSettings';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -392,9 +399,7 @@ interface ItemCardProps {
 const ItemCard = ({
   label,
   price,
-  icon: iconProp,
   itemCode,
-  syncVersion,
   onAdd,
   quantity,
   existingQty = 0,
@@ -412,56 +417,61 @@ const ItemCard = ({
 
   const displayQuantity = quantity ?? 0;
   const remarkTags      = normalizeRemarkTags(splitRemarkTags(remarks));
-  const imgSize         = cardWidth - 4;
-
-  const readPicFromMmkv = (code?: string): ImageSourcePropType | undefined => {
-    if (!code) return undefined;
-    try {
-      const cached = storage.getString(`item_pic:${code}`);
-      if (cached && cached.trim().length > 0) {
-        const base64 = cached.trim();
-        const uri = base64.startsWith('data:') ? base64 : `data:image/jpeg;base64,${base64}`;
-        return { uri } as ImageSourcePropType;
-      }
-    } catch { /* ignore */ }
-    return undefined;
+  // No photo on the tile any more: name, price and ADD. Everything scales from
+  // one factor so a small tile stays readable and a big tile gets a genuinely
+  // bigger touch target.
+  const baseCardSize   = DEFAULT_ITEM_CARD_SIZE[itemCardDeviceFor(width, height)];
+  const sizeFactor     = Math.max(0.82, Math.min(1.75, Math.pow(cardWidth / baseCardSize, 0.85)));
+  // Base sizes come from the screen's own dynamic styles, so the default tile
+  // looks exactly as it does today.
+  const baseFs         = (style: any, fallback: number): number => {
+    const flat = StyleSheet.flatten(style) as { fontSize?: number } | undefined;
+    return typeof flat?.fontSize === 'number' ? flat.fontSize : fallback;
+  };
+  // Never drop below 9.5 px, however small the tile gets.
+  const grow           = (value: number): number => Math.max(9.5, Math.round(value * sizeFactor * 10) / 10);
+  const labelFs        = grow(baseFs(cs.itemLabel, 13));
+  const priceFs        = grow(baseFs(cs.itemPrice, 11));
+  const pathFs         = grow(baseFs(cs.pathText, 9));
+  const addFs          = Math.max(10.5, Math.round(baseFs(cs.addBtnText, 12) * sizeFactor * 10) / 10);
+  const stepBtnSize    = Math.max(26, Math.round(30 * sizeFactor));
+  const cardPad        = Math.max(6, Math.round(10 * sizeFactor));
+  // Identical squares on both sides of the count, so the stepper can never look
+  // lopsided (which is what the old padding-based buttons did).
+  const stepSquare     = {
+    width: stepBtnSize,
+    height: stepBtnSize,
+    minWidth: stepBtnSize,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: stepBtnSize / 2,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  };
+  const stepGlyph      = { fontSize: Math.round(stepBtnSize * 0.62), lineHeight: stepBtnSize };
+  const stepCount      = {
+    fontSize: Math.round(stepBtnSize * 0.55),
+    minWidth: stepBtnSize * 0.9,
+    textAlign: 'center' as const,
   };
 
-  const [icon, setIcon] = useState<ImageSourcePropType | undefined>(
-    () => readPicFromMmkv(itemCode) ?? iconProp,
-  );
-
-  useEffect(() => {
-    const pic = readPicFromMmkv(itemCode);
-    setIcon(pic ?? iconProp);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemCode, iconProp, syncVersion]);
-
   return (
-    <View style={[cs.itemCard, { width: cardWidth }]}>
+    <View style={[cs.itemCard, { width: cardWidth, paddingBottom: cardPad }]}>
       <TouchableOpacity activeOpacity={0.9} onPress={onPressDetails} style={cs.itemTopArea}>
-        <View style={[cs.itemImageBox, { width: imgSize, height: imgSize }]}>
-          {icon ? (
-            <Image source={icon} style={cs.fillImage} resizeMode="cover" />
-          ) : (
-            <Image
-              source={{ uri: 'https://placehold.co/112x112' }}
-              style={cs.fillImage}
-              resizeMode="cover"
-            />
-          )}
-        </View>
-        <Text style={cs.itemLabel} numberOfLines={2}>
+        <Text
+          style={[cs.itemLabel, { fontSize: labelFs, lineHeight: Math.round(labelFs * 1.3), marginTop: cardPad }]}
+          numberOfLines={3}
+        >
           {label}
         </Text>
       </TouchableOpacity>
 
       {price !== undefined && (
-        <Text style={cs.itemPrice}>Rs. {price}</Text>
+        <Text style={[cs.itemPrice, { fontSize: priceFs }]}>Rs. {price}</Text>
       )}
 
       {path?.length ? (
-        <Text style={cs.pathText} numberOfLines={2}>
+        <Text style={[cs.pathText, { fontSize: pathFs }]} numberOfLines={2}>
           {path.join(' > ')}
         </Text>
       ) : null}
@@ -484,25 +494,35 @@ const ItemCard = ({
         </View>
       )}
 
-      <View style={cs.qtyRow}>
+      <View style={[cs.qtyRow, { marginTop: cardPad, width: '100%', justifyContent: 'center', gap: Math.round(stepBtnSize * 0.35) }]}>
         {displayQuantity > 0 ? (
           <>
             <TouchableOpacity
-              style={[cs.qtyBtn, !canDecrement && { opacity: 0.35 }]}
+              style={[cs.qtyBtn, stepSquare, !canDecrement && { opacity: 0.32 }]}
               onPress={() => onDecrement?.()}
               disabled={!canDecrement}
               activeOpacity={0.8}
+              accessibilityLabel={`Remove one ${label}`}
             >
-              <Text style={cs.qtyBtnText}>-</Text>
+              <Text style={[cs.qtyBtnText, stepGlyph]}>−</Text>
             </TouchableOpacity>
-            <Text style={cs.qtyNumber}>{displayQuantity}</Text>
-            <TouchableOpacity style={cs.qtyBtn} onPress={() => onIncrement?.()} activeOpacity={0.8}>
-              <Text style={cs.qtyBtnText}>+</Text>
+            <Text style={[cs.qtyNumber, stepCount]}>{displayQuantity}</Text>
+            <TouchableOpacity
+              style={[cs.qtyBtn, stepSquare]}
+              onPress={() => onIncrement?.()}
+              activeOpacity={0.8}
+              accessibilityLabel={`Add one ${label}`}
+            >
+              <Text style={[cs.qtyBtnText, stepGlyph]}>+</Text>
             </TouchableOpacity>
           </>
         ) : (
-          <TouchableOpacity style={cs.qtyAddBtn} onPress={() => onAdd?.()} activeOpacity={0.8}>
-            <Text style={cs.addBtnText}>{existingQty > 0 ? 'ADD MORE +' : 'ADD +'}</Text>
+          <TouchableOpacity
+            style={[cs.qtyAddBtn, { minWidth: Math.max(86 * sizeFactor, cardWidth * 0.62), paddingVertical: Math.round(4 * sizeFactor) + 3 }]}
+            onPress={() => onAdd?.()}
+            activeOpacity={0.8}
+          >
+            <Text style={[cs.addBtnText, { fontSize: addFs }]}>{existingQty > 0 ? 'ADD MORE +' : 'ADD +'}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -533,6 +553,18 @@ export default function ItemSelection() {
   const insets = useSafeAreaInsets();
   const s = getDynamicStyles(width, height, insets.bottom);
 
+  // ── Item card size ────────────────────────────────────────────────────────
+  // Chosen in Settings → System Setting (never on this screen). The chosen size
+  // decides how many tiles fit in a row; the row is then divided evenly, so the
+  // tiles always fill the width exactly — no leftover gap on the right and no
+  // tile ever pushed off the edge.
+  const cardDevice    = itemCardDeviceFor(width, height);
+  const cardSizePref  = useItemCardSizeStore((st) => st.size);
+  const itemCardSize  = itemCardSizeFor(cardSizePref, cardDevice);
+  const itemCardInner = Math.max(120, width - s.hPad * 2);
+  const itemCardCols  = itemCardColsFor(itemCardSize, itemCardInner, s.gridGap);
+  const itemCardWidth = (itemCardInner - (itemCardCols - 1) * s.gridGap) / itemCardCols;
+  // Category tiles keep the classic half-width grid; only item tiles resize.
   const cardWidth = (width - s.hPad * 2 - s.gridGap) / COLUMNS;
 
   // ── Store ────────────────────────────────────────────────────────────────
@@ -1355,7 +1387,7 @@ export default function ItemSelection() {
                     itemCode={item.code}
                     syncVersion={syncVersion}
                     path={item.path}
-                    cardWidth={cardWidth}
+                    cardWidth={itemCardWidth}
                     quantity={getCartQuantity(item.code)}
                     existingQty={getExistingQty(item.code)}
                     remarks={getCartRemarks(item.code)}
@@ -1417,6 +1449,12 @@ export default function ItemSelection() {
                     onPress={() => openMenuRow(row)}
                   />
                 ))}
+              </View>
+            )}
+
+            {/* ── Item grid (own rows, so resized tiles wrap cleanly) ── */}
+            {viewMode === 'menu' && (
+              <View style={[s.grid, { gap: s.gridGap }]}>
                 {itemsRows.map((row, i) => (
                   <ItemCard
                     key={`${row.Level}-item-${i}`}
@@ -1424,7 +1462,7 @@ export default function ItemSelection() {
                     price={Number(row.SalesPrice) || 0}
                     itemCode={row.itemCode}
                     syncVersion={syncVersion}
-                    cardWidth={cardWidth}
+                    cardWidth={itemCardWidth}
                     quantity={getCartQuantity(row.Level)}
                     existingQty={getExistingQty(row.Level)}
                     remarks={getCartRemarks(row.Level)}
@@ -1450,9 +1488,6 @@ export default function ItemSelection() {
                     canDecrement={getCartQuantity(row.Level) > getExistingQty(row.Level)}
                   />
                 ))}
-                {(categoriesRows.length + itemsRows.length) % COLUMNS !== 0 && (
-                  <View style={{ width: cardWidth }} />
-                )}
               </View>
             )}
           </>
@@ -2098,16 +2133,6 @@ function getDynamicStyles(width: number, height: number, bottomInset: number) {
       itemTopArea: {
         alignItems: 'center',
         width: '100%',
-      },
-      itemImageBox: {
-        borderRadius: scale(12),
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: OperationalColors.surfaceAlt,
-      },
-      fillImage: {
-        width: '100%',
-        height: '100%',
       },
       itemLabel: {
         fontSize: scale(itemLabelFs),

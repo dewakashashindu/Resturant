@@ -32,7 +32,7 @@ export default function HomeScreen() {
   const clearMenuSession = useMenuSessionStore((state) => state.clearDiningSession);
   const clearCart = useCartStore((state) => state.clearCart);
   const clearLastConfirmedOrder = useOrderStore((state) => state.clearLastConfirmedOrder);
-  const displayName = userName ? `Mr. ${userName}` : 'Mr. Perera';
+  const displayName = userName ? `Hi ${userName}` : 'Hi Perera';
 
   useEffect(() => {
     const id = setInterval(() => setCurrentDate(new Date()), 60 * 1000);
@@ -102,7 +102,7 @@ export default function HomeScreen() {
     {
       title: 'Order Taking',
       subtitle: 'Table POS',
-      visible: false, // Hide from Home screen, but still accessible via BottomBar
+      visible: true, // Hide from Home screen, but still accessible via BottomBar
       route: '/Screens/operation',
       ionIcon: 'receipt-outline',
     },
@@ -116,7 +116,7 @@ export default function HomeScreen() {
     {
       title: 'Menu Card',
       subtitle: 'Items & Pricing',
-      visible: false, // Hide from Home screen, but still accessible via BottomBar
+      visible: true, // Hide from Home screen, but still accessible via BottomBar
       route: '/Screens/menutbl_selection',
       ionIcon: 'restaurant-outline',
     },
@@ -144,14 +144,14 @@ export default function HomeScreen() {
     {
       title: 'KDS',
       subtitle: 'Kitchen Display',
-      visible: true,
+      visible: false,
       route: '/Screens/KDSHomeScreen',
       ionIcon: 'flame-outline',
     },
     {
       title: 'BDS',
       subtitle: 'Bar Display',
-      visible: true, // Hide from Home screen, but still accessible via BottomBar
+      visible: false, // Hide from Home screen, but still accessible via BottomBar
       route: '/Screens/BDSHomeScreen',
       ionIcon: 'wine-outline',
     },

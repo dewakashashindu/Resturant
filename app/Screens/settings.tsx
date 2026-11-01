@@ -2,12 +2,13 @@ import { OperationalColors } from '../../constants/operationalTheme';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
   Modal,
+  PanResponder,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -31,6 +32,12 @@ import useItemStore from '../../services/itemStore';
 import {
   DONE_WINDOW_OPTIONS,
   doneWindowOption,
+  itemCardDeviceFor,
+  itemCardSizeFor,
+  itemCardSizeLabel,
+  itemCardStopIndexFor,
+  itemCardStopsFor,
+  useItemCardSizeStore,
   useKdsSettingsStore,
   type DoneWindowMinutes,
 } from '../../services/kdsSettings';
@@ -77,6 +84,76 @@ export default function SettingsScreen() {
   const hydrateItems = useItemStore((s) => s.hydrateItems);
   const isHydrated   = useItemStore((s) => s.isHydrated);
   const doneWindowMinutes      = useKdsSettingsStore((s) => s.doneWindowMinutes);
+  // Order screen tile size: shared store, so the order screen picks it up live.
+  const cardSizePref           = useItemCardSizeStore((st) => st.size);
+  const setCardSizePref        = useItemCardSizeStore((st) => st.setSize);
+  const cardDevice             = itemCardDeviceFor(width, height);
+  const itemCardSize           = itemCardSizeFor(cardSizePref, cardDevice);
+  const itemCardSizeIsDefault  = cardSizePref === null;
+  // Slider stops: default size dead centre, smaller to the left, bigger to the right.
+  const cardStops              = itemCardStopsFor(width, height);
+  const cardStopIndex          = itemCardStopIndexFor(cardStops, itemCardSize);
+  const cardStop               = cardStops[cardStopIndex];
+
+  // ── Card size slider ──────────────────────────────────────────────────────
+  // A bar with a handle: the middle stop is this device's normal size, dragging
+  // left makes the order-screen tiles smaller (more per row), dragging right
+  // makes them bigger (fewer per row).
+  const CARD_THUMB             = 20;
+  const CARD_TRACK_H           = 26;
+  const CARD_END_PAD           = CARD_THUMB / 2 + 2;
+  const [cardTrackW, setCardTrackW] = useState(0);
+  const cardStopsRef           = useRef(cardStops);
+  cardStopsRef.current         = cardStops;
+  const cardTrackWRef          = useRef(0);
+  cardTrackWRef.current        = cardTrackW;
+  const cardGrabX              = useRef(0);
+  const cardPickedIndex        = useRef(cardStopIndex);
+  cardPickedIndex.current      = cardStopIndex;
+
+  /** x on the bar where a stop sits. */
+  const cardPosFor = (index: number): number => {
+    const inner = Math.max(1, cardTrackW - CARD_END_PAD * 2);
+    if (cardStops.length < 2) return CARD_END_PAD + inner / 2;
+    return CARD_END_PAD + (index / (cardStops.length - 1)) * inner;
+  };
+  const cardXPos = cardPosFor(cardStopIndex);
+
+  /** Snap a touch x to the closest stop and save it. */
+  const pickCardStopAt = (x: number) => {
+    const stops = cardStopsRef.current;
+    if (stops.length < 2) return;
+    const inner = Math.max(1, cardTrackWRef.current - CARD_END_PAD * 2);
+    const raw = ((x - CARD_END_PAD) / inner) * (stops.length - 1);
+    const index = Math.min(stops.length - 1, Math.max(0, Math.round(raw)));
+    if (index !== cardPickedIndex.current) {
+      cardPickedIndex.current = index;
+      setCardSizePref(stops[index].size);
+    }
+  };
+
+  /** Keyboard / screen-reader step (one stop left or right). */
+  const nudgeCardStop = (direction: 1 | -1) => {
+    const index = Math.min(cardStops.length - 1, Math.max(0, cardStopIndex + direction));
+    setCardSizePref(cardStops[index].size);
+  };
+
+  const cardSliderPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      // Let the page scroll if the finger goes vertical instead of sideways.
+      onPanResponderTerminationRequest: () => true,
+      onPanResponderGrant: (event) => {
+        const x = event.nativeEvent.locationX;
+        cardGrabX.current = x;
+        pickCardStopAt(x);
+      },
+      onPanResponderMove: (_event, gesture) => {
+        pickCardStopAt(cardGrabX.current + gesture.dx);
+      },
+    }),
+  ).current;
   const setDoneWindowMinutes   = useKdsSettingsStore((s) => s.setDoneWindowMinutes);
   const doneWindowLabel        = doneWindowOption(doneWindowMinutes).label;
   const screenMode             = useKdsLayoutStore((s) => s.screenMode);
@@ -479,7 +556,7 @@ export default function SettingsScreen() {
             <Text style={s.sectionLabel}>System Setting</Text>
             <View style={s.notificationSettingsCard}>
               <TouchableOpacity
-                style={s.notificationSettingRow}
+                style={[s.notificationSettingRow, s.hiddenSystemSetting]}
                 onPress={() => setDonePickerVisible(true)}
                 activeOpacity={0.8}
                 accessibilityRole="button"
@@ -500,9 +577,9 @@ export default function SettingsScreen() {
                   <Ionicons name="chevron-down" size={16} color={OperationalColors.primary} />
                 </View>
               </TouchableOpacity>
-              <View style={s.notificationSettingsDivider} />
+              <View style={[s.notificationSettingsDivider, s.hiddenSystemSetting]} />
               <TouchableOpacity
-                style={s.notificationSettingRow}
+                style={[s.notificationSettingRow, s.hiddenSystemSetting]}
                 onPress={() => setModePickerVisible(true)}
                 activeOpacity={0.8}
                 accessibilityRole="button"
@@ -522,6 +599,93 @@ export default function SettingsScreen() {
                   <Ionicons name="chevron-down" size={16} color={OperationalColors.primary} />
                 </View>
               </TouchableOpacity>
+              <View style={[s.notificationSettingsDivider, s.hiddenSystemSetting]} />
+
+              {/* Order screen tile size — a bar with the normal size in the middle:
+                  left = smaller tiles (more per row), right = bigger tiles. */}
+              <View style={s.cardSizeRow}>
+                <View style={s.cardSizeHead}>
+                  <View style={s.notificationSettingIcon}>
+                    <Ionicons name="grid-outline" size={21} color={OperationalColors.primary} />
+                  </View>
+                  <View style={s.notificationSettingText}>
+                    <Text style={s.notificationSettingLabel}>Item Card Size</Text>
+                    <Text style={s.notificationSettingSub}>
+                      Bigger or smaller tiles on the order screen
+                    </Text>
+                  </View>
+                  <View style={s.cardSizeValue}>
+                    <Text style={s.cardSizeValueText}>
+                      {cardStop ? `${cardStop.label} · ${cardStop.cols} per row` : ''}
+                    </Text>
+                  </View>
+                </View>
+
+                <View
+                  style={s.cardSizeSliderHit}
+                  onLayout={(event) => setCardTrackW(event.nativeEvent.layout.width)}
+                  accessible
+                  accessibilityRole="adjustable"
+                  accessibilityLabel="Item card size"
+                  accessibilityValue={{
+                    min: 0,
+                    max: Math.max(0, cardStops.length - 1),
+                    now: cardStopIndex,
+                    text: cardStop ? `${cardStop.label}, ${cardStop.cols} per row` : undefined,
+                  }}
+                  accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+                  onAccessibilityAction={(event) => {
+                    if (event.nativeEvent.actionName === 'increment') nudgeCardStop(1);
+                    if (event.nativeEvent.actionName === 'decrement') nudgeCardStop(-1);
+                  }}
+                  {...cardSliderPan.panHandlers}
+                >
+                  <View style={[s.cardSizeTrack, { height: CARD_TRACK_H }]}>
+                    <View
+                      style={[
+                        s.cardSizeTrackFill,
+                        { top: CARD_TRACK_H / 2 - 2, width: Math.max(0, cardXPos) },
+                      ]}
+                    />
+                    {cardStops.map((stop, index) => {
+                      const x = cardPosFor(index);
+                      const active = index === cardStopIndex;
+                      return (
+                        <View
+                          key={`${stop.cols}-${index}`}
+                          pointerEvents="none"
+                          style={[
+                            s.cardSizeTick,
+                            { left: x - 3, top: CARD_TRACK_H / 2 - 3 },
+                            active && s.cardSizeTickActive,
+                            stop.isDefault && !active && s.cardSizeTickDefault,
+                          ]}
+                        />
+                      );
+                    })}
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        s.cardSizeThumb,
+                        {
+                          width: CARD_THUMB,
+                          height: CARD_THUMB,
+                          borderRadius: CARD_THUMB / 2,
+                          left: Math.max(0, cardXPos - CARD_THUMB / 2),
+                          top: CARD_TRACK_H / 2 - CARD_THUMB / 2,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <View style={s.cardSizeScale}>
+                    <Text style={s.cardSizeScaleText}>Smaller</Text>
+                    <Text style={s.cardSizeScaleTextMid}>
+                      {itemCardSize} dp{itemCardSizeIsDefault ? ' · default' : ''}
+                    </Text>
+                    <Text style={s.cardSizeScaleText}>Bigger</Text>
+                  </View>
+                </View>
+              </View>
             </View>
             </View>
 
@@ -1277,6 +1441,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number, la
       flexDirection: 'row',
       alignItems: 'center',
     },
+    hiddenSystemSetting: { display: 'none' },
     notificationSettingIcon: {
       width: scale(isSmall ? 36 : 42),
       height: scale(isSmall ? 36 : 42),
@@ -1292,6 +1457,20 @@ function getDynamicStyles(width: number, height: number, bottomInset: number, la
     notificationSettingsDivider: { height: StyleSheet.hairlineWidth, backgroundColor: OperationalColors.canvas },
     dropdownValue: { flexDirection: 'row', alignItems: 'center', gap: scale(6), paddingHorizontal: scale(10), paddingVertical: scale(7), borderRadius: scale(9), borderWidth: 1, borderColor: OperationalColors.border, backgroundColor: OperationalColors.surface },
     dropdownValueText: { fontSize: scale(isSmall ? 11 : 13), fontWeight: '800', color: OperationalColors.primary },
+    cardSizeRow: { paddingVertical: scale(10) },
+    cardSizeHead: { flexDirection: 'row', alignItems: 'center', minHeight: scale(isSmall ? 52 : 58) },
+    cardSizeValue: { paddingHorizontal: scale(10), paddingVertical: scale(6), borderRadius: scale(9), borderWidth: 1, borderColor: OperationalColors.border, backgroundColor: OperationalColors.surface },
+    cardSizeValueText: { fontSize: scale(isSmall ? 10 : 12), fontWeight: '800', color: OperationalColors.primary },
+    cardSizeSliderHit: { paddingTop: scale(6), paddingBottom: scale(2) },
+    cardSizeTrack: { position: 'relative', justifyContent: 'center', backgroundColor: 'rgba(114,86,60,0.08)', borderRadius: scale(13) },
+    cardSizeTrackFill: { position: 'absolute', left: scale(2), height: scale(4), borderRadius: scale(2), backgroundColor: 'rgba(114,86,60,0.35)' },
+    cardSizeTick: { position: 'absolute', width: 6, height: 6, borderRadius: 3, backgroundColor: OperationalColors.border },
+    cardSizeTickDefault: { backgroundColor: 'rgba(114,86,60,0.45)' },
+    cardSizeTickActive: { backgroundColor: 'transparent' },
+    cardSizeThumb: { position: 'absolute', backgroundColor: OperationalColors.primary, borderWidth: 3, borderColor: OperationalColors.surface },
+    cardSizeScale: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: scale(2), paddingHorizontal: scale(2) },
+    cardSizeScaleText: { fontSize: scale(isSmall ? 9.5 : 10.5), fontWeight: '600', color: OperationalColors.muted },
+    cardSizeScaleTextMid: { fontSize: scale(isSmall ? 9.5 : 10.5), fontWeight: '800', color: OperationalColors.primary },
     pickerOverlay: { flex: 1, justifyContent: 'center', paddingHorizontal: scale(22), backgroundColor: 'rgba(0,0,0,0.45)' },
     pickerSheet: { borderRadius: scale(20), padding: scale(18), backgroundColor: OperationalColors.surface },
     pickerHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: scale(10) },

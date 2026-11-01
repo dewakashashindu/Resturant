@@ -135,15 +135,12 @@ export default function BottomBar() {
               key={tab.name}
               style={[
                 styles.navItem,
-                tab.name === 'operation' && styles.hiddenNavItem,
                 { minHeight: navContentHeight },
               ]}
               onPress={() => router.push(tab.route as any)}
               accessibilityRole="button"
               accessibilityLabel={tab.label}
               accessibilityState={{ selected: isActive }}
-              accessibilityElementsHidden={tab.name === 'operation'}
-              importantForAccessibility={tab.name === 'operation' ? 'no-hide-descendants' : 'auto'}
               hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
             >
               <View style={[styles.iconWrap, isActive && styles.activeIcon]}>
