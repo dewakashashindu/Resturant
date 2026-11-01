@@ -461,12 +461,88 @@ const summarizeOrderAlerts = (orders: KdsOrderGroup[], now: number, waitingConfi
   return summary;
 }, { normal: 0, amber: 0, red: 0 });
 
+// ── Severity cards ────────────────────────────────────────────────────────
+// Tapping a NORMAL / AMBER / RED pill turns that column into three cards:
+// RED, AMBER and NORMAL. Every line of the column is bucketed by its own age
+// and grouped by item inside its card, so one card can hold several orders.
+type SeverityItemGroup = {
+  key: string;
+  name: string;
+  code: string;
+  rows: KdsItem[];
+  quantity: number;
+};
+
+type SeverityBuckets = Record<AlertLevel, SeverityItemGroup[]>;
+
+const SEVERITY_CARD_KEYS: AlertLevel[] = ['red', 'amber', 'normal'];
+
+const emptySeverityBuckets = (): SeverityBuckets => ({ red: [], amber: [], normal: [] });
+
+const severityBucketsFor = (
+  sourceItems: KdsItem[],
+  status: KdsStatus,
+  now: number,
+  waitingConfig: KdsWaitingConfig,
+): SeverityBuckets => {
+  const byItem: Record<AlertLevel, Map<string, SeverityItemGroup>> = {
+    red: new Map(),
+    amber: new Map(),
+    normal: new Map(),
+  };
+
+  sourceItems
+    .filter((item) => item.status === status)
+    .forEach((item) => {
+      const level = itemAlertLevel(item, now, waitingConfig);
+      const key = todoItemKeyFor(item);
+      const bucket = byItem[level];
+      const existing = bucket.get(key);
+      if (existing) {
+        existing.rows.push(item);
+        existing.quantity += item.quantity;
+      } else {
+        bucket.set(key, {
+          key,
+          name: item.itemName,
+          code: item.itemCode,
+          rows: [item],
+          quantity: item.quantity,
+        });
+      }
+    });
+
+  const buckets = emptySeverityBuckets();
+  // The DONE column keeps its own window view: it never becomes severity cards.
+  if (status === 'D') return buckets;
+  SEVERITY_CARD_KEYS.forEach((level) => {
+    const groups = [...byItem[level].values()];
+    groups.forEach((group) => group.rows.sort(sortKdsItemsOldestFirst));
+    // The oldest line inside a card stays first, so the queue order survives.
+    groups.sort((left, right) => {
+      const leftTime = left.rows[0]?.placedTime ?? '';
+      const rightTime = right.rows[0]?.placedTime ?? '';
+      return leftTime.localeCompare(rightTime) || left.name.localeCompare(right.name);
+    });
+    buckets[level] = groups;
+  });
+  return buckets;
+};
+
+const severityLevelLabel = (level: AlertLevel) => level.toUpperCase();
+
 const SEVERITY_KEYS: AlertLevel[] = ['normal', 'amber', 'red'];
 
 // Blink cadence for a pill that actually carries a warning value.
 const SEVERITY_BLINK_MS = 620;
 
-type SeverityPillProps = { styles: any; severity: AlertLevel; count: number };
+type SeverityPillProps = {
+  styles: any;
+  severity: AlertLevel;
+  count: number;
+  active?: boolean;
+  onPress?: () => void;
+};
 
 /**
  * One severity counter.
@@ -476,7 +552,7 @@ type SeverityPillProps = { styles: any; severity: AlertLevel; count: number };
  *                 never sit on screen unnoticed.
  * NORMAL never blinks: it is the calm state and every board always has some.
  */
-function SeverityPill({ styles, severity, count }: SeverityPillProps) {
+function SeverityPill({ styles, severity, count, active, onPress }: SeverityPillProps) {
   const hasValue = count > 0;
   const shouldBlink = hasValue && severity !== 'normal';
   const pulse = React.useRef(new Animated.Value(1)).current;
@@ -509,26 +585,45 @@ function SeverityPill({ styles, severity, count }: SeverityPillProps) {
     : severity === 'amber' ? styles.severityPillTextAmber : styles.severityPillTextNormal;
 
   return (
-    <Animated.View
-      style={[styles.severityPill, hasValue ? filledStyle : emptyStyle, { opacity: pulse }]}
-      accessibilityRole="text"
-      accessibilityLabel={`${severity.toUpperCase()} ${count}`}
-    >
-      <Text style={[styles.severityPillLabel, !hasValue && emptyTextStyle]}>{severity.toUpperCase()}</Text>
-      <Text style={[styles.severityPillCount, !hasValue && emptyTextStyle]}>{count}</Text>
+    <Animated.View style={[styles.severityPillWrap, { opacity: pulse }]}>
+      <TouchableOpacity
+        style={[styles.severityPill, hasValue ? filledStyle : emptyStyle, active && styles.severityPillActive]}
+        onPress={onPress}
+        disabled={!onPress}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityState={{ selected: Boolean(active) }}
+        accessibilityLabel={`${severity.toUpperCase()} ${count}${active ? ' cards shown' : ''}`}
+      >
+        <Text style={[styles.severityPillLabel, !hasValue && emptyTextStyle]}>{severity.toUpperCase()}</Text>
+        <Text style={[styles.severityPillCount, !hasValue && emptyTextStyle]}>{count}</Text>
+      </TouchableOpacity>
     </Animated.View>
   );
 }
 
-type SeveritySummaryProps = { title: string; titleColor?: string; summary: AlertSummary };
-function SeveritySummary({ title, titleColor, summary }: SeveritySummaryProps) {
+type SeveritySummaryProps = {
+  title: string;
+  titleColor?: string;
+  summary: AlertSummary;
+  activeLevel?: AlertLevel | null;
+  onPressSeverity?: (level: AlertLevel) => void;
+};
+function SeveritySummary({ title, titleColor, summary, activeLevel, onPressSeverity }: SeveritySummaryProps) {
   const { styles } = React.useContext(KdsUiContext);
   return (
     <View style={styles.severitySummary}>
       <Text style={[styles.severitySummaryTitle, titleColor ? { color: titleColor } : null]}>{title}</Text>
       <View style={styles.severityPills}>
         {SEVERITY_KEYS.map((key) => (
-          <SeverityPill key={key} styles={styles} severity={key} count={summary[key]} />
+          <SeverityPill
+            key={key}
+            styles={styles}
+            severity={key}
+            count={summary[key]}
+            active={activeLevel === key}
+            onPress={onPressSeverity ? () => onPressSeverity(key) : undefined}
+          />
         ))}
       </View>
     </View>
@@ -971,6 +1066,258 @@ function TodoItemSheet({
   );
 }
 
+type SeverityBucketProps = {
+  level: AlertLevel;
+  groups: SeverityItemGroup[];
+  now: number;
+  disabled: boolean;
+  onOpenCard: () => void;
+  onOpenItem: (group: SeverityItemGroup) => void;
+};
+
+/**
+ * One of the three cards (RED / AMBER / NORMAL) shown while a severity pill is
+ * active. Tapping the card opens every order inside it; tapping an item opens
+ * the same list with that item already ticked.
+ */
+function SeverityBucket({ level, groups, now, disabled, onOpenCard, onOpenItem }: SeverityBucketProps) {
+  const { styles, scale } = React.useContext(KdsUiContext);
+  const orderCount = groups.reduce((total, group) => total + group.rows.length, 0);
+  const totalQty = groups.reduce((total, group) => total + group.quantity, 0);
+  const shellStyle = level === 'red'
+    ? styles.severityBucketRed
+    : level === 'amber' ? styles.severityBucketAmber : styles.severityBucketNormal;
+  const headStyle = level === 'red'
+    ? styles.severityBucketHeadRed
+    : level === 'amber' ? styles.severityBucketHeadAmber : styles.severityBucketHeadNormal;
+
+  return (
+    <View style={[styles.severityBucket, shellStyle]}>
+      <TouchableOpacity
+        style={[styles.severityBucketHead, headStyle, groups.length === 0 && styles.severityBucketHeadEmpty]}
+        onPress={onOpenCard}
+        disabled={disabled || groups.length === 0}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${severityLevelLabel(level)} card, ${orderCount} orders`}
+      >
+        <Text style={styles.severityBucketName}>{severityLevelLabel(level)}</Text>
+        <Text style={styles.severityBucketCount}>{orderCount} ORD · {totalQty}×</Text>
+        <Text style={styles.severityBucketOpen}>OPEN ›</Text>
+      </TouchableOpacity>
+      {/* An empty card collapses to its header: the column keeps its height for
+          the work that is actually waiting, instead of three empty blocks. */}
+      {groups.length === 0 ? null : (
+      <View style={styles.severityBucketBody}>
+        {groups.map((group) => (
+          <TouchableOpacity
+            key={`${level}-${group.key}`}
+            style={styles.severityItemRow}
+            onPress={() => onOpenItem(group)}
+            disabled={disabled}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${group.name}, ${group.rows.length} orders`}
+          >
+            <View style={styles.severityItemCopy}>
+              <Text style={styles.severityItemName} numberOfLines={1}>{group.code} · {group.name}</Text>
+              <Text style={styles.severityItemMeta} numberOfLines={1}>
+                {group.rows.length} {group.rows.length === 1 ? 'ORDER' : 'ORDERS'} · {ageLabel(group.rows[0]?.placedTime ?? null, now)}
+              </Text>
+            </View>
+            <View style={styles.severityItemQty}><Text style={styles.severityItemQtyText}>{group.quantity}×</Text></View>
+            <Ionicons name="chevron-forward" size={Math.round(16 * scale)} color={COLORS.navy} />
+          </TouchableOpacity>
+        ))}
+      </View>
+      )}
+    </View>
+  );
+}
+
+type SeverityCardSheetProps = {
+  visible: boolean;
+  status: KdsStatus;
+  level: AlertLevel;
+  groups: SeverityItemGroup[];
+  selectedIds: string[];
+  now: number;
+  busy: boolean;
+  isMoving: boolean;
+  onClose: () => void;
+  onToggleLine: (item: KdsItem) => void;
+  onToggleGroup: (rows: KdsItem[]) => void;
+  onToggleAll: (rows: KdsItem[]) => void;
+  onMove: (lines: KdsItem[]) => void;
+};
+
+/**
+ * The same popup that already moves To-Do lines, opened for a whole severity
+ * card. Every item of the card is listed with its orders; ticked orders move on.
+ */
+function SeverityCardSheet({
+  visible,
+  status,
+  level,
+  groups,
+  selectedIds,
+  now,
+  busy,
+  isMoving,
+  onClose,
+  onToggleLine,
+  onToggleGroup,
+  onToggleAll,
+  onMove,
+}: SeverityCardSheetProps) {
+  const { styles, scale, layout: sheetLayout } = React.useContext(KdsUiContext);
+  const iconSize = (size: number) => Math.round(size * scale);
+  const rows = groups.reduce<KdsItem[]>((all, group) => all.concat(group.rows), []);
+  const selectedLines = rows.filter((row) => selectedIds.includes(row.id));
+  const selectedQty = selectedLines.reduce((total, row) => total + row.quantity, 0);
+  const totalQty = rows.reduce((total, row) => total + row.quantity, 0);
+  const orderNumbers = new Set(rows.map((row) => row.orderNo));
+  const allSelected = rows.length > 0 && rows.every((row) => selectedIds.includes(row.id));
+  const canMove = selectedLines.length > 0 && !busy;
+  const goingToProgress = status === 'S';
+
+  return (
+    <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
+      <View style={styles.detailsOverlay}>
+        <View
+          style={[
+            styles.detailsSheet,
+            sheetLayout && {
+              maxHeight: sheetLayout.sheetMaxHeight,
+              ...(sheetLayout.sheetMaxWidth ? { maxWidth: sheetLayout.sheetMaxWidth } : null),
+            },
+          ]}
+        >
+          <View style={styles.detailsHeader}>
+            <View style={styles.detailsHeaderCopy}>
+              <Text style={styles.detailsEyebrow}>{goingToProgress ? 'TO DO CARD' : 'IN PROGRESS CARD'}</Text>
+              <Text style={styles.detailsTitle} numberOfLines={1}>{severityLevelLabel(level)}</Text>
+              <Text style={styles.detailsSubtitle}>
+                {groups.length} {groups.length === 1 ? 'ITEM' : 'ITEMS'}  ·  {orderNumbers.size} {orderNumbers.size === 1 ? 'ORDER' : 'ORDERS'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.closeDetails}
+              onPress={onClose}
+              disabled={isMoving}
+              accessibilityRole="button"
+              accessibilityLabel="Close severity card"
+            >
+              <Ionicons name="close" size={iconSize(21)} color={COLORS.navy} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.detailsOrderFacts}>
+            <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>ORDERS</Text><Text style={styles.detailsFactValue}>{orderNumbers.size}</Text></View>
+            <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>TOTAL QTY</Text><Text style={styles.detailsFactValue}>{totalQty}×</Text></View>
+            <View style={styles.detailsFact}><Text style={styles.detailsFactLabel}>SELECTED</Text><Text style={styles.detailsFactValue}>{selectedLines.length} · {selectedQty}×</Text></View>
+          </View>
+
+          <TouchableOpacity
+            style={styles.selectAllButton}
+            onPress={() => onToggleAll(rows)}
+            disabled={busy || rows.length === 0}
+            accessibilityRole="button"
+            accessibilityLabel={allSelected ? 'Clear all orders' : 'Select all orders'}
+          >
+            <Ionicons name={allSelected ? 'checkbox' : 'square-outline'} size={iconSize(16)} color={COLORS.blue} />
+            <Text style={styles.selectAllText}>{allSelected ? 'Clear all' : 'Select all'}</Text>
+          </TouchableOpacity>
+          <Text style={styles.detailsHint}>
+            Tap an item to select all of its orders, or tap a single order. Only the ticked orders move to {goingToProgress ? 'In Progress' : 'Done'}.
+          </Text>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailsList}>
+            {groups.map((group) => {
+              const groupIds = group.rows.map((row) => row.id);
+              const groupChecked = groupIds.every((id) => selectedIds.includes(id));
+              const groupPartial = !groupChecked && groupIds.some((id) => selectedIds.includes(id));
+              return (
+                <View key={`card-${group.key}`} style={styles.severityGroupBlock}>
+                  <TouchableOpacity
+                    style={[styles.severityGroupHead, groupChecked && styles.severityGroupHeadOn]}
+                    onPress={() => onToggleGroup(group.rows)}
+                    disabled={busy}
+                    activeOpacity={0.78}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: groupChecked }}
+                    accessibilityLabel={`Select every order of ${group.name}`}
+                  >
+                    <Ionicons
+                      name={groupChecked ? 'checkbox' : groupPartial ? 'remove-circle-outline' : 'square-outline'}
+                      size={iconSize(20)}
+                      color={groupChecked || groupPartial ? COLORS.blue : OperationalColors.muted}
+                    />
+                    <View style={styles.detailsQty}><Text style={styles.detailsQtyText}>{group.quantity}×</Text></View>
+                    <View style={styles.detailsItemCopy}>
+                      <Text style={styles.severityGroupName} numberOfLines={1}>{group.code} · {group.name}</Text>
+                      <Text style={styles.severityGroupMeta}>
+                        {group.rows.length} {group.rows.length === 1 ? 'ORDER' : 'ORDERS'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                  <View style={styles.severityGroupLines}>
+                    {group.rows.map((row) => {
+                      const checked = selectedIds.includes(row.id);
+                      return (
+                        <TouchableOpacity
+                          key={row.id}
+                          style={[styles.detailsItem, checked && styles.detailsItemSelected]}
+                          onPress={() => onToggleLine(row)}
+                          disabled={busy}
+                          activeOpacity={0.75}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked }}
+                          accessibilityLabel={`Select ${row.itemName} for order ${row.orderNo}`}
+                        >
+                          <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={iconSize(22)} color={checked ? COLORS.blue : OperationalColors.muted} />
+                          <View style={styles.detailsQty}><Text style={styles.detailsQtyText}>{row.quantity}×</Text></View>
+                          <View style={styles.detailsItemCopy}>
+                            <Text style={styles.detailsItemName}>ORDER {row.orderNo}  ·  TABLE {row.tableNo || '—'}</Text>
+                            <Text style={styles.detailsItemCode}>{row.stewardName || '—'}  ·  {ageLabel(row.placedTime, now)}</Text>
+                            {row.remarks ? (
+                              <View style={styles.detailsRemarkBanner}>
+                                <Ionicons name="chatbox-ellipses-outline" size={iconSize(14)} color="#8A541F" />
+                                <Text style={styles.detailsRemarkText}>NOTE: {row.remarks}</Text>
+                              </View>
+                            ) : <Text style={styles.detailsNoRemark}>No remark</Text>}
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.modalActionButton, styles.nextButton, !canMove && styles.modalActionDisabled]}
+              onPress={() => onMove(selectedLines)}
+              disabled={!canMove}
+              accessibilityRole="button"
+              accessibilityLabel={`Move ${selectedLines.length} selected orders`}
+            >
+              {isMoving ? <ActivityIndicator size="small" color={COLORS.white} /> : <Ionicons name="arrow-forward-outline" size={iconSize(17)} color={COLORS.white} />}
+              <Text style={styles.nextButtonText}>
+                {selectedLines.length > 0
+                  ? `Move ${selectedLines.length} to ${goingToProgress ? 'In Progress' : 'Done'}`
+                  : `Move to ${goingToProgress ? 'In Progress' : 'Done'}`}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 type KdsDisplayScreenProps = { stationType: KdsQueueType };
 
 /**
@@ -1033,6 +1380,11 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
   const [todoViewMode, setTodoViewMode] = useState<TodoViewMode>('order');
   const [selectedTodoLineIds, setSelectedTodoLineIds] = useState<string[]>([]);
   const [todoItemKey, setTodoItemKey] = useState<string | null>(null);
+  // Severity cards: pressing a pill turns that column into RED / AMBER / NORMAL
+  // cards. Until then every column keeps its normal order-wise board.
+  const [severityCard, setSeverityCard] = useState<Record<'S' | 'P', AlertLevel | null>>({ S: null, P: null });
+  const [severitySheet, setSeveritySheet] = useState<{ status: 'S' | 'P'; level: AlertLevel } | null>(null);
+  const [severitySelectedIds, setSeveritySelectedIds] = useState<string[]>([]);
   const isKitchenDisplay = kdsQueueType === 'K';
   const displayName = isKitchenDisplay ? 'KDS' : 'BDS';
   const stationName = isKitchenDisplay ? 'Kitchen' : 'Bar';
@@ -1436,6 +1788,94 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
     if (isBulkTodoMoving) return;
     setTodoItemKey(null);
     setSelectedTodoLineIds([]);
+  };
+
+  // ── Severity cards ──────────────────────────────────────────────────────
+  // Any pill switches the column to the three cards; pressing it again (or any
+  // other pill) puts the column back to its order-wise board.
+  const toggleSeverityCards = (status: 'S' | 'P') => {
+    setSeverityCard((current) => ({ ...current, [status]: current[status] ? null : 'red' }));
+    if (severitySheet?.status === status) closeSeveritySheet(true);
+  };
+
+  const severityBuckets = severityBucketsFor(items, 'S', now, waitingConfig);
+  const severityBucketsProgress = severityBucketsFor(items, 'P', now, waitingConfig);
+
+  const openSeverityCard = (status: 'S' | 'P', level: AlertLevel, group?: SeverityItemGroup) => {
+    setSeveritySheet({ status, level });
+    // Tapping one item arrives with that item already ticked; tapping the card
+    // header arrives with nothing ticked.
+    setSeveritySelectedIds(group ? group.rows.map((row) => row.id) : []);
+  };
+
+  const closeSeveritySheet = (force = false) => {
+    if (isBulkTodoMoving && !force) return;
+    setSeveritySheet(null);
+    setSeveritySelectedIds([]);
+  };
+
+  const toggleSeverityLine = (item: KdsItem) => {
+    setSeveritySelectedIds((current) => (current.includes(item.id)
+      ? current.filter((id) => id !== item.id)
+      : [...current, item.id]));
+  };
+
+  const toggleSeverityGroup = (rows: KdsItem[]) => {
+    const ids = rows.map((row) => row.id);
+    setSeveritySelectedIds((current) => {
+      const allSelected = ids.every((id) => current.includes(id));
+      return allSelected ? current.filter((id) => !ids.includes(id)) : [...new Set([...current, ...ids])];
+    });
+  };
+
+  // In Progress card: the selected lines are finished in one request each.
+  const sendSeverityLinesToDone = async (lines: KdsItem[]) => {
+    if (lines.length === 0 || isBulkTodoMoving || updatingItemId || updatingOrderId) return;
+    const before = items;
+    const sentIds = new Set(lines.map((item) => item.id));
+    const finishedAt = new Date().toISOString();
+    const uniqueSelections = [...new Map(lines.map((item) => [
+      `${item.orderNo}|${item.itemCode}|${item.type}|${item.tableNo}|${item.invoiceNo}`,
+      item,
+    ])).values()];
+
+    setIsBulkTodoMoving(true);
+    setUpdatingItemId('severity-card-done');
+    setItems((current) => current.map((item) => (
+      sentIds.has(item.id) ? { ...item, status: 'D', proDone: finishedAt } : item
+    )));
+    try {
+      const results = await Promise.all(uniqueSelections.map((item) => apiClient.updateKdsOrderItemStatus({
+        orderNo: item.orderNo,
+        itemCode: item.itemCode,
+        type: item.type,
+        tableNo: item.tableNo,
+        invoiceNo: item.invoiceNo,
+        status: 'D',
+      })));
+      const failed = results.find((response) => !response.ok || !response.data?.ok);
+      if (failed) throw new Error(failed.data?.message || 'One or more items could not be moved.');
+      closeSeveritySheet(true);
+      await loadOrders('background');
+    } catch (error) {
+      console.log('[KDS] Severity card move to done failed', error);
+      setItems(before);
+      await loadOrders('background');
+      Alert.alert('Items not moved', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setUpdatingItemId(null);
+      setIsBulkTodoMoving(false);
+    }
+  };
+
+  // Exactly the same move the item popup performs; the card popup then closes
+  // itself the way the item popup does.
+  const moveSeverityLines = (lines: KdsItem[]) => {
+    if (severitySheet?.status === 'P') {
+      void sendSeverityLinesToDone(lines);
+      return;
+    }
+    void sendTodoLinesToInProgress(lines).then(() => closeSeveritySheet(true));
   };
 
   const toggleTodoLine = (item: KdsItem) => {
@@ -1888,9 +2328,20 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         ]}
         pointerEvents={hasTodoSearch ? 'none' : 'auto'}
       >
-        <SeveritySummary title="TO DO" titleColor={COLORS.todo} summary={todoSummary} />
+        <SeveritySummary
+          title="TO DO"
+          titleColor={COLORS.todo}
+          summary={todoSummary}
+          activeLevel={severityCard.S}
+          onPressSeverity={() => toggleSeverityCards('S')}
+        />
         <View style={styles.summaryDivider} />
-        <SeveritySummary title="IN PROGRESS" summary={inProgressSummary} />
+        <SeveritySummary
+          title="IN PROGRESS"
+          summary={inProgressSummary}
+          activeLevel={severityCard.P}
+          onPressSeverity={() => toggleSeverityCards('P')}
+        />
       </View>
 
       {/* While the search dropdown is open, underlying card ScrollViews must
@@ -1913,6 +2364,9 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
           const itemCount = groups.reduce((total, group) => total + group.items.length, 0);
           // Item view applies to the To Do column only.
           const useItemLayout = column.id === 'S' && todoViewMode === 'item';
+          // A pressed pill replaces the order cards with three severity cards.
+          const severityLevel = column.id === 'D' ? null : severityCard[column.id];
+          const columnBuckets = column.id === 'S' ? severityBuckets : severityBucketsProgress;
           return (
             <View key={column.id} style={styles.column}>
               <View
@@ -1936,7 +2390,22 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
                 <View style={styles.loadingColumn}><ActivityIndicator color={column.color} /><Text style={styles.emptyColumnText}>Loading…</Text></View>
               ) : (
                 <ScrollView style={styles.columnScroll} contentContainerStyle={styles.columnContent} showsVerticalScrollIndicator={false} nestedScrollEnabled>
-                  {(useItemLayout ? todoItemGroups.length === 0 : groups.length === 0) ? (
+                  {severityLevel && itemCount > 0 ? SEVERITY_CARD_KEYS
+                    .filter((level) => columnBuckets[level].length > 0)
+                    .map((level) => (
+                      <SeverityBucket
+                        key={`${column.id}-${level}`}
+                        level={level}
+                        groups={columnBuckets[level]}
+                        now={now}
+                        disabled={Boolean(updatingItemId) || Boolean(updatingOrderId)}
+                        onOpenCard={() => openSeverityCard(column.id as 'S' | 'P', level)}
+                        onOpenItem={(group) => openSeverityCard(column.id as 'S' | 'P', level, group)}
+                      />
+                    )) : null}
+                  {severityLevel ? (itemCount === 0 ? (
+                    <View style={styles.emptyColumn}><Ionicons name={isKitchenDisplay ? 'restaurant-outline' : 'wine-outline'} size={iconSize(22)} color={OperationalColors.border} /><Text style={styles.emptyColumnText}>No {stationName} items</Text></View>
+                  ) : null) : (useItemLayout ? todoItemGroups.length === 0 : groups.length === 0) ? (
                     <View style={styles.emptyColumn}><Ionicons name={isKitchenDisplay ? 'restaurant-outline' : 'wine-outline'} size={iconSize(22)} color={OperationalColors.border} /><Text style={styles.emptyColumnText}>No {stationName} items</Text></View>
                   ) : useItemLayout ? todoItemGroups.map((group) => (
                     <TodoItemGroup
@@ -1985,6 +2454,29 @@ export function KdsDisplayScreen({ stationType }: KdsDisplayScreenProps) {
         onToggleLine={toggleTodoLine}
         onToggleAll={toggleTodoGroupAll}
         onMove={(lines) => void sendTodoLinesToInProgress(lines)}
+      />
+
+      {/* Severity card popup: every order of RED / AMBER / NORMAL in one list.
+          Its lines move exactly like the To-Do item popup moves them. */}
+      <SeverityCardSheet
+        visible={Boolean(severitySheet)}
+        status={severitySheet?.status ?? 'S'}
+        level={severitySheet?.level ?? 'red'}
+        groups={severitySheet
+          ? (severitySheet.status === 'S' ? severityBuckets : severityBucketsProgress)[severitySheet.level]
+          : []}
+        selectedIds={severitySelectedIds}
+        now={now}
+        busy={isBulkTodoMoving || Boolean(updatingItemId) || Boolean(updatingOrderId)}
+        isMoving={isBulkTodoMoving}
+        onClose={() => closeSeveritySheet()}
+        onToggleLine={toggleSeverityLine}
+        onToggleGroup={toggleSeverityGroup}
+        onToggleAll={() => toggleSeverityGroup(severitySheet
+          ? (severitySheet.status === 'S' ? severityBuckets : severityBucketsProgress)[severitySheet.level]
+            .reduce<KdsItem[]>((all, group) => all.concat(group.rows), [])
+          : [])}
+        onMove={moveSeverityLines}
       />
 
       {/* Hold a To-Do item to select matching items across all To-Do orders. */}
@@ -2290,14 +2782,16 @@ const baseStyles = StyleSheet.create({
   searchNoResults: { minHeight: 94, padding: 12, alignItems: 'center', justifyContent: 'center' },
   searchNoResultsText: { color: COLORS.textMuted, fontSize: 10, fontWeight: '800', textAlign: 'center', marginTop: 6 },
   // The removed station-lock strip gives this summary room for legible counts.
-  summaryHeader: { marginHorizontal: 8, marginTop: 8, marginBottom: 7, paddingVertical: 9, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 9, borderRadius: 12, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border },
+  // flexShrink: 0 — this strip keeps its own height, so a busy board underneath
+  // can never squash it and clip the NORMAL / AMBER / RED pills.
+  summaryHeader: { flexShrink: 0, marginHorizontal: 8, marginTop: 8, marginBottom: 7, paddingVertical: 9, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 9, borderRadius: 12, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border },
   summaryDivider: { width: 1, height: 52, backgroundColor: COLORS.border },
   severitySummary: { flex: 1, minWidth: 0 },
   severitySummaryTitle: { color: COLORS.navy, fontSize: 10, fontWeight: '900', letterSpacing: 0.45 },
   severityPills: { marginTop: 5, flexDirection: 'row', gap: 4 },
   // The border is always reserved so filled and outlined pills keep exactly the
   // same size; only its colour changes between the two states.
-  severityPill: { flex: 1, minWidth: 0, minHeight: 42, paddingHorizontal: 3, paddingVertical: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 7, borderWidth: 1.5, borderColor: 'transparent' },
+  severityPill: { flex: 1, flexShrink: 0, minWidth: 0, minHeight: 42, paddingHorizontal: 3, paddingVertical: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 7, borderWidth: 1.5, borderColor: 'transparent' },
   severityPillNormal: { backgroundColor: OperationalColors.muted },
   severityPillAmber: { backgroundColor: '#E8A93F' },
   severityPillRed: { backgroundColor: COLORS.danger },
@@ -2310,6 +2804,35 @@ const baseStyles = StyleSheet.create({
   severityPillTextRed: { color: COLORS.danger },
   severityPillLabel: { color: COLORS.white, fontSize: 6, fontWeight: '900', letterSpacing: 0.2 },
   severityPillCount: { color: COLORS.white, fontSize: 17, lineHeight: 20, fontWeight: '900', marginTop: 1 },
+  // Pressing a pill is now a button: the wrapper keeps the blinking row layout,
+  // the ring shows which severity card is open.
+  severityPillWrap: { flex: 1, minWidth: 0, flexShrink: 0, minHeight: 42, justifyContent: 'center' },
+  severityPillActive: { borderColor: COLORS.navy, borderWidth: 2.5 },
+  severityBucket: { borderRadius: 11, borderWidth: 1.5, overflow: 'hidden' },
+  severityBucketRed: { borderColor: COLORS.danger, backgroundColor: '#FFF5F4' },
+  severityBucketAmber: { borderColor: '#E8A93F', backgroundColor: '#FFFBF0' },
+  severityBucketNormal: { borderColor: OperationalColors.border, backgroundColor: '#FBF8F3' },
+  severityBucketHead: { minHeight: 32, paddingHorizontal: 7, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  severityBucketHeadRed: { backgroundColor: COLORS.danger },
+  severityBucketHeadAmber: { backgroundColor: '#E8A93F' },
+  severityBucketHeadNormal: { backgroundColor: OperationalColors.muted },
+  severityBucketName: { color: COLORS.white, fontSize: 10, fontWeight: '900', letterSpacing: 0.4 },
+  severityBucketCount: { color: COLORS.white, fontSize: 8, fontWeight: '900', opacity: 0.92 },
+  severityBucketOpen: { marginLeft: 'auto', color: COLORS.white, fontSize: 8, fontWeight: '900', letterSpacing: 0.4 },
+  severityBucketBody: { padding: 5, gap: 5 },
+  severityBucketHeadEmpty: { opacity: 0.55 },
+  severityItemRow: { minHeight: 46, paddingHorizontal: 7, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 9, borderWidth: 1, borderColor: OperationalColors.border, backgroundColor: COLORS.white },
+  severityItemCopy: { flex: 1, minWidth: 0 },
+  severityItemName: { color: COLORS.navy, fontSize: 10, fontWeight: '900' },
+  severityItemMeta: { color: COLORS.textMuted, fontSize: 8, fontWeight: '800', marginTop: 2 },
+  severityItemQty: { minWidth: 26, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 7, backgroundColor: OperationalColors.surfaceAlt, alignItems: 'center' },
+  severityItemQtyText: { color: COLORS.navy, fontSize: 10, fontWeight: '900' },
+  severityGroupBlock: { marginBottom: 10 },
+  severityGroupHead: { minHeight: 46, paddingHorizontal: 8, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 11, borderWidth: 1, borderColor: OperationalColors.accentSoft, backgroundColor: '#FBF5EA', marginBottom: 5 },
+  severityGroupHeadOn: { borderColor: COLORS.blue, backgroundColor: '#F6EEDF' },
+  severityGroupName: { color: COLORS.navy, fontSize: 11, fontWeight: '900' },
+  severityGroupMeta: { color: COLORS.textMuted, fontSize: 8, fontWeight: '900', letterSpacing: 0.3, marginTop: 2 },
+  severityGroupLines: { marginLeft: 8, gap: 5 },
   board: { flex: 1, flexDirection: 'row', gap: 7, paddingHorizontal: 7, paddingBottom: 7 },
   column: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, backgroundColor: OperationalColors.canvas },
   columnHeader: { minHeight: 49, paddingHorizontal: 7, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1 },
