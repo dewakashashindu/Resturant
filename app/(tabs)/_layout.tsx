@@ -98,10 +98,12 @@ function CustomBottomBar({ state, navigation }: BottomTabBarProps) {
 
       {/* Order Taking */}
       <TouchableOpacity
-        style={[styles.navItem, { minHeight: navContentHeight }]}
+        style={[styles.navItem, styles.hiddenNavItem, { minHeight: navContentHeight }]}
         onPress={() => router.push('/Screens/operation' as any)}
         accessibilityRole="button"
         accessibilityLabel="Order Taking"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
         hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
       >
         <Ionicons name="receipt-outline" size={iconSize} color={C.primary} />
@@ -210,6 +212,10 @@ const styles = StyleSheet.create({
     minWidth: 48,
     paddingVertical: 6,
     gap: 2,
+  },
+
+  hiddenNavItem: {
+    display: 'none',
   },
 
   navText: {

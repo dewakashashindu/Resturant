@@ -165,6 +165,8 @@ export default function SettingsScreen() {
   const updatePicture= useAuthStore((s) => s.updatePicture);
   const autoLogoutAfterCustomerPrompt = useAppSettingsStore((s) => s.autoLogoutAfterCustomerPrompt);
   const setAutoLogoutAfterCustomerPrompt = useAppSettingsStore((s) => s.setAutoLogoutAfterCustomerPrompt);
+  const hideItemImages = useAppSettingsStore((s) => s.hideItemImages);
+  const setHideItemImages = useAppSettingsStore((s) => s.setHideItemImages);
   const notificationPreferences = useNotificationStore((s) => s.preferences);
   const updateNotificationPreferences = useNotificationStore((s) => s.updatePreferences);
 
@@ -556,6 +558,49 @@ export default function SettingsScreen() {
           /* ════ SYSTEM TAB ════ */
           <>
             <View style={landscapeCell}>
+            <Text style={s.sectionLabel}>Data Synchronization</Text>
+
+            <TouchableOpacity
+              style={s.actionCard}
+              onPress={handleCoreSync}
+              disabled={isSyncing}
+              activeOpacity={0.85}
+            >
+              <View style={[s.actionCardIcon, { backgroundColor: 'rgba(114,86,60,0.1)' }]}>
+                {isSyncing
+                  ? <ActivityIndicator size="small" color={OperationalColors.primary} />
+                  : <Ionicons name="sync-outline" size={22} color={OperationalColors.primary} />
+                }
+              </View>
+              <View style={s.actionCardText}>
+                <Text style={s.actionCardLabel}>Sync Menu Data</Text>
+                <Text style={s.actionCardSub}>
+                  {isSyncing ? syncStage || 'Starting menu sync...' : 'Refresh all menu items from server'}
+                </Text>
+              </View>
+              {!isSyncing && <Text style={s.actionCardArrow}>›</Text>}
+            </TouchableOpacity>
+
+            {isSyncing ? (
+              <View style={s.syncProgressCard}>
+                <View style={s.syncProgressHeader}>
+                  <Text style={s.syncProgressStage} numberOfLines={1}>{syncStage || 'Starting menu sync...'}</Text>
+                  <Text style={s.syncProgressPercent}>{syncProgress}%</Text>
+                </View>
+                <View style={s.syncProgressTrack}>
+                  <View style={[s.syncProgressFill, { width: `${Math.max(0, Math.min(100, syncProgress))}%` }]} />
+                </View>
+                <Text style={s.syncProgressHint}>Please keep this screen open until the sync finishes.</Text>
+              </View>
+            ) : null}
+
+            <View style={s.syncInfoCard}>
+              <Text style={s.syncInfoLabel}>Last Sync</Text>
+              <Text style={s.syncInfoValue}>{lastSyncTime}</Text>
+            </View>
+            </View>
+
+            <View style={landscapeCell}>
             <Text style={s.sectionLabel}>System Setting</Text>
             <View style={s.notificationSettingsCard}>
               <TouchableOpacity
@@ -602,6 +647,31 @@ export default function SettingsScreen() {
                   <Ionicons name="chevron-down" size={16} color={OperationalColors.primary} />
                 </View>
               </TouchableOpacity>
+
+            </View>
+            </View>
+
+            <View style={landscapeCell}>
+            <Text style={s.sectionLabel}>Order Screen</Text>
+            <View style={s.notificationSettingsCard}>
+              <View style={s.notificationSettingRow}>
+                <View style={s.notificationSettingIcon}>
+                  <Ionicons name="image-outline" size={21} color={OperationalColors.primary} />
+                </View>
+                <View style={s.notificationSettingText}>
+                  <Text style={s.notificationSettingLabel}>Item Images</Text>
+                  <Text style={s.notificationSettingSub}>
+                    Show a photo above every item on the order screen
+                  </Text>
+                </View>
+                <Switch
+                  value={!hideItemImages}
+                  onValueChange={(value) => setHideItemImages(!value)}
+                  trackColor={{ false: OperationalColors.border, true: OperationalColors.primary }}
+                  thumbColor={!hideItemImages ? OperationalColors.primary : OperationalColors.onPrimary}
+                />
+              </View>
+
               <View style={s.notificationSettingsDivider} />
 
               {/* Order screen tile size — a bar with the normal size in the middle:
@@ -689,49 +759,6 @@ export default function SettingsScreen() {
                   </View>
                 </View>
               </View>
-            </View>
-            </View>
-
-            <View style={landscapeCell}>
-            <Text style={s.sectionLabel}>Data Synchronization</Text>
-
-            <TouchableOpacity
-              style={s.actionCard}
-              onPress={handleCoreSync}
-              disabled={isSyncing}
-              activeOpacity={0.85}
-            >
-              <View style={[s.actionCardIcon, { backgroundColor: 'rgba(114,86,60,0.1)' }]}>
-                {isSyncing
-                  ? <ActivityIndicator size="small" color={OperationalColors.primary} />
-                  : <Ionicons name="sync-outline" size={22} color={OperationalColors.primary} />
-                }
-              </View>
-              <View style={s.actionCardText}>
-                <Text style={s.actionCardLabel}>Sync Menu Data</Text>
-                <Text style={s.actionCardSub}>
-                  {isSyncing ? syncStage || 'Starting menu sync...' : 'Refresh all menu items from server'}
-                </Text>
-              </View>
-              {!isSyncing && <Text style={s.actionCardArrow}>›</Text>}
-            </TouchableOpacity>
-
-            {isSyncing ? (
-              <View style={s.syncProgressCard}>
-                <View style={s.syncProgressHeader}>
-                  <Text style={s.syncProgressStage} numberOfLines={1}>{syncStage || 'Starting menu sync...'}</Text>
-                  <Text style={s.syncProgressPercent}>{syncProgress}%</Text>
-                </View>
-                <View style={s.syncProgressTrack}>
-                  <View style={[s.syncProgressFill, { width: `${Math.max(0, Math.min(100, syncProgress))}%` }]} />
-                </View>
-                <Text style={s.syncProgressHint}>Please keep this screen open until the sync finishes.</Text>
-              </View>
-            ) : null}
-
-            <View style={s.syncInfoCard}>
-              <Text style={s.syncInfoLabel}>Last Sync</Text>
-              <Text style={s.syncInfoValue}>{lastSyncTime}</Text>
             </View>
             </View>
 
@@ -1464,6 +1491,7 @@ function getDynamicStyles(width: number, height: number, bottomInset: number, la
       flexDirection: 'row',
       alignItems: 'center',
     },
+    hiddenSystemSettings: { display: 'none' },
     notificationSettingIcon: {
       width: scale(isSmall ? 36 : 42),
       height: scale(isSmall ? 36 : 42),

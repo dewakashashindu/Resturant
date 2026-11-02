@@ -17,10 +17,19 @@ export type AppSettings = {
    * someone turns it on.
    */
   autoLogoutAfterCustomerPrompt: boolean;
+  /**
+   * Hide the photo above every item tile on the item selection screen.
+   *
+   * Off by default: the tile shows the item photo when one is cached on this
+   * device. Turning it on leaves the same tiles with the name, the price and
+   * the buttons only - the card size control keeps working either way.
+   */
+  hideItemImages: boolean;
 };
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   autoLogoutAfterCustomerPrompt: false,
+  hideItemImages: false,
 };
 
 const readSettings = (): AppSettings => {
@@ -33,6 +42,7 @@ const readSettings = (): AppSettings => {
     // signing people out on its own.
     return {
       autoLogoutAfterCustomerPrompt: (parsed as any).autoLogoutAfterCustomerPrompt === true,
+      hideItemImages: (parsed as any).hideItemImages === true,
     };
   } catch (error) {
     console.log('[AppSettings] failed to read settings', error);
@@ -50,6 +60,7 @@ const persistSettings = (settings: AppSettings) => {
 
 type AppSettingsState = AppSettings & {
   setAutoLogoutAfterCustomerPrompt: (value: boolean) => void;
+  setHideItemImages: (value: boolean) => void;
 };
 
 const initialSettings = readSettings();
@@ -61,5 +72,11 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
     const next = value === true;
     persistSettings({ ...get(), autoLogoutAfterCustomerPrompt: next });
     set({ autoLogoutAfterCustomerPrompt: next });
+  },
+
+  setHideItemImages: (value) => {
+    const next = value === true;
+    persistSettings({ ...get(), hideItemImages: next });
+    set({ hideItemImages: next });
   },
 }));

@@ -24,6 +24,7 @@ import { useCartStore } from '../../services/cartStore';
 import useItemStore, { MENU_ITEM_CACHE_KEY } from '../../services/itemStore';
 import { useOrderStore } from '../../services/orderStore';
 import { storage } from '../../services/storage';
+import { useAppSettingsStore } from '../../services/appSettings';
 import {
   DEFAULT_ITEM_CARD_SIZE,
   itemCardColsFor,
@@ -179,6 +180,51 @@ const getMenuItemImageSource = (item: Record<string, any>) => {
     item.ItemImageUrl ?? item.ImageUrl ?? item.imageUrl
     ?? item.PhotoUrl ?? item.photoUrl ?? item.Image ?? item.image ?? item.icon,
   );
+};
+
+// The item photo is cached on this device as base64 under item_pic:<ItemCode>.
+// Nothing is fetched from the internet: an item with no cached picture simply
+// shows no picture.
+const ITEM_PHOTO_PREFIX = 'item_pic:';
+
+// Every cached photo, read in one pass. One storage read per tile per render is
+// what made the pictures feel absent; a map is read once per sync instead.
+const readAllItemPhotos = (): Record<string, ImageSourcePropType> => {
+  const photos: Record<string, ImageSourcePropType> = {};
+  try {
+    const keys: string[] = typeof (storage as any).getAllKeys === 'function'
+      ? (storage as any).getAllKeys()
+      : [];
+    for (const key of keys) {
+      if (typeof key !== 'string' || !key.startsWith(ITEM_PHOTO_PREFIX)) continue;
+      const code = key.slice(ITEM_PHOTO_PREFIX.length).trim();
+      if (!code) continue;
+      const cached = storage.getString(key);
+      if (!cached || !cached.trim().length) continue;
+      const base64 = cached.trim();
+      photos[code] = {
+        uri: base64.startsWith('data:') ? base64 : `data:image/jpeg;base64,${base64}`,
+      } as ImageSourcePropType;
+    }
+  } catch (error) {
+    console.log('[ItemImages] could not read the photo cache', error);
+  }
+  console.log('[ItemImages] cached photos on this device:', Object.keys(photos).length);
+  return photos;
+};
+
+const readItemPhoto = (code?: string): ImageSourcePropType | undefined => {
+  const key = String(code ?? '').trim();
+  if (!key) return undefined;
+  try {
+    const cached = storage.getString(`item_pic:${key}`);
+    if (cached && cached.trim().length > 0) {
+      const base64 = cached.trim();
+      const uri = base64.startsWith('data:') ? base64 : `data:image/jpeg;base64,${base64}`;
+      return { uri } as ImageSourcePropType;
+    }
+  } catch { /* unreadable cache - treat as no photo */ }
+  return undefined;
 };
 
 const splitRemarkTags = (value?: string) =>
@@ -384,6 +430,8 @@ interface ItemCardProps {
   icon?: ImageSourcePropType;
   itemCode?: string;
   syncVersion?: number;
+  /** Cached base64 photo for this item code, resolved once by the screen. */
+  photo?: ImageSourcePropType;
   onAdd?: () => void;
   quantity?: number;
   existingQty?: number;
@@ -400,6 +448,9 @@ const ItemCard = ({
   label,
   price,
   itemCode,
+  icon,
+  syncVersion,
+  photo: photoProp,
   onAdd,
   quantity,
   existingQty = 0,
@@ -417,9 +468,23 @@ const ItemCard = ({
 
   const displayQuantity = quantity ?? 0;
   const remarkTags      = normalizeRemarkTags(splitRemarkTags(remarks));
-  // No photo on the tile any more: name, price and ADD. Everything scales from
-  // one factor so a small tile stays readable and a big tile gets a genuinely
-  // bigger touch target.
+  // Photos are on unless Settings -> Hide Item Images is on. The picture is the
+  // card's inner width (a square, as it always was), so the existing card size
+  // control moves it together with everything else on the tile.
+  const hideItemImages  = useAppSettingsStore((state) => state.hideItemImages);
+  // The screen hands down the cached picture; the tile only decides whether to
+  // draw it. Falling back to a per-tile storage read keeps older callers working.
+  const [photo, setPhoto] = useState<ImageSourcePropType | undefined>(
+    () => photoProp ?? readItemPhoto(itemCode) ?? icon,
+  );
+  useEffect(() => {
+    setPhoto(photoProp ?? readItemPhoto(itemCode) ?? icon);
+    // syncVersion changes after a menu sync, so a newly cached photo appears
+    // without reopening the screen.
+  }, [photoProp, itemCode, icon, syncVersion]);
+  const showPhoto       = !hideItemImages;
+  // Everything scales from one factor so a small tile stays readable and a big
+  // tile gets a genuinely bigger touch target.
   const baseCardSize   = DEFAULT_ITEM_CARD_SIZE[itemCardDeviceFor(width, height)];
   const sizeFactor     = Math.max(0.82, Math.min(1.75, Math.pow(cardWidth / baseCardSize, 0.85)));
   // Base sizes come from the screen's own dynamic styles, so the default tile
@@ -458,6 +523,33 @@ const ItemCard = ({
   return (
     <View style={[cs.itemCard, { width: cardWidth, paddingBottom: cardPad }]}>
       <TouchableOpacity activeOpacity={0.9} onPress={onPressDetails} style={cs.itemTopArea}>
+        {showPhoto ? (
+          <View
+            style={{
+              width: '100%',
+              aspectRatio: 1,
+              backgroundColor: OperationalColors.surfaceAlt,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {photo ? (
+              <Image
+                source={photo}
+                style={{ width: '100%', height: '100%' }}
+                resizeMode="cover"
+              />
+            ) : (
+              // No picture was sent for this item. Nothing is fetched from the
+              // internet, so the tile says so with a plain mark instead.
+              <Ionicons
+                name="restaurant-outline"
+                size={Math.max(18, Math.round(cardWidth * 0.26))}
+                color="rgba(114,86,60,0.35)"
+              />
+            )}
+          </View>
+        ) : null}
         <Text
           style={[cs.itemLabel, { fontSize: labelFs, lineHeight: Math.round(labelFs * 1.3), marginTop: cardPad }]}
           numberOfLines={3}
@@ -629,6 +721,13 @@ export default function ItemSelection() {
   const [cachedItems, setCachedItems]           = useState<Record<string, any>[]>([]);
   const [cachedCategories, setCachedCategories] = useState<Record<string, any>[]>([]);
   const [isCacheHydrated, setIsCacheHydrated]   = useState(false);
+
+  // Photos for every item that has one cached, read once per sync instead of a
+  // storage read per tile. syncVersion changes when a menu sync lands.
+  const [itemPhotos, setItemPhotos] = useState<Record<string, ImageSourcePropType>>({});
+  useEffect(() => {
+    setItemPhotos(readAllItemPhotos());
+  }, [syncVersion]);
 
   // ── Navigation / tab state ───────────────────────────────────────────────
   const [tabsList, setTabsList]               = useState<MainTab[]>([]);
@@ -1391,6 +1490,7 @@ export default function ItemSelection() {
                     price={item.price}
                     itemCode={item.code}
                     syncVersion={syncVersion}
+                    photo={itemPhotos[item.code]}
                     path={item.path}
                     cardWidth={itemCardWidth}
                     quantity={getCartQuantity(item.code)}
@@ -1467,6 +1567,7 @@ export default function ItemSelection() {
                     price={Number(row.SalesPrice) || 0}
                     itemCode={row.itemCode}
                     syncVersion={syncVersion}
+                    photo={itemPhotos[row.itemCode]}
                     cardWidth={itemCardWidth}
                     quantity={getCartQuantity(row.Level)}
                     existingQty={getExistingQty(row.Level)}
